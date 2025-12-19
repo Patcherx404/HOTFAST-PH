@@ -1,0 +1,101 @@
+/* Body */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #fff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+/* Container */
+.container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* Portal box */
+.portal {
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+  padding: 20px;
+}
+
+/* Heading & description */
+.portal h1 {
+  color: #ff1a1a;
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.portal p {
+  color: #555;
+  font-size: 1rem;
+  margin-bottom: 15px;
+}
+
+/* QR code with red glow */
+.qr-container {
+  width: 70%;
+  max-width: 220px;
+  margin: 0 auto 20px;
+  border-radius: 15px;
+  overflow: hidden;
+  border: 4px solid #ff1a1a;
+  box-shadow: 0 0 15px #ff1a1a, 0 0 30px #ff4d4d;
+  animation: glow 2s infinite;
+}
+
+.qr-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Buttons */
+.fb-btn {
+  background: #1877f2;
+  color: #fff;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: bold;
+  width: 80%;
+  max-width: 250px;
+  margin: 10px 0;
+}
+
+.fb-btn:hover {
+  transform: scale(1.05);
+  background: #145dbf;
+  box-shadow: 0 0 15px #1877f2;
+}
+
+/* Note */
+.note {
+  margin-top: 20px;
+  color: #ff1a1a;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+/* Glow animation */
+@keyframes glow {
+  0% { box-shadow: 0 0 20px #ff1a1a, 0 0 40px #ff4d4d; }
+  50% { box-shadow: 0 0 35px #ff1a1a, 0 0 70px #ff4d4d; }
+  100% { box-shadow: 0 0 20px #ff1a1a, 0 0 40px #ff4d4d; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .portal h1 { font-size: 1.6rem; }
+  .portal p { font-size: 0.95rem; }
+  .fb-btn { font-size: 14px; padding: 12px; }
+  .qr-container { width: 80%; max-width: 200px; }
+}

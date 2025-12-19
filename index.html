@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tl">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="utf-8" />
+  <title>Hotfast Payment Portal</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="portal">
+      <h1>HOTFAST PH</h1>
+      <p>Scan the QR code below to pay via GCash</p>
+
+      <!-- QR code with red glowing frame -->
+      <div class="qr-container">
+        <img id="gcash-qr" src="your-image.png" alt="GCash QR Code">
+      </div>
+        <div class="payment-note">
+        GCash: <strong>09122367040</strong>.
+      </div>
+
+      <!-- Facebook auto-redirect button -->
+      <button id="autoFB" class="fb-btn">Redirecting in 30s...</button>
+
+      <div class="payment-note">
+        After payment, send a screenshot of your transaction to our <strong>Facebook page</strong>.
+      </div>
+     
+
+      <!-- Note -->
+      <div class="note">Stable • Fast • Reliable Fiber-Backed Connection</div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    // Facebook redirect timer
+    let timeLeft = 300;
+    const btn = document.getElementById("autoFB");
+    const fbLink = "https://www.facebook.com/AFKllPatcher/";
+
+    const timer = setInterval(() => {
+      timeLeft--;
+      btn.textContent = "Redirecting to Facebook Page " + timeLeft + "s...";
+
+      if (timeLeft <= 0) {
+        clearInterval(timer);
+        window.location.href = fbLink;
+      }
+    }, 1000);
+    
+    
+
+    btn.addEventListener("click", () => {
+      window.location.href = fbLink;
+    });
+    
+    
+
+    // Clicking QR opens GCash link
+    document.getElementById("gcash-qr").addEventListener("click", () => {
+      window.open("https://pay.gcash.com/09122367040", "_blank");
+    });
+  </script>
+  
+   <script src='https://cdn.jotfor.ms/agent/embedjs/0198ad9368aa7b4bbc9e0929d479c194c579/embed.js'>
+</script>  
+</body>
+</html>
