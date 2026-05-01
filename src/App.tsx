@@ -1416,25 +1416,32 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                 <div className="flex flex-col">
                   <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Billing State</span>
                   <div className="flex items-center gap-2">
-                    {profile?.status === 'suspended' || profile?.billStatus === 'overdue' ? (
+                    {profile?.status === 'suspended' ? (
                       <>
-                        <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
+                        <span className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
+                        <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1">
                           <AlertTriangle size={10} /> SERVICE SUSPENDED
+                        </span>
+                      </>
+                    ) : profile?.billStatus === 'overdue' ? (
+                      <>
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
+                          OVERDUE
                         </span>
                       </>
                     ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
                       <>
                         <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
                         <span className="text-[10px] font-black uppercase text-yellow-500 tracking-widest italic">
-                          SETTLEMENT DUE
+                          DUE
                         </span>
                       </>
                     ) : (
                       <>
                         <span className="w-2 h-2 bg-green-500 rounded-full" />
-                        <span className="text-[10px] font-black uppercase text-green-500 tracking-widest italic tracking-wider">
-                          SUBSCRIBER ACTIVE
+                        <span className="text-[10px] font-black uppercase text-green-500 tracking-widest italic">
+                          PAID
                         </span>
                       </>
                     )}
@@ -2139,6 +2146,10 @@ function AdminPanel({
         if (needsSuspension) {
           updates.status = 'suspended';
           updates.billStatus = 'overdue';
+        }
+
+        if (client.status === 'suspended' && client.billStatus === 'paid' && (!client.balance || client.balance <= 0)) {
+          updates.status = 'active';
         }
 
         if (now <= dueDate && client.balance && client.balance > 0 && client.billStatus === 'paid') {
@@ -2908,7 +2919,7 @@ function AdminPanel({
                               }
                               className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest border transition-all ${client.billStatus === status ? (status === "overdue" ? "bg-red-500 border-red-500 text-white" : status === "due" ? "bg-yellow-500 border-yellow-500 text-black" : "bg-green-500 border-green-500 text-white") : "border-border-subtle text-text-muted hover:border-white/30"}`}
                             >
-                              {status}
+                              {status.toUpperCase()}
                             </button>
                           ))}
                         </div>

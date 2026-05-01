@@ -98,7 +98,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 updates.billStatus = 'overdue'; // Force overdue if suspended
               }
 
-              // 3. Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
+              // 3. Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
+              if (data.status === 'suspended' && data.billStatus === 'paid' && (!data.balance || data.balance <= 0)) {
+                updates.status = 'active';
+              }
+
+              // 4. Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
               if (now <= dueDate && data.balance > 0 && data.billStatus === 'paid') {
                 updates.billStatus = 'due';
               }
