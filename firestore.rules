@@ -33,6 +33,7 @@ service cloud.firestore {
                data.accountNumber is string && data.accountNumber.size() <= 32 &&
                data.email is string && data.email.size() <= 256 &&
                data.balance is number &&
+               (!('status' in data) || data.status in ['active', 'suspended']) &&
                data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance', 'billStatus']);
       }
 

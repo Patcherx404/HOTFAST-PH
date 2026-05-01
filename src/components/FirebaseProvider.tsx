@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (snapshot.exists()) {
             setProfile(snapshot.data() as UserProfile);
           } else {
-            // New user initialization
+            // New user initialization - Start as suspended per user request
             const nextMonth = new Date();
             nextMonth.setMonth(nextMonth.getMonth() + 1);
             const newProfile: UserProfile = {
@@ -85,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               balance: 0,
               billStatus: 'paid',
               dueDate: nextMonth,
+              status: 'suspended',
             };
             setDoc(docRef, {
               ...newProfile,
@@ -94,8 +95,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setLoading(false);
         }, (error) => {
-          handleFirestoreError(error, OperationType.GET, path);
           setLoading(false);
+          handleFirestoreError(error, OperationType.GET, path);
         });
       } else {
         setProfile(null);
