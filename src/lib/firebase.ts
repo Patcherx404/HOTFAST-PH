@@ -13,7 +13,19 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
+export const loginWithGoogle = async () => {
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (error: any) {
+    console.error("Login Error:", error);
+    if (error.code === 'auth/unauthorized-domain') {
+      alert("This domain is not authorized in Firebase Console. Please add your Vercel domain to Firebase -> Authentication -> Settings -> Authorized domains.");
+    } else {
+      alert("Login failed: " + error.message);
+    }
+    throw error;
+  }
+};
 export const logout = () => signOut(auth);
 
 // Test Connection
