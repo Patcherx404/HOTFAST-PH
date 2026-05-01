@@ -54,6 +54,7 @@ import {
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
+import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
   loginWithGoogle,
   logout,
@@ -410,7 +411,7 @@ export default function App() {
                                     </div>
                                     <div className="text-[8px] font-mono mt-2 text-text-dim/50 italic">
                                       {n.createdAt?.toDate
-                                        ? n.createdAt.toDate().toLocaleString()
+                                        ? n.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
                                         : "Just now"}
                                     </div>
                                   </div>
@@ -1397,6 +1398,7 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                       <Calendar size={10} className="text-primary" /> 
                       {profile?.dueDate?.toDate 
                         ? profile.dueDate.toDate().toLocaleString('en-PH', { 
+                            timeZone: ASIA_TIMEZONE,
                             month: '2-digit', 
                             day: '2-digit', 
                             year: 'numeric', 
@@ -1528,6 +1530,7 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                         ? p.createdAt
                             .toDate()
                             .toLocaleDateString("en-PH", {
+                              timeZone: ASIA_TIMEZONE,
                               month: "short",
                               day: "2-digit",
                               year: "numeric",
@@ -1605,7 +1608,7 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                     </span>
                     <span className="text-xs font-bold uppercase">
                       {selectedReceipt.createdAt?.toDate
-                        ? selectedReceipt.createdAt.toDate().toLocaleString()
+                        ? selectedReceipt.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
                         : "Processing"}
                     </span>
                   </div>
@@ -2233,6 +2236,17 @@ function AdminPanel({
             
             <div className="h-10 w-px bg-border-subtle hidden sm:block mx-2" />
             
+            <div className="px-4 py-2 bg-bg-surface border border-border-subtle flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">
+                Node ID: <span className="text-primary italic">ASIA-EAST1-PROD</span>
+              </span>
+              <div className="w-px h-3 bg-border-subtle mx-1" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">
+                GMT+8
+              </span>
+            </div>
+
             <button
               onClick={syncAllUsersBilling}
               disabled={isSyncing}
@@ -2323,7 +2337,7 @@ function AdminPanel({
               onClick={() =>
                 setEditingCycle({
                   id: "",
-                  name: `CYCLE ${new Date().toLocaleString("en-US", { month: "long", year: "numeric" }).toUpperCase()}`,
+                  name: `CYCLE ${new Date().toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`,
                   startDate: "",
                   endDate: "",
                   dueDate: "",
@@ -2510,12 +2524,12 @@ function AdminPanel({
                       <td className="px-8 py-6 border-b border-border-subtle">
                         <div className="text-[11px] font-bold uppercase">
                           {p.createdAt?.toDate
-                            ? p.createdAt.toDate().toLocaleDateString()
+                            ? p.createdAt.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
                             : "..."}
                         </div>
                         <div className="text-[9px] text-text-muted font-mono">
                           {p.createdAt?.toDate
-                            ? p.createdAt.toDate().toLocaleTimeString()
+                            ? p.createdAt.toDate().toLocaleTimeString('en-PH', { timeZone: ASIA_TIMEZONE })
                             : ""}
                         </div>
                       </td>
@@ -2692,7 +2706,7 @@ function AdminPanel({
                   <span>Start</span>
                   <span className="text-white">
                     {cycle.startDate?.toDate
-                      ? cycle.startDate.toDate().toLocaleDateString()
+                      ? cycle.startDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
                       : cycle.startDate}
                   </span>
                 </div>
@@ -2700,7 +2714,7 @@ function AdminPanel({
                   <span>End</span>
                   <span className="text-white">
                     {cycle.endDate?.toDate
-                      ? cycle.endDate.toDate().toLocaleDateString()
+                      ? cycle.endDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
                       : cycle.endDate}
                   </span>
                 </div>
@@ -2708,7 +2722,7 @@ function AdminPanel({
                   <span>Payment Deadline</span>
                   <span className="font-bold">
                     {cycle.dueDate?.toDate
-                      ? cycle.dueDate.toDate().toLocaleDateString()
+                      ? cycle.dueDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
                       : cycle.dueDate}
                   </span>
                 </div>
@@ -2752,7 +2766,7 @@ function AdminPanel({
                     <div className="font-black uppercase italic text-xs mb-1">{chat.userName}</div>
                     <div className="text-[10px] text-text-muted truncate">{chat.lastMessage || "No messages yet"}</div>
                     <div className="text-[8px] text-primary mt-2 font-bold uppercase">
-                      {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString() : "..."}
+                      {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE }) : "..."}
                     </div>
                   </button>
                 ))
@@ -2905,6 +2919,7 @@ function AdminPanel({
                               <span className="text-primary italic">
                                 {client.dueDate?.toDate
                                   ? client.dueDate.toDate().toLocaleString('en-PH', {
+                                      timeZone: ASIA_TIMEZONE,
                                       month: '2-digit',
                                       day: '2-digit',
                                       year: 'numeric',
@@ -2913,7 +2928,7 @@ function AdminPanel({
                                       hour12: true
                                     })
                                   : typeof client.dueDate === "string"
-                                    ? new Date(client.dueDate).toLocaleString()
+                                    ? new Date(client.dueDate).toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
                                     : "N/A"}
                               </span>
                             </div>
@@ -3606,6 +3621,7 @@ function ScheduleModal({
                     <div className="text-[10px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format (12HR)</div>
                     <div className="text-sm font-mono font-bold text-white uppercase italic">
                       {new Date(tempDueDate).toLocaleString('en-US', {
+                        timeZone: ASIA_TIMEZONE,
                         month: 'short',
                         day: '2-digit',
                         year: 'numeric',

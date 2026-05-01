@@ -8,6 +8,7 @@ import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, updateDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
+import { ASIA_TIMEZONE } from '../lib/dateUtils';
 
 interface AuthContextType {
   user: User | null;
@@ -79,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             
             if (dueDate) {
               const updates: any = {};
+              // Calculate grace period in Asia/Manila context (2 days)
               const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
               
               // 1. Check for OVERDUE status (immediate past due date)
@@ -87,7 +89,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
 
               // 2. Check for SUSPENSION (grace period exceeded)
-              // We suspend if balance is > 0 OR if billStatus is overdue/due and grace period passed
               const needsSuspension = now > suspendThreshold && 
                                      data.status !== 'suspended' && 
                                      (data.billStatus === 'overdue' || data.billStatus === 'due' || (data.balance && data.balance > 0));
