@@ -66,7 +66,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const path = `users/${user.uid}`;
         const docRef = doc(db, path);
         
-        await checkAdmin(user);
+        // Don't await checkAdmin here to prevent blocking profile listener/loading state
+        checkAdmin(user);
 
         unsubscribeProfile = onSnapshot(docRef, (snapshot) => {
           if (snapshot.exists()) {
@@ -89,13 +90,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setDoc(docRef, {
               ...newProfile,
               createdAt: serverTimestamp(),
-            });
+            }).catch(e => console.error("Error creating profile:", e));
             setProfile(newProfile);
           }
           setLoading(false);
         }, (error) => {
-          handleFirestoreError(error, OperationType.GET, path);
+          console.error("Profile onSnapshot error:", error);
           setLoading(false);
+          // Only show error if it's not a permission issue during initial setup
+          if (!(error as any).code?.includes('permission-denied')) {
+            handleFirestoreError(error, OperationType.GET, path);
+          }
         });
       } else {
         setProfile(null);

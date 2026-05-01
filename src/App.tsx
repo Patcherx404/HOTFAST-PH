@@ -128,25 +128,39 @@ export default function App() {
 
   // Sync plans with Firestore
   useEffect(() => {
-    const q = query(collection(db, "plans"), orderBy("price", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (snapshot.empty) {
-        // Initialize plans if collection is empty
-        INTERNET_PLANS.forEach(async (plan) => {
-          await setDoc(doc(db, "plans", plan.id), {
-            ...plan,
-            updatedAt: serverTimestamp(),
+    const fetchPlans = async () => {
+      try {
+        const q = query(collection(db, "plans"), orderBy("price", "asc"));
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.empty) {
+          // Initialize plans if collection is empty
+          const batchPromise = INTERNET_PLANS.map(async (plan) => {
+            try {
+              await setDoc(doc(db, "plans", plan.id), {
+                ...plan,
+                updatedAt: serverTimestamp(),
+              });
+            } catch (e) {
+              // Silent fail for non-admins
+            }
           });
-        });
-      } else {
-        const p = snapshot.docs.map(
-          (doc) => ({ ...doc.data() }) as InternetPlan,
-        );
-        setPlans(p);
+          await Promise.all(batchPromise);
+          setPlans(INTERNET_PLANS);
+        } else {
+          const p = snapshot.docs.map(
+            (doc) => ({ ...doc.data() }) as InternetPlan,
+          );
+          setPlans(p);
+        }
+      } catch (error) {
+        console.error("Plans Fetch Error:", error);
+        // Fallback to constants if DB read fails (e.g. quota exceeded)
+        setPlans(INTERNET_PLANS);
       }
-    });
+    };
 
-    return unsubscribe;
+    fetchPlans();
   }, []);
 
   // Sync notifications
@@ -166,6 +180,8 @@ export default function App() {
         (doc) => ({ id: doc.id, ...doc.data() }) as SystemNotification,
       );
       setNotifications(n);
+    }, (error) => {
+      console.error("Notifications Sync Error:", error);
     });
 
     return unsubscribe;
@@ -185,6 +201,8 @@ export default function App() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setHasPendingPayment(!snapshot.empty);
+    }, (error) => {
+      console.error("Payment Status Sync Error:", error);
     });
 
     return unsubscribe;
@@ -1345,6 +1363,27 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                 <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1" />
 
                 <div className="flex flex-col">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Next Settlement</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2 italic">
+                      <Calendar size={10} className="text-primary" /> 
+                      {profile?.dueDate?.toDate 
+                        ? profile.dueDate.toDate().toLocaleString('en-PH', { 
+                            month: '2-digit', 
+                            day: '2-digit', 
+                            year: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit', 
+                            hour12: true 
+                          }) 
+                        : "N/A"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1" />
+
+                <div className="flex flex-col">
                   <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Billing State</span>
                   <div className="flex items-center gap-2">
                     {profile?.billStatus === 'overdue' ? (
@@ -1986,6 +2025,20 @@ function AdminPanel({
       setPlanToDelete(null);
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, `plans/${planToDelete}`);
+    }
+  };
+
+  const updateClientDueDate = async (userId: string, dateStr: string) => {
+    try {
+      const newDate = new Date(dateStr);
+      if (isNaN(newDate.getTime())) {
+        alert("Invalid date format. Use YYYY-MM-DD HH:MM");
+        return;
+      }
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { dueDate: newDate });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
@@ -2720,18 +2773,44 @@ function AdminPanel({
                             </button>
                           ))}
                         </div>
-                        {client.dueDate && (
-                          <div className="text-[9px] font-bold uppercase tracking-tighter text-text-muted">
-                            {client.billStatus === "paid" ? "Next Due: " : "Deadline: "}
-                            <span className="text-primary italic">
-                              {client.dueDate?.toDate
-                                ? client.dueDate.toDate().toLocaleDateString()
-                                : typeof client.dueDate === "string"
-                                  ? new Date(client.dueDate).toLocaleDateString()
-                                  : "N/A"}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex flex-col items-center">
+                          {client.dueDate && (
+                            <div className="text-[9px] font-bold uppercase tracking-tighter text-text-muted flex items-center gap-1">
+                              {client.billStatus === "paid" ? "Next Due: " : "Deadline: "}
+                              <span className="text-primary italic">
+                                {client.dueDate?.toDate
+                                  ? client.dueDate.toDate().toLocaleString('en-PH', {
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })
+                                  : typeof client.dueDate === "string"
+                                    ? new Date(client.dueDate).toLocaleString()
+                                    : "N/A"}
+                              </span>
+                            </div>
+                          )}
+                          <button
+                            onClick={() => {
+                              const current = client.dueDate?.toDate 
+                                ? client.dueDate.toDate().toISOString().slice(0, 16).replace('T', ' ')
+                                : "";
+                              const newDate = prompt(
+                                `Set Next Due Date for ${client.displayName} (Format: YYYY-MM-DD HH:MM):`,
+                                current || "2026-06-01 12:00"
+                              );
+                              if (newDate) {
+                                updateClientDueDate(client.uid, newDate);
+                              }
+                            }}
+                            className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1"
+                          >
+                            Edit Schedule
+                          </button>
+                        </div>
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
