@@ -26,6 +26,7 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
+  Users as UsersIcon,
   Download,
   CheckCircle2,
   Loader2,
@@ -724,8 +725,17 @@ function HeroSection({ onExplore, onGoToPortal, currentPlanName, hasPendingPayme
       });
     };
 
-    const latencyInterval = setInterval(checkLatency, 3000);
-    const metricsInterval = setInterval(updateMetrics, 2000);
+    const latencyInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkLatency();
+      }
+    }, 5000);
+    
+    const metricsInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        updateMetrics();
+      }
+    }, 4000);
     
     checkLatency();
     updateMetrics();
@@ -2133,7 +2143,7 @@ function AdminPanel({
               {[
                 { id: "payments", label: "Settlements", icon: CreditCard },
                 { id: "plans", label: "Infrastructure", icon: Zap },
-                { id: "clients", label: "Subscribers", icon: Users },
+                { id: "clients", label: "Subscribers", icon: UsersIcon },
                 { id: "cycles", label: "Cycles", icon: Calendar },
                 { id: "chats", label: "Support", icon: MessageSquare },
               ].map((tab) => (
@@ -3513,6 +3523,21 @@ function ScheduleModal({
                     <Calendar size={18} />
                   </div>
                 </div>
+                {tempDueDate && (
+                  <div className="mt-3 p-3 bg-primary/5 border border-primary/20">
+                    <div className="text-[10px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format (12HR)</div>
+                    <div className="text-sm font-mono font-bold text-white uppercase italic">
+                      {new Date(tempDueDate).toLocaleString('en-US', {
+                        month: 'short',
+                        day: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </div>
+                  </div>
+                )}
                 <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed mt-2 italic">
                   Note: Values before current node time [NOW] will trigger automatic circuit suspension.
                 </p>
