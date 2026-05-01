@@ -584,7 +584,7 @@ export default function App() {
             {activeTab === "portal" && (
             <CustomerPortal
               plans={plans}
-              onPay={() => setActiveTab("payment")}
+              onPay={() => setActiveTab("plans")}
             />
           )}
             {activeTab === "admin" && adminAuth && (
