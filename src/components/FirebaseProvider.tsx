@@ -125,8 +125,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email: user.email || '',
               address: '',
               currentPlanId: 'starter',
-              balance: 0,
-              billStatus: 'paid',
+              balance: 999,
+              billStatus: 'due',
+              status: 'suspended',
               dueDate: nextMonth,
             };
             setDoc(docRef, {
