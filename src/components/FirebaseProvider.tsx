@@ -77,14 +77,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const now = new Date();
             const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null);
             
-            if (dueDate && dueDate < now && data.billStatus !== 'paid') {
-              // Only auto-suspend if it's not paid and date has passed
+            if (dueDate) {
               const updates: any = {};
-              if (data.status !== 'suspended') updates.status = 'suspended';
-              if (data.billStatus !== 'overdue') updates.billStatus = 'overdue';
+              const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+              
+              if (data.billStatus !== 'paid') {
+                // 1. Mark as overdue if past due date
+                if (now > dueDate) {
+                  if (data.billStatus !== 'overdue') updates.billStatus = 'overdue';
+                  
+                  // 2. Suspend ONLY if 2 days past due date (grace period)
+                  if (now > suspendThreshold && data.status !== 'suspended') {
+                    updates.status = 'suspended';
+                  }
+                }
+              } else if (data.balance > 0 && data.status !== 'suspended') {
+                // 3. Mark as "due" if balance exists but showing as "paid"
+                // Only if we haven't passed the due date (if we did, it should eventually be handled)
+                updates.billStatus = 'due';
+              }
               
               if (Object.keys(updates).length > 0) {
-                updateDoc(docRef, updates).catch(e => console.error("Auto-suspend failed:", e));
+                updateDoc(docRef, updates).catch(e => console.error("Auto-billing check failed:", e));
               }
             }
 

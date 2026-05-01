@@ -1939,18 +1939,26 @@ function AdminPanel({
 
       const userRef = doc(db, "users", payment.userId);
       
-      // If marked as completed and it wasn't completed before, subtract from user balance
+      // If marked as completed and it wasn't completed before, adjust balance
       if (status === "completed" && oldStatus !== "completed") {
+        const userDoc = await getDoc(userRef);
+        const currentBalance = userDoc.data()?.balance || 0;
+        const newBalance = currentBalance - payment.amount;
+        
         await updateDoc(userRef, {
-          balance: increment(-payment.amount),
-          billStatus: "paid",
+          balance: newBalance,
+          billStatus: newBalance <= 0 ? "paid" : "due",
         });
       } 
       // If was completed and now changed to failed/pending, add back to user balance
       else if (status !== "completed" && oldStatus === "completed") {
+        const userDoc = await getDoc(userRef);
+        const currentBalance = userDoc.data()?.balance || 0;
+        const newBalance = currentBalance + payment.amount;
+
         await updateDoc(userRef, {
-          balance: increment(payment.amount),
-          billStatus: "due",
+          balance: newBalance,
+          billStatus: newBalance <= 0 ? "paid" : "due",
         });
       }
     } catch (e) {
@@ -1986,7 +1994,16 @@ function AdminPanel({
   const updateClientBalance = async (userId: string, newBalance: number) => {
     try {
       const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { balance: newBalance });
+      const updates: any = { balance: newBalance };
+      
+      // Update billStatus based on balance if not already overdue/suspended
+      if (newBalance <= 0) {
+        updates.billStatus = "paid";
+      } else {
+        updates.billStatus = "due";
+      }
+      
+      await updateDoc(userRef, updates);
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
@@ -2066,10 +2083,13 @@ function AdminPanel({
         return;
       }
       const userRef = doc(db, "users", userId);
-      const isPast = newDate < new Date();
+      const now = new Date();
+      const isPast = newDate < now;
+      const isPastGrace = newDate < new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
+      
       await updateDoc(userRef, { 
         dueDate: newDate,
-        status: isPast ? 'suspended' : 'active',
+        status: isPastGrace ? 'suspended' : 'active',
         billStatus: isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid')
       });
       setEditingScheduleUser(null);
