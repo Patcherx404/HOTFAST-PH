@@ -1743,6 +1743,7 @@ function AdminPanel({
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
   const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
   const [tempDueDate, setTempDueDate] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
   const [notifForm, setNotifForm] = useState({
     title: "",
     message: "",
@@ -2108,6 +2109,53 @@ function AdminPanel({
     }
   };
 
+  const syncAllUsersBilling = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    let updatedCount = 0;
+    try {
+      const now = new Date();
+      for (const client of clients) {
+        if (!client.uid) continue;
+        
+        const dueDate = client.dueDate?.toDate ? client.dueDate.toDate() : (client.dueDate ? new Date(client.dueDate) : null);
+        if (!dueDate) continue;
+
+        const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+        const updates: any = {};
+
+        // Replicate logic from FirebaseProvider for consistency
+        if (now > dueDate && client.billStatus !== 'overdue' && client.billStatus !== 'paid') {
+          updates.billStatus = 'overdue';
+        }
+
+        const needsSuspension = now > suspendThreshold && 
+                               client.status !== 'suspended' && 
+                               (client.billStatus === 'overdue' || client.billStatus === 'due' || (client.balance && client.balance > 0));
+        
+        if (needsSuspension) {
+          updates.status = 'suspended';
+          updates.billStatus = 'overdue';
+        }
+
+        if (now <= dueDate && client.balance && client.balance > 0 && client.billStatus === 'paid') {
+          updates.billStatus = 'due';
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(doc(db, "users", client.uid), updates);
+          updatedCount++;
+        }
+      }
+      alert(`Synchronization complete! ${updatedCount} profiles were reconciled with current billing rules.`);
+    } catch (e) {
+      console.error("Sync Error:", e);
+      alert("An error occurred during global synchronization. Check console.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifyingUser) return;
@@ -2184,6 +2232,15 @@ function AdminPanel({
             </div>
             
             <div className="h-10 w-px bg-border-subtle hidden sm:block mx-2" />
+            
+            <button
+              onClick={syncAllUsersBilling}
+              disabled={isSyncing}
+              className="px-6 py-3 bg-primary/10 border border-primary/20 text-primary hover:bg-primary hover:text-white flex items-center justify-center gap-2 transition-all uppercase text-[10px] font-black italic shadow-lg shadow-primary/5 group disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isSyncing ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"} />
+              {isSyncing ? "Syncing..." : "Sync Billing"}
+            </button>
             
             <button
               onClick={onLogout}

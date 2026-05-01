@@ -81,19 +81,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const updates: any = {};
               const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
               
-              if (data.billStatus !== 'paid') {
-                // 1. Mark as overdue if past due date
-                if (now > dueDate) {
-                  if (data.billStatus !== 'overdue') updates.billStatus = 'overdue';
-                  
-                  // 2. Suspend ONLY if 2 days past due date (grace period)
-                  if (now > suspendThreshold && data.status !== 'suspended') {
-                    updates.status = 'suspended';
-                  }
-                }
-              } else if (data.balance > 0 && data.status !== 'suspended') {
-                // 3. Mark as "due" if balance exists but showing as "paid"
-                // Only if we haven't passed the due date (if we did, it should eventually be handled)
+              // 1. Check for OVERDUE status (immediate past due date)
+              if (now > dueDate && data.billStatus !== 'overdue' && data.billStatus !== 'paid') {
+                updates.billStatus = 'overdue';
+              }
+
+              // 2. Check for SUSPENSION (grace period exceeded)
+              // We suspend if balance is > 0 OR if billStatus is overdue/due and grace period passed
+              const needsSuspension = now > suspendThreshold && 
+                                     data.status !== 'suspended' && 
+                                     (data.billStatus === 'overdue' || data.billStatus === 'due' || (data.balance && data.balance > 0));
+              
+              if (needsSuspension) {
+                updates.status = 'suspended';
+                updates.billStatus = 'overdue'; // Force overdue if suspended
+              }
+
+              // 3. Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
+              if (now <= dueDate && data.balance > 0 && data.billStatus === 'paid') {
                 updates.billStatus = 'due';
               }
               
