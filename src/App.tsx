@@ -581,7 +581,12 @@ export default function App() {
                 onSuccess={() => setActiveTab("portal")}
               />
             )}
-            {activeTab === "portal" && <CustomerPortal plans={plans} />}
+            {activeTab === "portal" && (
+            <CustomerPortal
+              plans={plans}
+              onPay={() => setActiveTab("payment")}
+            />
+          )}
             {activeTab === "admin" && adminAuth && (
               <AdminPanel
                 plans={plans}
@@ -1313,7 +1318,7 @@ function PaymentSection({
   );
 }
 
-function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
+function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => void }) {
   const { user, profile } = useAuth();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
@@ -1465,30 +1470,52 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
           </div>
         </div>
 
-        <div className="md:col-span-4 bg-primary p-8 md:p-12 text-white flex flex-col justify-between">
-          <div>
+        <div className="md:col-span-4 bg-primary p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative">
+          <div className="absolute top-0 right-0 p-8 opacity-10 -mr-4 -mt-4 group-hover:scale-110 transition-transform">
+            <CreditCard size={120} />
+          </div>
+          
+          <div className="relative z-10">
             <div className="text-[10px] font-black uppercase text-white/60 tracking-[0.4em] mb-4">
-              Total Outstanding
+              Billing Center
             </div>
-            <div className="text-5xl md:text-6xl font-mono font-bold italic tracking-tighter">
-              ₱ {(profile?.balance ?? 0).toLocaleString()}
+            <div className="text-4xl md:text-5xl font-mono font-bold italic tracking-tighter uppercase whitespace-pre-wrap leading-none">
+              {profile?.billStatus === 'overdue' 
+                ? 'OVERDUE' 
+                : profile?.billStatus === 'due' 
+                  ? 'DUE' 
+                  : 'ACTIVE'}
             </div>
+            
+            {profile?.billStatus !== 'paid' ? (
+              <button
+                onClick={onPay}
+                className="mt-8 flex items-center gap-3 px-8 py-4 bg-white text-primary font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn"
+              >
+                SECURE SETTLEMENT <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
+              </button>
+            ) : (
+              <div className="mt-8 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest italic px-4 py-2 border border-white/30 bg-white/10 w-fit">
+                <CheckCircle2 size={12} /> Cycle Synchronized
+              </div>
+            )}
+            
             {totalPending > 0 && (
-              <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
-                <Loader2 size={12} className="animate-spin" /> ₱{" "}
-                {totalPending.toLocaleString()} Pending Verification
+              <div className="mt-6 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
+                <Loader2 size={12} className="animate-spin" /> Verification Pending
               </div>
             )}
           </div>
-          <div className="mt-8 flex justify-between items-center border-t border-white/20 pt-6">
+
+          <div className="mt-12 flex justify-between items-center border-t border-white/20 pt-6 relative z-10">
             <div className="text-[10px] font-black uppercase tracking-widest italic">
               {profile?.billStatus === 'overdue' 
-                ? 'Action Required: Restricted Access' 
+                ? 'Action Required' 
                 : profile?.billStatus === 'due' 
-                  ? 'Invoice Pending Settlement' 
-                  : 'Billing Cycle Synchronized'}
+                  ? 'Invoice Pending' 
+                  : 'System Online'}
             </div>
-            <ArrowRight size={16} />
+            <Zap size={16} />
           </div>
         </div>
       </div>
@@ -1785,7 +1812,6 @@ function AdminPanel({
   });
 
   const totalRevenue = payments.filter(p => p.status === "completed").reduce((acc, p) => acc + (p.amount || 0), 0);
-  const totalReceivables = clients.reduce((acc, c) => acc + (c.balance || 0), 0);
   const activeSubs = clients.filter(c => c.status !== "suspended").length;
   const suspendedSubs = clients.filter(c => c.status === "suspended").length;
   const [notifForm, setNotifForm] = useState({
@@ -2036,24 +2062,6 @@ function AdminPanel({
     }
   };
 
-  const updateClientBalance = async (userId: string, newBalance: number) => {
-    try {
-      const userRef = doc(db, "users", userId);
-      const updates: any = { balance: newBalance };
-      
-      // Update billStatus based on balance if not already overdue/suspended
-      if (newBalance <= 0) {
-        updates.billStatus = "paid";
-      } else {
-        updates.billStatus = "due";
-      }
-      
-      await updateDoc(userRef, updates);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
-    }
-  };
-
   const deleteSubscriber = (client: UserProfile) => {
     setClientToDelete(client);
   };
@@ -2297,7 +2305,7 @@ function AdminPanel({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[
             { label: "Aggregate Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
-            { label: "Receivables", value: `₱ ${totalReceivables.toLocaleString()}`, icon: Receipt, color: "text-amber-500" },
+            { label: "Accounts Due", value: clients.filter(c => c.billStatus === 'due' || c.billStatus === 'overdue').length, icon: Receipt, color: "text-amber-500" },
             { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
             { label: "Offline Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-600" },
           ].map((metric, i) => (
@@ -2905,9 +2913,6 @@ function AdminPanel({
                   <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
                     Account ID
                   </th>
-                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                    Current Balance
-                  </th>
                   <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-center">
                     Billing State
                   </th>
@@ -2941,28 +2946,6 @@ function AdminPanel({
                       </div>
                       <div className="text-[8px] text-text-dim/50 font-mono italic">
                         UID: {client.uid.substring(0, 16)}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="text-sm font-mono font-bold italic text-white flex items-center gap-2">
-                        ₱ {(client.balance ?? 0).toLocaleString()}
-                        <button
-                          onClick={() => {
-                            const newBalance = prompt(
-                              `Adjust balance for ${client.displayName}:`,
-                              client.balance.toString(),
-                            );
-                            if (newBalance !== null) {
-                              updateClientBalance(
-                                client.uid,
-                                parseFloat(newBalance),
-                              );
-                            }
-                          }}
-                          className="p-1 hover:text-primary transition-colors"
-                        >
-                          <Edit3 size={12} />
-                        </button>
                       </div>
                     </td>
                     <td className="px-8 py-6">
