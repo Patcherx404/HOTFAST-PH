@@ -284,48 +284,28 @@ export default function App() {
     );
   }
 
-  // Handle Suspended Users
-  if (user && profile?.status === "suspended") {
-    return (
-      <div className="min-h-screen bg-bg-base flex flex-col items-center justify-center p-6 text-center select-none overflow-hidden font-sans">
-        <div className="absolute inset-0 z-0 opacity-10">
-          <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,#dc2626_0%,transparent_70%)]" />
-        </div>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative z-10 sharp-card p-12 bg-bg-base border-2 border-red-500/50 max-w-xl w-full shadow-2xl shadow-red-500/10"
-        >
-          <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center mb-8 mx-auto ring-4 ring-red-500/20">
-            <AlertTriangle className="text-red-500" size={48} />
-          </div>
-          <h1 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter mb-4 text-white">
-            Access <span className="text-red-500 underline underline-offset-8 decoration-4">Restricted</span>
-          </h1>
-          <p className="text-text-muted font-bold text-[10px] uppercase tracking-[0.3em] leading-relaxed mb-10 max-w-sm mx-auto">
-            System identity [#{profile?.accountNumber}] has been de-registered or restricted 
-            due to non-compliance or pending verification. 
-            Contact support to restore network privileges.
-          </p>
-          <button
-            onClick={() => {
-              logout();
-              setActiveTab("home");
-            }}
-            className="w-full py-5 bg-primary hover:bg-primary-dark text-white font-black uppercase text-[10px] tracking-[0.4em] italic transition-all shadow-2xl shadow-primary/20 flex items-center justify-center gap-4 group"
-          >
-            <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" /> 
-            Purge Session & Return Home
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-bg-base text-slate-100 selection:bg-primary selection:text-white font-sans">
+      {/* Suspension Banner */}
+      {user && profile?.status === "suspended" && !isAdmin && (
+        <div className="fixed top-0 left-0 w-full z-[100] bg-red-600 border-b border-red-500 py-2 px-4 flex items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
+          <div className="flex items-center gap-2 text-white">
+            <AlertTriangle size={14} className="animate-pulse" />
+            <span className="text-[10px] font-black uppercase tracking-widest italic">
+              System Connectivity Suspended: Account Verification or Settlement Required
+            </span>
+          </div>
+          <button 
+            onClick={() => setActiveTab('portal')}
+            className="px-4 py-1 bg-white text-red-600 text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all rounded shadow-lg"
+          >
+            Pay Now / Restore Access
+          </button>
+        </div>
+      )}
+
       {/* Navigation */}
-      <nav className="fixed top-0 w-full z-50 bg-bg-base/90 backdrop-blur-md border-b border-border-subtle">
+      <nav className={`fixed top-0 w-full z-50 bg-bg-base/90 backdrop-blur-md border-b border-border-subtle ${user && profile?.status === "suspended" && !isAdmin ? "mt-10" : ""}`}>
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
           <div
             className="flex items-center gap-2 md:gap-3 cursor-pointer group"
@@ -2149,37 +2129,27 @@ function AdminPanel({
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-2 border border-border-subtle">
-            <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
-              <button
-                onClick={() => setAdminTab("payments")}
-                className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${adminTab === "payments" ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
-              >
-                Settlements
-              </button>
-              <button
-                  onClick={() => setAdminTab('plans')}
-                  className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${adminTab === 'plans' ? 'bg-primary text-white italic' : 'text-text-muted hover:text-white'}`}
+            <div className="flex overflow-x-auto gap-2 no-scrollbar scroll-smooth">
+              {[
+                { id: "payments", label: "Settlements", icon: CreditCard },
+                { id: "plans", label: "Infrastructure", icon: Zap },
+                { id: "clients", label: "Subscribers", icon: Users },
+                { id: "cycles", label: "Cycles", icon: Calendar },
+                { id: "chats", label: "Support", icon: MessageSquare },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setAdminTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-b-2 ${
+                    adminTab === tab.id 
+                    ? "bg-primary/5 border-primary text-primary italic" 
+                    : "border-transparent text-text-muted hover:text-white hover:bg-white/5"
+                  }`}
                 >
-                  Infrastructure
+                  <tab.icon size={14} className={adminTab === tab.id ? "text-primary" : "text-text-dim"} />
+                  {tab.label}
                 </button>
-              <button
-                onClick={() => setAdminTab("clients")}
-                className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${adminTab === "clients" ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
-              >
-                Subscribers
-              </button>
-              <button
-                onClick={() => setAdminTab("cycles")}
-                className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${adminTab === "cycles" ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
-              >
-                Cycles
-              </button>
-              <button
-                onClick={() => setAdminTab("chats")}
-                className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${adminTab === "chats" ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
-              >
-                Support
-              </button>
+              ))}
             </div>
             
             <div className="h-10 w-px bg-border-subtle hidden sm:block mx-2" />
@@ -2343,7 +2313,7 @@ function AdminPanel({
         )}
       </AnimatePresence>
 
-      {(!user || !firebaseIsAdmin) && (
+      {!firebaseIsAdmin && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -2353,12 +2323,12 @@ function AdminPanel({
             <Lock className="text-primary" size={32} />
           </div>
           <h3 className="text-lg font-black uppercase italic tracking-tight">
-            Database Access Restricted
+            Elevated Access <span className="text-primary not-italic">Identity Required</span>
           </h3>
           <p className="max-w-md mx-auto text-[11px] text-text-muted font-bold uppercase tracking-widest leading-relaxed">
             You have authenticated with the system key, but your current Google
-            identity is not recognized as a Database Admin. Please sign in with
-            Google using an authorized account to access private records.
+            identity [#{user?.email}] is not recognized as a Database Admin in our records. 
+            Real-time data synchronization may be restricted until your identity is verified.
           </p>
           {!user && (
             <button
