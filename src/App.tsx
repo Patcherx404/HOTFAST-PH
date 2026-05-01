@@ -1414,14 +1414,14 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                 <div className="flex flex-col">
                   <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Billing State</span>
                   <div className="flex items-center gap-2">
-                    {profile?.billStatus === 'overdue' ? (
+                    {profile?.status === 'suspended' || profile?.billStatus === 'overdue' ? (
                       <>
                         <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
                         <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
                           <AlertTriangle size={10} /> SERVICE SUSPENDED
                         </span>
                       </>
-                    ) : profile?.billStatus === 'due' ? (
+                    ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
                       <>
                         <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
                         <span className="text-[10px] font-black uppercase text-yellow-500 tracking-widest italic">
@@ -2069,7 +2069,8 @@ function AdminPanel({
       const isPast = newDate < new Date();
       await updateDoc(userRef, { 
         dueDate: newDate,
-        status: isPast ? 'suspended' : 'active'
+        status: isPast ? 'suspended' : 'active',
+        billStatus: isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid')
       });
       setEditingScheduleUser(null);
     } catch (e) {

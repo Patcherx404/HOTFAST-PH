@@ -77,9 +77,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const now = new Date();
             const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null);
             
-            if (dueDate && dueDate < now && data.status !== 'suspended' && data.billStatus !== 'paid') {
+            if (dueDate && dueDate < now && data.billStatus !== 'paid') {
               // Only auto-suspend if it's not paid and date has passed
-              updateDoc(docRef, { status: 'suspended' }).catch(e => console.error("Auto-suspend failed:", e));
+              const updates: any = {};
+              if (data.status !== 'suspended') updates.status = 'suspended';
+              if (data.billStatus !== 'overdue') updates.billStatus = 'overdue';
+              
+              if (Object.keys(updates).length > 0) {
+                updateDoc(docRef, updates).catch(e => console.error("Auto-suspend failed:", e));
+              }
             }
 
             setProfile(data);
