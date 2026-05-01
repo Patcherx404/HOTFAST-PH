@@ -22,6 +22,7 @@ import {
   Menu,
   X,
   Activity,
+  TrendingUp,
   History,
   LogIn,
   LogOut,
@@ -48,12 +49,14 @@ import {
   UserMinus,
   Eye,
   Copy,
+  Search,
   MessageSquare,
   Send,
 } from "lucide-react";
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
+import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
   loginWithGoogle,
@@ -99,6 +102,8 @@ export default function App() {
   const [adminAuth, setAdminAuth] = useState(false);
   const [adminUsername, setAdminUsername] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
   const [adminError, setAdminError] = useState("");
   const [plans, setPlans] = useState<InternetPlan[]>(INTERNET_PLANS);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
@@ -591,7 +596,7 @@ export default function App() {
       </main>
 
       <ChatWidget />
-
+      <Toaster position="top-center" richColors />
       <Footer setShowAdminLogin={setShowAdminLogin} />
 
       <AnimatePresence>
@@ -1020,12 +1025,12 @@ function PaymentSection({
 
   const handlePayment = async () => {
     if (!user) {
-      alert("Please login first.");
+      toast.error("Please login first.");
       return;
     }
     if (!amount || parseFloat(amount) <= 0) return;
     if (!file) {
-      alert("Please upload your payment screenshot for verification.");
+      toast.error("Please upload your payment screenshot for verification.");
       return;
     }
 
@@ -1137,7 +1142,7 @@ function PaymentSection({
                 <button 
                   onClick={() => {
                     navigator.clipboard.writeText("09122367040");
-                    alert("Routing Number Copied: 09122367040");
+                    toast.info("Routing Number Copied: 09122367040");
                   }}
                   className="group relative inline-block"
                   title="Click to copy number"
@@ -1159,7 +1164,7 @@ function PaymentSection({
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText("09122367040");
-                    alert("Account Number 09122367040 Copied! You can now paste it in your GCash app.");
+                    toast.info("Account Number Copied! You can now paste it in your GCash app.");
                   }}
                   className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-white text-[11px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_20px_rgba(220,38,38,0.3)] group cursor-pointer"
                 >
@@ -1317,6 +1322,9 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
 
   const currentPlan = plans.find((p) => p.id === profile?.currentPlanId);
 
+  const dueDate = profile?.dueDate?.toDate ? profile.dueDate.toDate() : null;
+  const daysRemaining = dueDate ? Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
+
   useEffect(() => {
     if (!user) return;
     const q = query(
@@ -1408,6 +1416,11 @@ function CustomerPortal({ plans }: { plans: InternetPlan[] }) {
                           }) 
                         : "N/A"}
                     </span>
+                    {daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0 && profile?.billStatus !== 'paid' && (
+                      <span className="text-[7px] font-black bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm animate-pulse tracking-tighter">
+                        -{daysRemaining}D
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1754,6 +1767,27 @@ function AdminPanel({
   const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
   const [tempDueDate, setTempDueDate] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+
+  const filteredClients = clients.filter(client => {
+    const matchesSearch = 
+      (client.displayName || "").toLowerCase().includes(clientSearch.toLowerCase()) || 
+      (client.accountNumber || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.email || "").toLowerCase().includes(clientSearch.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    if (clientFilter === "all") return true;
+    if (clientFilter === "active") return client.status !== "suspended";
+    if (clientFilter === "suspended") return client.status === "suspended";
+    if (clientFilter === "overdue") return client.billStatus === "overdue";
+    return true;
+  });
+
+  const totalRevenue = payments.filter(p => p.status === "completed").reduce((acc, p) => acc + (p.amount || 0), 0);
+  const totalReceivables = clients.reduce((acc, c) => acc + (c.balance || 0), 0);
+  const activeSubs = clients.filter(c => c.status !== "suspended").length;
+  const suspendedSubs = clients.filter(c => c.status === "suspended").length;
   const [notifForm, setNotifForm] = useState({
     title: "",
     message: "",
@@ -2090,7 +2124,7 @@ function AdminPanel({
     try {
       const newDate = new Date(dateStr);
       if (isNaN(newDate.getTime())) {
-        alert("Invalid date format. Please use the calendar picker.");
+        toast.error("Invalid date format. Please use the calendar picker.");
         return;
       }
       const userRef = doc(db, "users", userId);
@@ -2161,10 +2195,10 @@ function AdminPanel({
           updatedCount++;
         }
       }
-      alert(`Synchronization complete! ${updatedCount} profiles were reconciled with current billing rules.`);
+      toast.success(`Synchronization complete! ${updatedCount} profiles were reconciled.`);
     } catch (e) {
       console.error("Sync Error:", e);
-      alert("An error occurred during global synchronization. Check console.");
+      toast.error("An error occurred during global synchronization.");
     } finally {
       setIsSyncing(false);
     }
@@ -2219,6 +2253,29 @@ function AdminPanel({
               <br />
               <span className="text-primary not-italic">OVERRIDE</span>
             </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+            {[
+              { label: "Total Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
+              { label: "Account Receivables", value: `₱ ${totalReceivables.toLocaleString()}`, icon: Receipt, color: "text-amber-500" },
+              { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
+              { label: "Offline Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-500" },
+            ].map((metric, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="bg-bg-surface border border-border-subtle p-6 relative overflow-hidden group"
+              >
+                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                  <metric.icon size={48} />
+                </div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-text-muted mb-2">{metric.label}</div>
+                <div className={`text-2xl font-black italic tracking-tighter ${metric.color}`}>{metric.value}</div>
+              </motion.div>
+            ))}
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-2 border border-border-subtle">
@@ -2837,7 +2894,37 @@ function AdminPanel({
           </div>
         </div>
       ) : (
-        <div className="sharp-card bg-bg-base overflow-hidden">
+        <>
+          <div className="flex flex-col gap-6 mb-8">
+            <div className="flex flex-col md:flex-row gap-4 items-center">
+              <div className="relative flex-1 group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
+                <input
+                  type="text"
+                  placeholder="Search by name, email or account number..."
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="w-full bg-bg-surface border border-border-subtle pl-12 pr-4 py-4 text-xs text-white focus:outline-none focus:border-primary transition-all italic placeholder:text-text-dim/50"
+                />
+              </div>
+              <div className="flex gap-2 p-1 bg-bg-surface border border-border-subtle">
+                {(["all", "active", "suspended", "overdue"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setClientFilter(f)}
+                    className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest italic pl-1">
+              Displaying {filteredClients.length} of {clients.length} Subscribers
+            </p>
+          </div>
+          
+          <div className="sharp-card bg-bg-base overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -2860,7 +2947,7 @@ function AdminPanel({
                 </tr>
               </thead>
               <tbody>
-                {clients.map((client) => (
+                {filteredClients.map((client) => (
                   <tr
                     key={client.uid}
                     className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
@@ -2997,7 +3084,8 @@ function AdminPanel({
             </table>
           </div>
         </div>
-      )}
+      </>
+    )}
 
       <AnimatePresence>
         {selectedReceipt && (
