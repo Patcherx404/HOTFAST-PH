@@ -23,6 +23,7 @@ export interface UserProfile {
   balance: number;
   dueDate?: any; // Timestamp
   billStatus?: 'paid' | 'due' | 'overdue';
+  status?: 'active' | 'suspended';
 }
 
 export interface SystemNotification {

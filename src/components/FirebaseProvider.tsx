@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, updateDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
 
 interface AuthContextType {
@@ -71,7 +71,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         unsubscribeProfile = onSnapshot(docRef, (snapshot) => {
           if (snapshot.exists()) {
-            setProfile(snapshot.data() as UserProfile);
+            const data = snapshot.data() as UserProfile;
+            
+            // Auto-suspension logic
+            const now = new Date();
+            const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null);
+            
+            if (dueDate && dueDate < now && data.status !== 'suspended' && data.billStatus !== 'paid') {
+              // Only auto-suspend if it's not paid and date has passed
+              updateDoc(docRef, { status: 'suspended' }).catch(e => console.error("Auto-suspend failed:", e));
+            }
+
+            setProfile(data);
           } else {
             // New user initialization
             const nextMonth = new Date();

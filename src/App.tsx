@@ -284,6 +284,44 @@ export default function App() {
     );
   }
 
+  // Handle Suspended Users
+  if (user && profile?.status === "suspended") {
+    return (
+      <div className="min-h-screen bg-bg-base flex flex-col items-center justify-center p-6 text-center select-none overflow-hidden font-sans">
+        <div className="absolute inset-0 z-0 opacity-10">
+          <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,#dc2626_0%,transparent_70%)]" />
+        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative z-10 sharp-card p-12 bg-bg-base border-2 border-red-500/50 max-w-xl w-full shadow-2xl shadow-red-500/10"
+        >
+          <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center mb-8 mx-auto ring-4 ring-red-500/20">
+            <AlertTriangle className="text-red-500" size={48} />
+          </div>
+          <h1 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter mb-4 text-white">
+            Access <span className="text-red-500 underline underline-offset-8 decoration-4">Restricted</span>
+          </h1>
+          <p className="text-text-muted font-bold text-[10px] uppercase tracking-[0.3em] leading-relaxed mb-10 max-w-sm mx-auto">
+            System identity [#{profile?.accountNumber}] has been de-registered or restricted 
+            due to non-compliance or pending verification. 
+            Contact support to restore network privileges.
+          </p>
+          <button
+            onClick={() => {
+              logout();
+              setActiveTab("home");
+            }}
+            className="w-full py-5 bg-primary hover:bg-primary-dark text-white font-black uppercase text-[10px] tracking-[0.4em] italic transition-all shadow-2xl shadow-primary/20 flex items-center justify-center gap-4 group"
+          >
+            <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" /> 
+            Purge Session & Return Home
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-bg-base text-slate-100 selection:bg-primary selection:text-white font-sans">
       {/* Navigation */}
@@ -1713,6 +1751,8 @@ function AdminPanel({
   const [viewingScreenshot, setViewingScreenshot] = useState<string | null>(null);
   const [clientToDelete, setClientToDelete] = useState<UserProfile | null>(null);
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
+  const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
+  const [tempDueDate, setTempDueDate] = useState("");
   const [notifForm, setNotifForm] = useState({
     title: "",
     message: "",
@@ -2032,11 +2072,26 @@ function AdminPanel({
     try {
       const newDate = new Date(dateStr);
       if (isNaN(newDate.getTime())) {
-        alert("Invalid date format. Use YYYY-MM-DD HH:MM");
+        alert("Invalid date format. Please use the calendar picker.");
         return;
       }
       const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { dueDate: newDate });
+      const isPast = newDate < new Date();
+      await updateDoc(userRef, { 
+        dueDate: newDate,
+        status: isPast ? 'suspended' : 'active'
+      });
+      setEditingScheduleUser(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  const toggleUserSuspension = async (userId: string, currentStatus: string | undefined) => {
+    try {
+      const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { status: newStatus });
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
@@ -2232,6 +2287,13 @@ function AdminPanel({
           notifForm={notifForm}
           setNotifForm={setNotifForm}
           handleSendNotification={handleSendNotification}
+        />
+        <ScheduleModal
+          editingScheduleUser={editingScheduleUser}
+          setEditingScheduleUser={setEditingScheduleUser}
+          tempDueDate={tempDueDate}
+          setTempDueDate={setTempDueDate}
+          updateClientDueDate={updateClientDueDate}
         />
         <BillingCycleModal
           editingCycle={editingCycle}
@@ -2721,8 +2783,13 @@ function AdminPanel({
                     className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
                   >
                     <td className="px-8 py-6">
-                      <div className="font-bold text-white uppercase text-xs tracking-tight">
+                      <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
                         {client.displayName}
+                        {client.status === 'suspended' && (
+                          <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic">
+                            Suspended
+                          </span>
+                        )}
                       </div>
                       <div className="text-[9px] text-text-muted font-mono">
                         {client.email}
@@ -2796,15 +2863,18 @@ function AdminPanel({
                           <button
                             onClick={() => {
                               const current = client.dueDate?.toDate 
-                                ? client.dueDate.toDate().toISOString().slice(0, 16).replace('T', ' ')
-                                : "";
-                              const newDate = prompt(
-                                `Set Next Due Date for ${client.displayName} (Format: YYYY-MM-DD HH:MM):`,
-                                current || "2026-06-01 12:00"
-                              );
-                              if (newDate) {
-                                updateClientDueDate(client.uid, newDate);
-                              }
+                                ? client.dueDate.toDate()
+                                : (client.dueDate ? new Date(client.dueDate) : new Date());
+                              
+                              // Format for datetime-local input: YYYY-MM-DDTHH:MM
+                              const year = current.getFullYear();
+                              const month = String(current.getMonth() + 1).padStart(2, '0');
+                              const day = String(current.getDate()).padStart(2, '0');
+                              const hours = String(current.getHours()).padStart(2, '0');
+                              const mins = String(current.getMinutes()).padStart(2, '0');
+                              
+                              setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
+                              setEditingScheduleUser(client);
                             }}
                             className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1"
                           >
@@ -2815,6 +2885,13 @@ function AdminPanel({
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => toggleUserSuspension(client.uid, client.status)}
+                          className={`px-4 py-2 border ${client.status === 'suspended' ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white" : "border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-white"} text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2`}
+                        >
+                          {client.status === 'suspended' ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                          {client.status === 'suspended' ? "Activate" : "Suspend"}
+                        </button>
                         <button
                           onClick={() => setNotifyingUser(client)}
                           className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
@@ -3408,6 +3485,89 @@ function BillingCycleModal({
           </form>
         </motion.div>
       </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function ScheduleModal({
+  editingScheduleUser,
+  setEditingScheduleUser,
+  tempDueDate,
+  setTempDueDate,
+  updateClientDueDate,
+}: {
+  editingScheduleUser: UserProfile | null;
+  setEditingScheduleUser: (u: UserProfile | null) => void;
+  tempDueDate: string;
+  setTempDueDate: (s: string) => void;
+  updateClientDueDate: (uid: string, date: string) => void;
+}) {
+  return (
+    <AnimatePresence>
+      {editingScheduleUser && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[10001] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="sharp-card p-10 max-w-md w-full border-t-8 border-primary space-y-8 bg-bg-base shadow-2xl"
+          >
+            <div>
+              <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+                CALIBRATE <span className="text-primary not-italic">RECURRENCE</span>
+              </h3>
+              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+                Subscriber Identity: {editingScheduleUser.displayName} (#{editingScheduleUser.accountNumber})
+              </p>
+            </div>
+
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  New Settlement Timestamp
+                </label>
+                <div className="relative group">
+                  <input
+                    type="datetime-local"
+                    value={tempDueDate}
+                    onChange={(e) => setTempDueDate(e.target.value)}
+                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-lg font-mono font-bold uppercase text-white appearance-none"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-primary/50 group-hover:text-primary transition-colors">
+                    <Calendar size={18} />
+                  </div>
+                </div>
+                <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed mt-2 italic">
+                  Note: Values before current node time [NOW] will trigger automatic circuit suspension.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <button
+                onClick={() => updateClientDueDate(editingScheduleUser.uid, tempDueDate)}
+                className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={14} />
+                Confirm Shift
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingScheduleUser(null)}
+                className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }
