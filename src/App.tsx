@@ -2242,44 +2242,21 @@ function AdminPanel({
 
   return (
     <section className="py-24 px-6 max-w-7xl mx-auto">
-      <div className="mb-12 space-y-12">
+      <div className="mb-12 space-y-8">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-8">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-2">
               Command Center
             </h3>
-            <h2 className="text-4xl md:text-6xl font-black uppercase italic tracking-tighter leading-tight">
+            <h2 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter leading-tight">
               MANAGEMENT
               <br />
               <span className="text-primary not-italic">OVERRIDE</span>
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
-            {[
-              { label: "Total Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
-              { label: "Account Receivables", value: `₱ ${totalReceivables.toLocaleString()}`, icon: Receipt, color: "text-amber-500" },
-              { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
-              { label: "Offline Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-500" },
-            ].map((metric, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-bg-surface border border-border-subtle p-6 relative overflow-hidden group"
-              >
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <metric.icon size={48} />
-                </div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-text-muted mb-2">{metric.label}</div>
-                <div className={`text-2xl font-black italic tracking-tighter ${metric.color}`}>{metric.value}</div>
-              </motion.div>
-            ))}
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-2 border border-border-subtle">
-            <div className="flex overflow-x-auto gap-2 no-scrollbar scroll-smooth">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
+            <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
               {[
                 { id: "payments", label: "Settlements", icon: CreditCard },
                 { id: "plans", label: "Infrastructure", icon: Zap },
@@ -2290,98 +2267,78 @@ function AdminPanel({
                 <button
                   key={tab.id}
                   onClick={() => setAdminTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border-b-2 ${
+                  className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
                     adminTab === tab.id 
-                    ? "bg-primary/5 border-primary text-primary italic" 
-                    : "border-transparent text-text-muted hover:text-white hover:bg-white/5"
+                    ? "bg-primary text-white italic" 
+                    : "text-text-muted hover:text-white hover:bg-white/5"
                   }`}
                 >
-                  <tab.icon size={14} className={adminTab === tab.id ? "text-primary" : "text-text-dim"} />
+                  <tab.icon size={14} />
                   {tab.label}
                 </button>
               ))}
             </div>
-            
-            <div className="h-10 w-px bg-border-subtle hidden sm:block mx-2" />
-            
-            <div className="px-4 py-2 bg-bg-surface border border-border-subtle flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">
-                Node ID: <span className="text-primary italic">ASIA-EAST1-PROD</span>
-              </span>
-              <div className="w-px h-3 bg-border-subtle mx-1" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-text-muted">
-                GMT+8
-              </span>
-            </div>
+          </div>
+        </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[
+            { label: "Aggregate Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
+            { label: "Receivables", value: `₱ ${totalReceivables.toLocaleString()}`, icon: Receipt, color: "text-amber-500" },
+            { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
+            { label: "Offline Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-600" },
+          ].map((metric, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-bg-surface border border-border-subtle p-6 relative group overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <metric.icon size={48} />
+              </div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-text-muted mb-2">{metric.label}</div>
+              <div className={`text-2xl font-black italic tracking-tighter ${metric.color}`}>
+                {metric.value}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-bg-surface/50 border border-border-subtle backdrop-blur-sm">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-green-500 italic">GATEWAY ONLINE</span>
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-tighter text-text-dim">
+              Node: <span className="text-white italic">ASIA-EAST1-PROD</span>
+              <span className="mx-2 opacity-30">|</span>
+              GMT+8
+            </div>
+          </div>
+          
+          <div className="flex gap-4">
             <button
               onClick={syncAllUsersBilling}
               disabled={isSyncing}
-              className="px-6 py-3 bg-primary/10 border border-primary/20 text-primary hover:bg-primary hover:text-white flex items-center justify-center gap-2 transition-all uppercase text-[10px] font-black italic shadow-lg shadow-primary/5 group disabled:opacity-50"
+              className="px-6 py-2 bg-white/5 border border-white/10 text-white hover:bg-primary hover:border-primary flex items-center gap-2 transition-all uppercase text-[9px] font-black italic"
             >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"} />
+              <RefreshCw size={12} className={isSyncing ? "animate-spin" : ""} />
               {isSyncing ? "Syncing..." : "Sync Billing"}
             </button>
-            
             <button
               onClick={onLogout}
-              className="px-6 py-3 bg-red-600/10 border border-red-600/20 text-red-600 hover:bg-red-600 hover:text-white flex items-center justify-center gap-2 transition-all uppercase text-[10px] font-black italic shadow-lg shadow-red-600/5 group"
+              className="px-6 py-2 bg-red-600/10 border border-red-600/20 text-red-600 hover:bg-red-600 hover:text-white flex items-center gap-2 transition-all uppercase text-[9px] font-black italic"
             >
-              <LogOut size={14} className="group-hover:translate-x-1 transition-transform" />
-              Terminate Session
+              <LogOut size={12} />
+              Terminate
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-bg-surface p-6 border border-border-subtle hover:border-primary/30 transition-colors group">
-            <div className="flex justify-between items-start mb-4">
-              <div className="text-[10px] font-black uppercase text-text-muted tracking-widest">
-                Ledger entries
-              </div>
-              <div className="p-2 bg-primary/10 text-primary">
-                <Receipt size={16} />
-              </div>
-            </div>
-            <div className="text-4xl font-mono font-bold italic tracking-tighter group-hover:scale-105 transition-transform origin-left">
-              {payments.length}
-            </div>
-            <div className="mt-4 text-[9px] text-text-dim uppercase font-bold tracking-tight">Active transaction logs</div>
-          </div>
-
-          <div className="bg-bg-surface p-6 border border-border-subtle hover:border-yellow-500/30 transition-colors group">
-            <div className="flex justify-between items-start mb-4">
-              <div className="text-[10px] font-black uppercase text-text-muted tracking-widest">
-                Pending Verification
-              </div>
-              <div className="p-2 bg-yellow-500/10 text-yellow-500">
-                <Clock size={16} />
-              </div>
-            </div>
-            <div className="text-4xl font-mono font-bold italic tracking-tighter text-yellow-500 group-hover:scale-105 transition-transform origin-left">
-              {payments.filter((p) => p.status === "pending").length}
-            </div>
-            <div className="mt-4 text-[9px] text-text-dim uppercase font-bold tracking-tight">Awaiting manual override</div>
-          </div>
-
-          <div className="bg-bg-surface p-6 border border-border-subtle hover:border-primary/30 transition-colors group">
-            <div className="flex justify-between items-start mb-4">
-              <div className="text-[10px] font-black uppercase text-text-muted tracking-widest">
-                Total Outstanding
-              </div>
-              <div className="p-2 bg-primary/10 text-primary">
-                <span className="text-xs font-bold font-mono">₱</span>
-              </div>
-            </div>
-            <div className="text-4xl font-mono font-bold italic tracking-tighter text-primary group-hover:scale-105 transition-transform origin-left">
-              ₱ {clients.reduce((acc, c) => acc + (c.balance ?? 0), 0).toLocaleString()}
-            </div>
-            <div className="mt-4 text-[9px] text-text-dim uppercase font-bold tracking-tight">Projected settlement volume</div>
-          </div>
-        </div>
-
-        <div className="flex justify-end">
+        <div className="flex justify-end pt-4">
           {adminTab === "plans" && (
             <button
               onClick={() =>
