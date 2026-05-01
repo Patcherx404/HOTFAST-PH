@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'projectile.afk@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // User profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == userId &&
+               data.accountNumber is string && data.accountNumber.size() <= 32 &&
+               data.email is string && data.email.size() <= 256 &&
+               data.balance is number &&
+               data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance', 'billStatus']);
+      }
+
+      allow list: if isAdmin();
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if (isOwner(userId) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId']) &&
+                      isValidUser(request.resource.data)) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Notifications subcollection
+    match /users/{userId}/notifications/{notificationId} {
+      function isValidNotification(data) {
+        return data.title is string && data.title.size() <= 128 &&
+               data.message is string && data.message.size() <= 1024 &&
+               data.type in ['info', 'warning', 'alert'] &&
+               data.read is bool &&
+               data.createdAt == request.time;
+      }
+
+      allow list: if isOwner(userId) || isAdmin();
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin();
+      allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin();
+    }
+
+    // Payments subcollection
+    match /users/{userId}/payments/{paymentId} {
+      function isValidPayment(data) {
+        return data.userId == userId &&
+               data.amount is number && data.amount > 0 &&
+               data.method in ['GCash', 'Maya', 'Card', 'Bank'] &&
+               data.status in ['completed', 'pending', 'failed'] &&
+               data.keys().hasAll(['userId', 'amount', 'method', 'status', 'createdAt']) &&
+               data.createdAt == request.time;
+      }
+
+      allow list: if isOwner(userId) || isAdmin();
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidPayment(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Admin collection
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && request.auth.token.email == 'projectile.afk@gmail.com';
+    }
+
+    // Collection Group for Admin to see all payments
+    match /{path=**}/payments/{paymentId} {
+      allow list: if isAdmin();
+    }
+
+    // Plans collection
+    match /plans/{planId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Billing Cycles collection
+    match /billing_cycles/{cycleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Support Chats
+    match /chats/{chatId} {
+      function isValidChatSession(data) {
+        return data.userId is string &&
+               data.userName is string &&
+               data.updatedAt == request.time;
+      }
+      allow list: if isAdmin() || isOwner(chatId);
+      allow get: if isOwner(chatId) || isAdmin();
+      allow create: if isOwner(chatId) && isValidChatSession(request.resource.data);
+      allow update: if (isOwner(chatId) || isAdmin()) && isValidChatSession(request.resource.data);
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      function isValidChatMessage(data) {
+        return data.text is string && data.text.size() <= 4096 &&
+               data.senderId == request.auth.uid &&
+               data.senderRole in ['user', 'admin'] &&
+               data.createdAt == request.time;
+      }
+      allow list: if isOwner(chatId) || isAdmin();
+      allow get: if isOwner(chatId) || isAdmin();
+      allow create: if (isOwner(chatId) || isAdmin()) && isValidChatMessage(request.resource.data);
+    }
+  }
+}

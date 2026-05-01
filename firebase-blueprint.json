@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles",
+      "description": "Customer account details and balance information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "currentPlanId": { "type": "string" },
+        "balance": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "billStatus": { "type": "string", "enum": ["paid", "due", "overdue"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "accountNumber", "email", "balance"]
+    },
+    "notifications": {
+      "title": "System Notifications",
+      "description": "Alerts for users regarding payments or account status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "alert"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message", "type", "read", "createdAt"]
+    },
+    "payments": {
+      "title": "Payment Records",
+      "description": "Historical logs of all customer payments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["GCash", "Maya", "Card", "Bank"] },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] },
+        "referenceNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "method", "status", "createdAt"]
+    },
+    "plans": {
+      "title": "Internet Plans",
+      "description": "Available internet service plans.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "speed": { "type": "number" },
+        "bandwidth": { "type": "string" },
+        "price": { "type": "number" },
+        "features": { "type": "array", "items": { "type": "string" } },
+        "isPopular": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "speed", "price", "features"]
+    },
+    "billingCycles": {
+      "title": "Billing Cycles",
+      "description": "Definition of monthly or custom billing periods.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "startDate", "endDate", "dueDate", "status"]
+    },
+    "chatSession": {
+      "title": "Chat Session",
+      "description": "Represents a chat thread between a user and support.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "unreadCount": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "updatedAt"]
+    },
+    "chatMessage": {
+      "title": "Chat Message",
+      "description": "A single message within a chat session.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["user", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "senderId", "senderRole", "createdAt"]
+    }
+  },
+  "firestore": {
+    "admins/{userId}": {
+      "schema": { "type": "object", "properties": { "role": { "type": "string" } } },
+      "description": "Collection of authorized administrators."
+    },
+    "billing_cycles/{cycleId}": {
+      "schema": "billingCycles",
+      "description": "Collection of defined billing periods."
+    },
+    "chats/{chatId}": {
+      "schema": "chatSession",
+      "description": "Active support chat threads."
+    },
+    "chats/{chatId}/messages/{messageId}": {
+      "schema": "chatMessage",
+      "description": "Messages within a specific chat thread."
+    },
+    "users/{userId}": {
+      "schema": "users",
+      "description": "Root user profile document."
+    },
+    "users/{userId}/payments/{paymentId}": {
+      "schema": "payments",
+      "description": "Subcollection of payment records for a specific user."
+    },
+    "users/{userId}/notifications/{notificationId}": {
+      "schema": "notifications",
+      "description": "Subcollection of alerts for a specific user."
+    },
+    "plans/{planId}": {
+      "schema": "plans",
+      "description": "Available internet service packages."
+    }
+  }
+}

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #dc2626; /* red-600 */
+  --color-primary-dark: #b91c1c; /* red-700 */
+  --color-bg-base: #020617; /* slate-950 */
+  --color-bg-surface: #0f172a; /* slate-900 */
+  --color-hot-black: #000000;
+  --color-border-subtle: #1e293b; /* slate-800 */
+  --color-text-muted: #64748b; /* slate-500 */
+  --color-text-dim: #94a3b8; /* slate-400 */
+}
+
+@layer base {
+  body {
+    @apply bg-bg-base text-slate-100 font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .geometric-border {
+    @apply border border-border-subtle;
+  }
+  
+  .text-glow-red {
+    text-shadow: 0 0 15px rgba(220, 38, 38, 0.4);
+  }
+  
+  .sharp-card {
+    @apply bg-bg-surface/50 border border-border-subtle;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
