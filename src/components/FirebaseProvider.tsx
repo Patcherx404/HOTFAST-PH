@@ -7,8 +7,9 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, updateDoc } from 'firebase/firestore';
-import { UserProfile } from '../types';
+import { UserProfile, InternetPlan } from '../types';
 import { ASIA_TIMEZONE } from '../lib/dateUtils';
+import { INTERNET_PLANS } from '../constants';
 
 interface AuthContextType {
   user: User | null;
@@ -74,37 +75,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile;
             
-            // Auto-suspension logic
+            // Auto-suspension and auto-billing logic
             const now = new Date();
             const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null);
             
             if (dueDate) {
               const updates: any = {};
-              // Calculate grace period in Asia/Manila context (2 days)
-              const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
               
-              // 1. Check for OVERDUE status (immediate past due date)
-              if (now > dueDate && data.billStatus !== 'overdue' && data.billStatus !== 'paid') {
-                updates.billStatus = 'overdue';
+              // Exact deadline check
+              if (now >= dueDate) {
+                // Scenario A: Deadline reached but user hasn't paid (balance exists)
+                if (data.balance && data.balance > 0) {
+                  if (data.billStatus !== 'overdue') {
+                    updates.billStatus = 'overdue';
+                  }
+                  
+                  // Suspension check (2-day grace period)
+                  const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+                  if (now > suspendThreshold && data.status !== 'suspended') {
+                    updates.status = 'suspended';
+                  }
+                } 
+                // Scenario B: Deadline reached and user was 'paid' (cycle rollover)
+                else if (data.billStatus === 'paid') {
+                  const plan = INTERNET_PLANS.find(p => p.id === data.currentPlanId) || INTERNET_PLANS[0];
+                  const nextMonth = new Date(dueDate);
+                  nextMonth.setMonth(nextMonth.getMonth() + 1);
+                  
+                  updates.dueDate = nextMonth;
+                  updates.balance = (data.balance || 0) + plan.price;
+                  updates.billStatus = 'due';
+                  // Keep status as is, but if it was suspended, maybe reactivate if they were paid?
+                  // (Handled by rollover logic)
+                }
               }
 
-              // 2. Check for SUSPENSION (grace period exceeded)
-              const needsSuspension = now > suspendThreshold && 
-                                     data.status !== 'suspended' && 
-                                     (data.billStatus === 'overdue' || data.billStatus === 'due' || (data.balance && data.balance > 0));
-              
-              if (needsSuspension) {
-                updates.status = 'suspended';
-                updates.billStatus = 'overdue'; // Force overdue if suspended
-              }
-
-              // 3. Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
+              // Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
               if (data.status === 'suspended' && data.billStatus === 'paid' && (!data.balance || data.balance <= 0)) {
                 updates.status = 'active';
               }
 
-              // 4. Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
-              if (now <= dueDate && data.balance > 0 && data.billStatus === 'paid') {
+              // Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
+              if (now < dueDate && (data.balance && data.balance > 0) && data.billStatus === 'paid') {
                 updates.billStatus = 'due';
               }
               

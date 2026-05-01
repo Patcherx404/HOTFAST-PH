@@ -2165,28 +2165,41 @@ function AdminPanel({
         const dueDate = client.dueDate?.toDate ? client.dueDate.toDate() : (client.dueDate ? new Date(client.dueDate) : null);
         if (!dueDate) continue;
 
-        const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
         const updates: any = {};
 
-        // Replicate logic from FirebaseProvider for consistency
-        if (now > dueDate && client.billStatus !== 'overdue' && client.billStatus !== 'paid') {
-          updates.billStatus = 'overdue';
+        // Replication of logic from FirebaseProvider for consistency
+        if (now >= dueDate) {
+          // Scenario A: Deadline reached but user hasn't paid (balance exists)
+          if (client.balance && client.balance > 0) {
+            if (client.billStatus !== 'overdue') {
+              updates.billStatus = 'overdue';
+            }
+            
+            // Suspension check (2-day grace period)
+            const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+            if (now > suspendThreshold && client.status !== 'suspended') {
+              updates.status = 'suspended';
+            }
+          } 
+          // Scenario B: Deadline reached and user was 'paid' (cycle rollover)
+          else if (client.billStatus === 'paid') {
+            const plan = INTERNET_PLANS.find(p => p.id === client.currentPlanId) || INTERNET_PLANS[0];
+            const nextMonth = new Date(dueDate);
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            
+            updates.dueDate = nextMonth;
+            updates.balance = (client.balance || 0) + plan.price;
+            updates.billStatus = 'due';
+          }
         }
 
-        const needsSuspension = now > suspendThreshold && 
-                               client.status !== 'suspended' && 
-                               (client.billStatus === 'overdue' || client.billStatus === 'due' || (client.balance && client.balance > 0));
-        
-        if (needsSuspension) {
-          updates.status = 'suspended';
-          updates.billStatus = 'overdue';
-        }
-
+        // Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
         if (client.status === 'suspended' && client.billStatus === 'paid' && (!client.balance || client.balance <= 0)) {
           updates.status = 'active';
         }
 
-        if (now <= dueDate && client.balance && client.balance > 0 && client.billStatus === 'paid') {
+        // Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
+        if (now < dueDate && client.balance && client.balance > 0 && client.billStatus === 'paid') {
           updates.billStatus = 'due';
         }
 
