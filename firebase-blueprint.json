@@ -104,9 +104,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["text", "senderId", "senderRole", "createdAt"]
+    },
+    "telegramSettings": {
+      "title": "Telegram Bot Settings",
+      "description": "Credentials for Telegram bot notifications.",
+      "type": "object",
+      "properties": {
+        "botToken": { "type": "string" },
+        "chatId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
+    "settings/telegram": {
+      "schema": "telegramSettings",
+      "description": "Configuration for Telegram bot alerts."
+    },
     "admins/{userId}": {
       "schema": { "type": "object", "properties": { "role": { "type": "string" } } },
       "description": "Collection of authorized administrators."

@@ -128,5 +128,9 @@ service cloud.firestore {
       allow get: if isOwner(chatId) || isAdmin();
       allow create: if (isOwner(chatId) || isAdmin()) && isValidChatMessage(request.resource.data);
     }
+    // Settings collection
+    match /settings/telegram {
+      allow read, write: if isAdmin();
+    }
   }
 }

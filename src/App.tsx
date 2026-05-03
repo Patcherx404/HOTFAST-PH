@@ -52,6 +52,7 @@ import {
   Search,
   MessageSquare,
   Send,
+  Share2,
 } from "lucide-react";
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
@@ -1773,10 +1774,11 @@ function AdminPanel({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
-  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats">(
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "settings">(
     "payments",
   );
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
+  const [telegramSettings, setTelegramSettings] = useState<{ botToken: string; chatId: string } | null>(null);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -1995,6 +1997,35 @@ function AdminPanel({
     return p.status === statusFilter;
   });
 
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const unsubscribe = onSnapshot(doc(db, "settings", "telegram"), (snapshot) => {
+      if (snapshot.exists()) {
+        setTelegramSettings(snapshot.data() as any);
+      }
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  const sendTelegramNotification = async (message: string) => {
+    if (!telegramSettings?.botToken || !telegramSettings?.chatId) return;
+    try {
+      await fetch(`https://api.telegram.org/bot${telegramSettings.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: telegramSettings.chatId,
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch (e) {
+      console.error("Telegram notification failed:", e);
+    }
+  };
+
   const updateStatus = async (
     payment: PaymentRecord,
     status: "completed" | "failed",
@@ -2012,19 +2043,29 @@ function AdminPanel({
       
       // If marked as completed and it wasn't completed before, adjust balance
       if (status === "completed" && oldStatus !== "completed") {
-        const userDoc = await getDoc(userRef);
-        const currentBalance = userDoc.data()?.balance || 0;
+        const userDocSnapshot = await getDoc(userRef);
+        const currentBalance = userDocSnapshot.data()?.balance || 0;
         const newBalance = currentBalance - payment.amount;
         
         await updateDoc(userRef, {
           balance: newBalance,
           billStatus: newBalance <= 0 ? "paid" : "due",
         });
+
+        // Notify via Telegram
+        const userData = userDocSnapshot.data() as UserProfile;
+        sendTelegramNotification(
+          `<b>✅ Settlement Verified</b>\n\n` +
+          `<b>User:</b> ${userData.displayName || 'Unknown'}\n` +
+          `<b>Amount:</b> ₱${payment.amount.toLocaleString()}\n` +
+          `<b>Method:</b> ${payment.method}\n` +
+          `<b>Ref:</b> ${payment.id?.slice(-8)}`
+        );
       } 
       // If was completed and now changed to failed/pending, add back to user balance
       else if (status !== "completed" && oldStatus === "completed") {
-        const userDoc = await getDoc(userRef);
-        const currentBalance = userDoc.data()?.balance || 0;
+        const userDocSnapshot = await getDoc(userRef);
+        const currentBalance = userDocSnapshot.data()?.balance || 0;
         const newBalance = currentBalance + payment.amount;
 
         await updateDoc(userRef, {
@@ -2284,6 +2325,7 @@ function AdminPanel({
                 { id: "clients", label: "Subscribers", icon: UsersIcon },
                 { id: "cycles", label: "Cycles", icon: Calendar },
                 { id: "chats", label: "Support", icon: MessageSquare },
+                { id: "settings", label: "Integrations", icon: Share2 },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2869,6 +2911,90 @@ function AdminPanel({
                 <p className="text-sm font-black uppercase tracking-[0.2em]">Select a conversation to begin</p>
               </div>
             )}
+          </div>
+        </div>
+      ) : adminTab === "settings" ? (
+        <div className="bg-bg-surface border border-border-subtle p-8 md:p-12">
+          <div className="flex items-start gap-6 mb-12">
+            <div className="p-4 bg-primary/10 text-primary border border-primary/20">
+              <Send size={24} />
+            </div>
+            <div>
+              <h4 className="text-xl font-black uppercase italic tracking-tight mb-2">TELEGRAM BOT INTEGRATION</h4>
+              <p className="text-text-muted text-xs font-medium max-w-xl">
+                Automate notifications to your private Telegram channel. Get real-time alerts when settlements are verified.
+              </p>
+            </div>
+          </div>
+
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const botToken = formData.get("botToken") as string;
+              const chatId = formData.get("chatId") as string;
+              try {
+                await setDoc(doc(db, "settings", "telegram"), {
+                  botToken,
+                  chatId,
+                  updatedAt: serverTimestamp()
+                });
+                toast.success("Telegram credentials synchronized.");
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, "settings/telegram");
+              }
+            }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-8"
+          >
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-text-muted">BOT API TOKEN</label>
+              <input
+                name="botToken"
+                type="password"
+                defaultValue={telegramSettings?.botToken}
+                placeholder="0000000000:AAeb..."
+                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+              />
+              <p className="text-[9px] text-text-dim uppercase tracking-tighter">Obtain from @BotFather</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-text-muted">TARGET CHAT ID</label>
+              <input
+                name="chatId"
+                defaultValue={telegramSettings?.chatId}
+                placeholder="-100..."
+                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+              />
+              <p className="text-[9px] text-text-dim uppercase tracking-tighter">Channel or User ID for notifications</p>
+            </div>
+
+            <div className="md:col-span-2 pt-4 flex gap-4">
+              <button
+                type="submit"
+                className="px-12 py-5 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20"
+              >
+                SAVE CONFIGURATION
+              </button>
+              <button
+                type="button"
+                onClick={() => sendTelegramNotification("<b>📡 Test Signal Received.</b>\nYour Telegram integration is now active.")}
+                className="px-8 py-5 border border-white/10 text-white font-black uppercase tracking-[0.2em] italic text-xs hover:bg-white/5 transition-all"
+              >
+                SEND TEST
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-12 p-8 border border-white/5 bg-white/[0.02]">
+            <h5 className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">SETUP GUIDE</h5>
+            <ol className="text-[10px] font-bold text-text-muted space-y-3 list-decimal list-inside">
+              <li>Message <span className="text-primary italic">@BotFather</span> on Telegram and create a new bot.</li>
+              <li>Copy the API Token provided and paste it above.</li>
+              <li>Add your bot to a group or channel, or message it directly.</li>
+              <li>Use <span className="text-primary italic">@userinfobot</span> to find your Chat ID.</li>
+              <li>Save and test a settlement verification.</li>
+            </ol>
           </div>
         </div>
       ) : (
