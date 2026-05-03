@@ -1798,7 +1798,17 @@ function AdminPanel({
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+  const [localSettings, setLocalSettings] = useState({ botToken: "", chatId: "" });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  useEffect(() => {
+    if (telegramSettings) {
+      setLocalSettings({
+        botToken: telegramSettings.botToken || "",
+        chatId: telegramSettings.chatId || ""
+      });
+    }
+  }, [telegramSettings]);
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
@@ -2929,15 +2939,12 @@ function AdminPanel({
           </div>
 
           <form 
-            key={telegramSettings ? "loaded" : "loading"}
             onSubmit={async (e) => {
               e.preventDefault();
               setIsSavingSettings(true);
-              const formData = new FormData(e.currentTarget);
-              const botToken = (formData.get("botToken") as string)?.trim();
-              const chatId = (formData.get("chatId") as string)?.trim();
+              const { botToken, chatId } = localSettings;
               
-              if (!botToken || !chatId) {
+              if (!botToken.trim() || !chatId.trim()) {
                 toast.error("Please provide both Bot Token and Chat ID.");
                 setIsSavingSettings(false);
                 return;
@@ -2945,13 +2952,23 @@ function AdminPanel({
 
               try {
                 await setDoc(doc(db, "settings", "telegram"), {
-                  botToken,
-                  chatId,
+                  botToken: botToken.trim(),
+                  chatId: chatId.trim(),
                   updatedAt: serverTimestamp()
                 });
                 toast.success("Telegram credentials synchronized.");
-              } catch (err) {
-                handleFirestoreError(err, OperationType.WRITE, "settings/telegram");
+              } catch (err: any) {
+                console.error("Save error:", err);
+                let msg = "Failed to synchronize credentials.";
+                if (err.message && err.message.includes('{')) {
+                  try {
+                    const parsed = JSON.parse(err.message);
+                    msg = `Security Error: ${parsed.error}`;
+                  } catch { /* ignore */ }
+                } else if (err.message) {
+                  msg = err.message;
+                }
+                toast.error(msg);
               } finally {
                 setIsSavingSettings(false);
               }
@@ -2963,7 +2980,8 @@ function AdminPanel({
               <input
                 name="botToken"
                 type="password"
-                defaultValue={telegramSettings?.botToken}
+                value={localSettings.botToken}
+                onChange={(e) => setLocalSettings(prev => ({ ...prev, botToken: e.target.value }))}
                 placeholder="0000000000:AAeb..."
                 className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
                 disabled={isSavingSettings}
@@ -2975,7 +2993,8 @@ function AdminPanel({
               <label className="text-[10px] font-black uppercase tracking-widest text-text-muted">TARGET CHAT ID</label>
               <input
                 name="chatId"
-                defaultValue={telegramSettings?.chatId}
+                value={localSettings.chatId}
+                onChange={(e) => setLocalSettings(prev => ({ ...prev, chatId: e.target.value }))}
                 placeholder="-100..."
                 className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
                 disabled={isSavingSettings}
