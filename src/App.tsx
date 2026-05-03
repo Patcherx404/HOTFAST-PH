@@ -1798,6 +1798,7 @@ function AdminPanel({
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
@@ -2928,11 +2929,20 @@ function AdminPanel({
           </div>
 
           <form 
+            key={telegramSettings ? "loaded" : "loading"}
             onSubmit={async (e) => {
               e.preventDefault();
+              setIsSavingSettings(true);
               const formData = new FormData(e.currentTarget);
-              const botToken = formData.get("botToken") as string;
-              const chatId = formData.get("chatId") as string;
+              const botToken = (formData.get("botToken") as string)?.trim();
+              const chatId = (formData.get("chatId") as string)?.trim();
+              
+              if (!botToken || !chatId) {
+                toast.error("Please provide both Bot Token and Chat ID.");
+                setIsSavingSettings(false);
+                return;
+              }
+
               try {
                 await setDoc(doc(db, "settings", "telegram"), {
                   botToken,
@@ -2942,6 +2952,8 @@ function AdminPanel({
                 toast.success("Telegram credentials synchronized.");
               } catch (err) {
                 handleFirestoreError(err, OperationType.WRITE, "settings/telegram");
+              } finally {
+                setIsSavingSettings(false);
               }
             }}
             className="grid grid-cols-1 md:grid-cols-2 gap-8"
@@ -2953,7 +2965,8 @@ function AdminPanel({
                 type="password"
                 defaultValue={telegramSettings?.botToken}
                 placeholder="0000000000:AAeb..."
-                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                disabled={isSavingSettings}
               />
               <p className="text-[9px] text-text-dim uppercase tracking-tighter">Obtain from @BotFather</p>
             </div>
@@ -2964,22 +2977,31 @@ function AdminPanel({
                 name="chatId"
                 defaultValue={telegramSettings?.chatId}
                 placeholder="-100..."
-                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                disabled={isSavingSettings}
               />
               <p className="text-[9px] text-text-dim uppercase tracking-tighter">Channel or User ID for notifications</p>
             </div>
 
-            <div className="md:col-span-2 pt-4 flex gap-4">
+            <div className="md:col-span-2 pt-4 flex flex-wrap gap-4">
               <button
                 type="submit"
-                className="px-12 py-5 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20"
+                disabled={isSavingSettings}
+                className="px-12 py-5 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 disabled:opacity-50 disabled:scale-100 flex items-center gap-3"
               >
-                SAVE CONFIGURATION
+                {isSavingSettings ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> SYNCHRONIZING...
+                  </>
+                ) : (
+                  "SAVE CONFIGURATION"
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => sendTelegramNotification("<b>📡 Test Signal Received.</b>\nYour Telegram integration is now active.")}
-                className="px-8 py-5 border border-white/10 text-white font-black uppercase tracking-[0.2em] italic text-xs hover:bg-white/5 transition-all"
+                disabled={isSavingSettings || !telegramSettings?.botToken}
+                className="px-8 py-5 border border-white/10 text-white font-black uppercase tracking-[0.2em] italic text-xs hover:bg-white/5 transition-all disabled:opacity-30"
               >
                 SEND TEST
               </button>
