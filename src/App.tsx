@@ -39,6 +39,7 @@ import {
   Receipt,
   Lock,
   Bell,
+  Plus as PlusIcon,
   AlertTriangle,
   Edit3,
   Trash2,
@@ -52,7 +53,8 @@ import {
   Search,
   MessageSquare,
   Send,
-  Share2,
+  Server,
+  Save,
 } from "lucide-react";
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
@@ -91,6 +93,7 @@ import {
   BillingCycle,
   ChatSession,
   ChatMessage,
+  WiFi5SoftAccount,
 } from "./types";
 
 export default function App() {
@@ -136,40 +139,42 @@ export default function App() {
 
   // Sync plans with Firestore
   useEffect(() => {
-    const fetchPlans = async () => {
+    const q = query(collection(db, "plans"), orderBy("price", "asc"));
+    
+    // Initial fetch and population – only works if user is admin
+    const initPlans = async () => {
+      if (!isAdmin) return;
       try {
-        const q = query(collection(db, "plans"), orderBy("price", "asc"));
         const snapshot = await getDocs(q);
-        
         if (snapshot.empty) {
-          // Initialize plans if collection is empty
           const batchPromise = INTERNET_PLANS.map(async (plan) => {
-            try {
-              await setDoc(doc(db, "plans", plan.id), {
-                ...plan,
-                updatedAt: serverTimestamp(),
-              });
-            } catch (e) {
-              // Silent fail for non-admins
-            }
+            await setDoc(doc(db, "plans", plan.id), {
+              ...plan,
+              updatedAt: serverTimestamp(),
+            });
           });
           await Promise.all(batchPromise);
-          setPlans(INTERNET_PLANS);
-        } else {
-          const p = snapshot.docs.map(
-            (doc) => ({ ...doc.data() }) as InternetPlan,
-          );
-          setPlans(p);
         }
-      } catch (error) {
-        console.error("Plans Fetch Error:", error);
-        // Fallback to constants if DB read fails (e.g. quota exceeded)
-        setPlans(INTERNET_PLANS);
+      } catch (e) {
+        console.error("Plans Init Error:", e);
       }
     };
 
-    fetchPlans();
-  }, []);
+    initPlans();
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const p = snapshot.docs.map(
+        (doc) => ({ ...doc.data(), id: doc.id }) as InternetPlan,
+      );
+      setPlans(p);
+    }, (error) => {
+      console.error("Plans Sync Error:", error);
+      // Fallback to constants if DB read fails (e.g. quota exceeded)
+      setPlans(prev => prev.length === 0 ? INTERNET_PLANS : prev);
+    });
+
+    return unsubscribe;
+  }, [isAdmin]);
 
   // Sync notifications
   useEffect(() => {
@@ -185,7 +190,7 @@ export default function App() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const n = snapshot.docs.map(
-        (doc) => ({ id: doc.id, ...doc.data() }) as SystemNotification,
+        (doc) => ({ ...doc.data(), id: doc.id }) as SystemNotification,
       );
       setNotifications(n);
     }, (error) => {
@@ -396,9 +401,9 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="divide-y divide-border-subtle">
-                            {notifications.map((n) => (
+                            {notifications.map((n, idx) => (
                               <div
-                                key={n.id}
+                                key={`notif-${n.id || idx}`}
                                 className={`p-4 hover:bg-white/5 transition-colors cursor-pointer ${!n.read ? "bg-primary/5" : ""}`}
                                 onClick={() =>
                                   handleMarkNotificationAsRead(n.id)
@@ -1342,7 +1347,7 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
       q,
       (snapshot) => {
         setPayments(
-          snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as PaymentRecord),
+          snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as PaymentRecord),
         );
       },
       (error) => {
@@ -1385,10 +1390,15 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-6 md:mt-4">
                 <div className="flex flex-col">
                   <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Network Node</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1">
                     <span className="text-xs font-mono text-primary font-bold">
                       #{profile?.accountNumber}
                     </span>
+                    {profile?.clientId && (
+                      <span className="text-[8px] font-mono text-white/50 font-bold uppercase tracking-widest italic">
+                        CID: {profile.clientId}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1570,7 +1580,7 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
               ) : (
                 payments.map((p) => (
                   <tr
-                    key={p.id}
+                    key={`portal-payment-${p.id}`}
                     className="border-b border-border-subtle hover:bg-slate-900/30 transition-colors group"
                   >
                     <td className="px-6 md:px-10 py-6 md:py-8 text-[10px] md:text-xs font-bold uppercase tracking-tight text-text-dim whitespace-nowrap">
@@ -1774,11 +1784,17 @@ function AdminPanel({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
-  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "settings">(
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "wifi5soft">(
     "payments",
   );
+  const [wifi5softSettings, setWifi5softSettings] = useState<any>(null);
+  const [wifi5softAccounts, setWifi5softAccounts] = useState<WiFi5SoftAccount[]>([]);
+  const [wifi5softAccountToEdit, setWifi5softAccountToEdit] = useState<WiFi5SoftAccount | null>(null);
+  const [wifi5softAccountToDelete, setWifi5softAccountToDelete] = useState<WiFi5SoftAccount | null>(null);
+  const [localWifi5Soft, setLocalWifi5Soft] = useState({ clientId: "", apiKey: "" });
+  const [isSavingWifi5Soft, setIsSavingWifi5Soft] = useState(false);
+  const [isTestingWifi5Soft, setIsTestingWifi5Soft] = useState(false);
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
-  const [telegramSettings, setTelegramSettings] = useState<{ botToken: string; chatId: string } | null>(null);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -1795,25 +1811,112 @@ function AdminPanel({
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
   const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
   const [tempDueDate, setTempDueDate] = useState("");
+  const [tempClientId, setTempClientId] = useState("");
+  const [tempWifi5softAccountId, setTempWifi5softAccountId] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
-  const [localSettings, setLocalSettings] = useState({ botToken: "", chatId: "" });
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
-    if (telegramSettings) {
-      setLocalSettings({
-        botToken: telegramSettings.botToken || "",
-        chatId: telegramSettings.chatId || ""
+    if (!user || !firebaseIsAdmin) return;
+    const unsub = onSnapshot(collection(db, "wifi5soft_accounts"), (snapshot) => {
+      const accounts = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as WiFi5SoftAccount));
+      setWifi5softAccounts(accounts);
+    }, (error) => {
+      console.error("WiFi5Soft accounts sync error:", error);
+    });
+    return unsub;
+  }, [user, firebaseIsAdmin]);
+
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+    const unsub = onSnapshot(doc(db, "settings", "wifi5soft"), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setWifi5softSettings(data);
+        setLocalWifi5Soft({
+          clientId: data.clientId || "",
+          apiKey: data.apiKey || ""
+        });
+      }
+    });
+    return unsub;
+  }, [user, firebaseIsAdmin]);
+
+  const syncToWiFi5Soft = async (userEmail: string, amount: number, referenceId: string, userId?: string) => {
+    try {
+      const response = await fetch("/api/wifi5soft/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userEmail, amount, referenceId, userId })
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success("WiFi5Soft Payment Reflected");
+    } catch (e: any) {
+      console.error("WiFi5Soft Sync Failed:", e);
+      toast.error(`Billing Sync Failed: ${e.message}`);
     }
-  }, [telegramSettings]);
+  };
+
+  const toISODate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const generateNextCycle = () => {
+    let nextStart = new Date();
+    let nextEnd = new Date();
+    let nextDue = new Date();
+    let cycleName = "";
+
+    if (billingCycles.length > 0) {
+      const latest = billingCycles[0];
+      const latestEnd = latest.endDate?.toDate ? latest.endDate.toDate() : new Date(latest.endDate);
+      
+      // Start next day after latest end
+      nextStart = new Date(latestEnd);
+      nextStart.setDate(latestEnd.getDate() + 1);
+      
+      // End date 1 month later
+      nextEnd = new Date(nextStart);
+      nextEnd.setMonth(nextStart.getMonth() + 1);
+      nextEnd.setDate(nextEnd.getDate() - 1);
+
+      // Due date 5 days after end date by default
+      nextDue = new Date(nextEnd);
+      nextDue.setDate(nextDue.getDate() + 5);
+      
+      cycleName = `CYCLE ${nextStart.toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`;
+    } else {
+      // Defaults if no cycles exist
+      nextStart.setDate(1);
+      nextEnd = new Date(nextStart);
+      nextEnd.setMonth(nextStart.getMonth() + 1);
+      nextEnd.setDate(nextEnd.getDate() - 1);
+      nextDue = new Date(nextEnd);
+      nextDue.setDate(nextDue.getDate() + 5);
+      cycleName = `CYCLE ${nextStart.toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`;
+    }
+
+    setEditingCycle({
+      id: "",
+      name: cycleName,
+      startDate: toISODate(nextStart),
+      endDate: toISODate(nextEnd),
+      dueDate: toISODate(nextDue),
+      status: "active",
+      createdAt: serverTimestamp(),
+    });
+  };
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
       (client.displayName || "").toLowerCase().includes(clientSearch.toLowerCase()) || 
       (client.accountNumber || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.clientId || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
       (client.email || "").toLowerCase().includes(clientSearch.toLowerCase());
     
     if (!matchesSearch) return false;
@@ -1849,9 +1952,12 @@ function AdminPanel({
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const p = snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() }) as PaymentRecord,
-        );
+        const p = snapshot.docs.map((doc) => {
+          const data = doc.data() as PaymentRecord;
+          // Ensure userId is present from path for collectionGroup
+          const userId = data.userId || doc.ref.parent.parent?.id || "unknown";
+          return { ...data, id: doc.id, userId } as PaymentRecord;
+        });
         setPayments(p);
         setLoading(false);
       },
@@ -1869,8 +1975,10 @@ function AdminPanel({
 
     const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const c = snapshot.docs.map((doc) => ({ uid: doc.id, ...doc.data() }) as UserProfile);
+      const c = snapshot.docs.map((doc) => ({ ...doc.data(), uid: doc.id }) as UserProfile);
       setClients(c);
+    }, (error) => {
+      console.error("Clients sync error:", error);
     });
 
     return unsubscribe;
@@ -1885,9 +1993,11 @@ function AdminPanel({
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const cy = snapshot.docs.map(
-        (doc) => ({ id: doc.id, ...doc.data() }) as BillingCycle,
+        (doc) => ({ ...doc.data(), id: doc.id }) as BillingCycle,
       );
       setBillingCycles(cy);
+    }, (error) => {
+      console.error("Cycles sync error:", error);
     });
 
     return unsubscribe;
@@ -1904,6 +2014,8 @@ function AdminPanel({
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatSession));
       setChatSessions(chats);
+    }, (error) => {
+      console.error("Chats sync error:", error);
     });
 
     return unsubscribe;
@@ -1921,8 +2033,10 @@ function AdminPanel({
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage));
+      const msgs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ChatMessage));
       setChatMessages(msgs);
+    }, (error) => {
+      console.error("Messages sync error:", error);
     });
 
     return unsubscribe;
@@ -1936,14 +2050,23 @@ function AdminPanel({
         ? doc(db, "billing_cycles", editingCycle.id)
         : doc(collection(db, "billing_cycles"));
 
+      // Convert input strings to Date objects for reliable Firestore storage
+      const startDate = typeof editingCycle.startDate === 'string' ? new Date(editingCycle.startDate) : editingCycle.startDate;
+      const endDate = typeof editingCycle.endDate === 'string' ? new Date(editingCycle.endDate) : editingCycle.endDate;
+      const dueDate = typeof editingCycle.dueDate === 'string' ? new Date(editingCycle.dueDate) : editingCycle.dueDate;
+
       const cycleData = {
         ...editingCycle,
         id: cycleRef.id,
+        startDate,
+        endDate,
+        dueDate,
         createdAt: editingCycle.createdAt || serverTimestamp(),
       };
 
       await setDoc(cycleRef, cycleData);
       setEditingCycle(null);
+      toast.success("Billing cycle synchronized successfully.");
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, "billing_cycles");
     }
@@ -2008,35 +2131,6 @@ function AdminPanel({
     return p.status === statusFilter;
   });
 
-  useEffect(() => {
-    if (!user || !firebaseIsAdmin) return;
-
-    const unsubscribe = onSnapshot(doc(db, "settings", "telegram"), (snapshot) => {
-      if (snapshot.exists()) {
-        setTelegramSettings(snapshot.data() as any);
-      }
-    });
-
-    return unsubscribe;
-  }, [user, firebaseIsAdmin]);
-
-  const sendTelegramNotification = async (message: string) => {
-    if (!telegramSettings?.botToken || !telegramSettings?.chatId) return;
-    try {
-      await fetch(`https://api.telegram.org/bot${telegramSettings.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: telegramSettings.chatId,
-          text: message,
-          parse_mode: 'HTML'
-        })
-      });
-    } catch (e) {
-      console.error("Telegram notification failed:", e);
-    }
-  };
-
   const updateStatus = async (
     payment: PaymentRecord,
     status: "completed" | "failed",
@@ -2055,23 +2149,18 @@ function AdminPanel({
       // If marked as completed and it wasn't completed before, adjust balance
       if (status === "completed" && oldStatus !== "completed") {
         const userDocSnapshot = await getDoc(userRef);
-        const currentBalance = userDocSnapshot.data()?.balance || 0;
+        const userData = userDocSnapshot.data() as UserProfile;
+        const currentBalance = userData.balance || 0;
         const newBalance = currentBalance - payment.amount;
         
+        const newBillStatus = newBalance <= 0 ? "paid" : "due";
         await updateDoc(userRef, {
           balance: newBalance,
-          billStatus: newBalance <= 0 ? "paid" : "due",
+          billStatus: newBillStatus,
         });
 
-        // Notify via Telegram
-        const userData = userDocSnapshot.data() as UserProfile;
-        sendTelegramNotification(
-          `<b>✅ Settlement Verified</b>\n\n` +
-          `<b>User:</b> ${userData.displayName || 'Unknown'}\n` +
-          `<b>Amount:</b> ₱${payment.amount.toLocaleString()}\n` +
-          `<b>Method:</b> ${payment.method}\n` +
-          `<b>Ref:</b> ${payment.id?.slice(-8)}`
-        );
+        // Trigger WiFi5Soft Sync
+        syncToWiFi5Soft(userData.email, payment.amount, payment.id || "", payment.userId);
       } 
       // If was completed and now changed to failed/pending, add back to user balance
       else if (status !== "completed" && oldStatus === "completed") {
@@ -2160,6 +2249,7 @@ function AdminPanel({
       const planRef = doc(db, "plans", editingPlan.id);
       await setDoc(planRef, { ...editingPlan, updatedAt: serverTimestamp() });
       setEditingPlan(null);
+      toast.success("Infrastructure node configured successfully.");
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `plans/${editingPlan.id}`);
     }
@@ -2169,18 +2259,52 @@ function AdminPanel({
     setPlanToDelete(id);
   };
 
+  const handleSaveWifi5SoftAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wifi5softAccountToEdit) return;
+    try {
+      const accountRef = wifi5softAccountToEdit.id 
+        ? doc(db, "wifi5soft_accounts", wifi5softAccountToEdit.id)
+        : doc(collection(db, "wifi5soft_accounts"));
+      
+      const accountData = {
+        ...wifi5softAccountToEdit,
+        id: accountRef.id,
+        updatedAt: serverTimestamp()
+      };
+      
+      await setDoc(accountRef, accountData);
+      setWifi5softAccountToEdit(null);
+      toast.success("WiFi5Soft account saved.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `wifi5soft_accounts/${wifi5softAccountToEdit?.id || 'new'}`);
+    }
+  };
+
+  const handleDeleteWifi5SoftAccount = async () => {
+    if (!wifi5softAccountToDelete) return;
+    try {
+      await deleteDoc(doc(db, "wifi5soft_accounts", wifi5softAccountToDelete.id));
+      setWifi5softAccountToDelete(null);
+      toast.success("WiFi5Soft account deleted.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, `wifi5soft_accounts/${wifi5softAccountToDelete.id}`);
+    }
+  };
+
   const confirmDeletion = async () => {
     if (!planToDelete) return;
     try {
       const planRef = doc(db, "plans", planToDelete);
       await deleteDoc(planRef);
       setPlanToDelete(null);
+      toast.success("Infrastructure node decommissioned.");
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, `plans/${planToDelete}`);
     }
   };
 
-  const updateClientDueDate = async (userId: string, dateStr: string) => {
+  const updateClientProfile = async (userId: string, dateStr: string, clientId: string, wifi5softAccountId?: string) => {
     try {
       const newDate = new Date(dateStr);
       if (isNaN(newDate.getTime())) {
@@ -2194,10 +2318,13 @@ function AdminPanel({
       
       await updateDoc(userRef, { 
         dueDate: newDate,
+        clientId: clientId || "",
+        wifi5softAccountId: wifi5softAccountId || "",
         status: isPastGrace ? 'suspended' : 'active',
         billStatus: isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid')
       });
       setEditingScheduleUser(null);
+      toast.success("Subscriber profile updated.");
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
@@ -2336,7 +2463,7 @@ function AdminPanel({
                 { id: "clients", label: "Subscribers", icon: UsersIcon },
                 { id: "cycles", label: "Cycles", icon: Calendar },
                 { id: "chats", label: "Support", icon: MessageSquare },
-                { id: "settings", label: "Integrations", icon: Share2 },
+                { id: "wifi5soft", label: "WiFi5Soft", icon: Zap },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2360,10 +2487,10 @@ function AdminPanel({
             { label: "Aggregate Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
             { label: "Accounts Due", value: clients.filter(c => c.billStatus === 'due' || c.billStatus === 'overdue').length, icon: Receipt, color: "text-amber-500" },
             { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
-            { label: "Offline Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-600" },
+            { label: "Suspended Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-600" },
           ].map((metric, i) => (
             <motion.div
-              key={i}
+              key={`metric-${metric.label}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
@@ -2433,44 +2560,15 @@ function AdminPanel({
           )}
           {adminTab === "cycles" && (
             <button
-              onClick={() =>
-                setEditingCycle({
-                  id: "",
-                  name: `CYCLE ${new Date().toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`,
-                  startDate: "",
-                  endDate: "",
-                  dueDate: "",
-                  status: "active",
-                  createdAt: serverTimestamp(),
-                })
-              }
+              onClick={generateNextCycle}
               className="px-8 py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_30px_rgba(220,38,38,0.3)] animate-pulse"
             >
-              + NEW BILLING CYCLE
+              {billingCycles.length > 0 ? "+ PROPAGATE NEXT CYCLE" : "+ NEW BILLING CYCLE"}
             </button>
           )}
         </div>
       </div>
       <AnimatePresence>
-        <NotificationModal
-          notifyingUser={notifyingUser}
-          setNotifyingUser={setNotifyingUser}
-          notifForm={notifForm}
-          setNotifForm={setNotifForm}
-          handleSendNotification={handleSendNotification}
-        />
-        <ScheduleModal
-          editingScheduleUser={editingScheduleUser}
-          setEditingScheduleUser={setEditingScheduleUser}
-          tempDueDate={tempDueDate}
-          setTempDueDate={setTempDueDate}
-          updateClientDueDate={updateClientDueDate}
-        />
-        <BillingCycleModal
-          editingCycle={editingCycle}
-          setEditingCycle={setEditingCycle}
-          handleSaveCycle={handleSaveCycle}
-        />
         {planToDelete && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -2610,9 +2708,9 @@ function AdminPanel({
                       </td>
                     </tr>
                   ) : (
-                    filteredPayments.map((p) => (
+                    filteredPayments.map((p, idx) => (
                       <tr
-                      key={p.id}
+                      key={`admin-payment-${p.id}`}
                       className="group hover:bg-slate-900/50 transition-colors"
                     >
                       <td className="px-8 py-6 border-b border-border-subtle text-center">
@@ -2856,9 +2954,9 @@ function AdminPanel({
               {chatSessions.length === 0 ? (
                 <div className="p-8 text-center text-[10px] font-bold text-text-muted uppercase">No active chats</div>
               ) : (
-                chatSessions.map(chat => (
+                chatSessions.map((chat, idx) => (
                   <button
-                    key={chat.id}
+                    key={`chat-session-${chat.id || idx}`}
                     onClick={() => setSelectedChat(chat)}
                     className={`w-full p-4 border-b border-border-subtle text-left transition-all hover:bg-bg-base/50 ${selectedChat?.id === chat.id ? "bg-bg-base border-r-4 border-r-primary" : ""}`}
                   >
@@ -2890,8 +2988,8 @@ function AdminPanel({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-bg-base/30">
-                  {chatMessages.map(msg => (
-                    <div key={msg.id} className={`flex ${msg.senderRole === "admin" ? "justify-end" : "justify-start"}`}>
+                  {chatMessages.map((msg, idx) => (
+                    <div key={`chat-msg-${msg.id || idx}`} className={`flex ${msg.senderRole === "admin" ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[70%] p-4 text-xs ${msg.senderRole === "admin" ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl shadow-lg shadow-primary/10" : "bg-bg-surface border border-border-subtle text-white rounded-r-xl rounded-tl-xl"}`}>
                         {msg.text}
                       </div>
@@ -2924,118 +3022,105 @@ function AdminPanel({
             )}
           </div>
         </div>
-      ) : adminTab === "settings" ? (
+      ) : adminTab === "wifi5soft" ? (
         <div className="bg-bg-surface border border-border-subtle p-8 md:p-12">
-          <div className="flex items-start gap-6 mb-12">
-            <div className="p-4 bg-primary/10 text-primary border border-primary/20">
-              <Send size={24} />
+          <div className="flex items-start justify-between mb-12">
+            <div className="flex items-start gap-6">
+              <div className="p-4 bg-primary/10 text-primary border border-primary/20">
+                <Zap size={24} />
+              </div>
+              <div>
+                <h4 className="text-xl font-black uppercase italic tracking-tight mb-2">WIFI5SOFT BILLING INTEGRATION</h4>
+                <p className="text-text-muted text-xs font-medium max-w-xl leading-relaxed">
+                  Manage multiple WiFi5Soft service nodes. You can assign these credentials to specific subscribers to automate their payment reflection across different branches or servers.
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="text-xl font-black uppercase italic tracking-tight mb-2">TELEGRAM BOT INTEGRATION</h4>
-              <p className="text-text-muted text-xs font-medium max-w-xl">
-                Automate notifications to your private Telegram channel. Get real-time alerts when settlements are verified.
-              </p>
-            </div>
+            <button 
+              onClick={() => setWifi5softAccountToEdit({ id: "", name: "", ownerEmail: "", clientId: "", apiKey: "" })}
+              className="px-6 py-4 bg-hot-black border border-primary/50 text-white font-black uppercase tracking-widest italic text-[10px] hover:bg-primary transition-all flex items-center gap-2 group"
+            >
+              <PlusIcon size={14} className="group-hover:rotate-90 transition-transform" /> 
+              Deploy Configuration
+            </button>
           </div>
 
-          <form 
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setIsSavingSettings(true);
-              const { botToken, chatId } = localSettings;
-              
-              if (!botToken.trim() || !chatId.trim()) {
-                toast.error("Please provide both Bot Token and Chat ID.");
-                setIsSavingSettings(false);
-                return;
-              }
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {wifi5softAccounts.map((account) => (
+              <div key={account.id} className="sharp-card bg-hot-black p-8 border border-border-subtle group hover:border-primary/50 transition-all relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 -mr-12 -mt-12 rounded-full blur-2xl group-hover:bg-primary/20 transition-all" />
+                
+                <div className="flex justify-between items-start mb-8 relative z-10">
+                  <div>
+                    <h5 className="font-black uppercase italic text-lg tracking-tight text-white mb-1">{account.name}</h5>
+                    <div className="flex items-center gap-2">
+                       <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                       <span className="text-[10px] font-black uppercase tracking-widest text-primary">Active Node</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-1">
+                    <button onClick={() => setWifi5softAccountToEdit(account)} className="p-2 text-text-dim hover:text-white hover:bg-white/5 transition-all rounded">
+                      <Edit3 size={14} />
+                    </button>
+                    <button onClick={() => setWifi5softAccountToDelete(account)} className="p-2 text-text-dim hover:text-primary hover:bg-primary/5 transition-all rounded">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
 
-              try {
-                await setDoc(doc(db, "settings", "telegram"), {
-                  botToken: botToken.trim(),
-                  chatId: chatId.trim(),
-                  updatedAt: serverTimestamp()
-                });
-                toast.success("Telegram credentials synchronized.");
-              } catch (err: any) {
-                console.error("Save error:", err);
-                let msg = "Failed to synchronize credentials.";
-                if (err.message && err.message.includes('{')) {
-                  try {
-                    const parsed = JSON.parse(err.message);
-                    msg = `Security Error: ${parsed.error}`;
-                  } catch { /* ignore */ }
-                } else if (err.message) {
-                  msg = err.message;
-                }
-                toast.error(msg);
-              } finally {
-                setIsSavingSettings(false);
-              }
-            }}
-            className="grid grid-cols-1 md:grid-cols-2 gap-8"
-          >
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-text-muted">BOT API TOKEN</label>
-              <input
-                name="botToken"
-                type="password"
-                value={localSettings.botToken}
-                onChange={(e) => setLocalSettings(prev => ({ ...prev, botToken: e.target.value }))}
-                placeholder="0000000000:AAeb..."
-                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-                disabled={isSavingSettings}
-              />
-              <p className="text-[9px] text-text-dim uppercase tracking-tighter">Obtain from @BotFather</p>
-            </div>
+                <div className="space-y-4 relative z-10">
+                  {account.ownerEmail && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">NODE OWNER</span>
+                      <span className="font-mono text-[10px] text-primary bg-primary/5 px-2 py-1 rounded truncate">{account.ownerEmail}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">CLIENT IDENTIFIER</span>
+                    <span className="font-mono text-xs text-white bg-white/5 px-2 py-1 rounded truncate">{account.clientId}</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">SECURE API KEY</span>
+                    <span className="font-mono text-xs text-text-dim bg-white/5 px-2 py-1 rounded">••••••••••••••••</span>
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-text-muted">TARGET CHAT ID</label>
-              <input
-                name="chatId"
-                value={localSettings.chatId}
-                onChange={(e) => setLocalSettings(prev => ({ ...prev, chatId: e.target.value }))}
-                placeholder="-100..."
-                className="w-full bg-black/20 border border-border-subtle px-4 py-4 text-xs font-mono focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-                disabled={isSavingSettings}
-              />
-              <p className="text-[9px] text-text-dim uppercase tracking-tighter">Channel or User ID for notifications</p>
-            </div>
+                <div className="mt-8 pt-6 border-t border-white/5 flex gap-3 relative z-10">
+                    <button 
+                      onClick={async () => {
+                        setIsTestingWifi5Soft(true);
+                        try {
+                          const res = await fetch("/api/wifi5soft/test", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(account)
+                          });
+                          const data = await res.json();
+                          if (res.ok) toast.success(`${account.name}: ${data.message}`);
+                          else toast.error(data.error);
+                        } catch (err: any) {
+                          toast.error("Network error: " + err.message);
+                        } finally {
+                          setIsTestingWifi5Soft(false);
+                        }
+                      }}
+                      className="flex-1 py-3 border border-border-subtle hover:bg-white/5 text-[9px] font-black uppercase tracking-widest text-white transition-all flex items-center justify-center gap-2"
+                    >
+                      <Zap size={10} /> Test Sync
+                    </button>
+                </div>
+              </div>
+            ))}
 
-            <div className="md:col-span-2 pt-4 flex flex-wrap gap-4">
-              <button
-                type="submit"
-                disabled={isSavingSettings}
-                className="px-12 py-5 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 disabled:opacity-50 disabled:scale-100 flex items-center gap-3"
-              >
-                {isSavingSettings ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" /> SYNCHRONIZING...
-                  </>
-                ) : (
-                  "SAVE CONFIGURATION"
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => sendTelegramNotification("<b>📡 Test Signal Received.</b>\nYour Telegram integration is now active.")}
-                disabled={isSavingSettings || !telegramSettings?.botToken}
-                className="px-8 py-5 border border-white/10 text-white font-black uppercase tracking-[0.2em] italic text-xs hover:bg-white/5 transition-all disabled:opacity-30"
-              >
-                SEND TEST
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-12 p-8 border border-white/5 bg-white/[0.02]">
-            <h5 className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">SETUP GUIDE</h5>
-            <ol className="text-[10px] font-bold text-text-muted space-y-3 list-decimal list-inside">
-              <li>Message <span className="text-primary italic">@BotFather</span> on Telegram and create a new bot.</li>
-              <li>Copy the API Token provided and paste it above.</li>
-              <li>Add your bot to a group or channel, or message it directly.</li>
-              <li>Use <span className="text-primary italic">@userinfobot</span> to find your Chat ID.</li>
-              <li>Save and test a settlement verification.</li>
-            </ol>
+            {wifi5softAccounts.length === 0 && (
+              <div className="md:col-span-2 lg:col-span-3 py-24 text-center border-2 border-dashed border-border-subtle/30 rounded-xl">
+                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Zap size={32} className="text-text-muted opacity-20" />
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-text-muted mb-2">No Active Nodes</h3>
+                <p className="text-[10px] text-text-dim uppercase tracking-widest">Connect your WiFi5Soft server to begin automation</p>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -3046,7 +3131,7 @@ function AdminPanel({
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
                 <input
                   type="text"
-                  placeholder="Search by name, email or account number..."
+                  placeholder="Search by name, email, account number or client ID..."
                   value={clientSearch}
                   onChange={(e) => setClientSearch(e.target.value)}
                   className="w-full bg-bg-surface border border-border-subtle pl-12 pr-4 py-4 text-xs text-white focus:outline-none focus:border-primary transition-all italic placeholder:text-text-dim/50"
@@ -3111,6 +3196,19 @@ function AdminPanel({
                       <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1">
                         #{client.accountNumber}
                       </div>
+                      {client.clientId && (
+                        <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
+                          CID: {client.clientId}
+                        </div>
+                      )}
+                      {client.wifi5softAccountId && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Zap size={8} className="text-primary" />
+                          <span className="text-[8px] font-black uppercase text-primary tracking-widest">
+                            {wifi5softAccounts.find(a => a.id === client.wifi5softAccountId)?.name || "Synced Node"}
+                          </span>
+                        </div>
+                      )}
                       <div className="text-[8px] text-text-dim/50 font-mono italic">
                         UID: {client.uid.substring(0, 16)}
                       </div>
@@ -3165,6 +3263,8 @@ function AdminPanel({
                               const mins = String(current.getMinutes()).padStart(2, '0');
                               
                               setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
+                              setTempClientId(client.clientId || "");
+                              setTempWifi5softAccountId(client.wifi5softAccountId || "");
                               setEditingScheduleUser(client);
                             }}
                             className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1"
@@ -3634,6 +3734,175 @@ function AdminPanel({
             </motion.div>
           </motion.div>
         )}
+
+        {notifyingUser && (
+          <NotificationModal
+            key="notif-modal"
+            notifyingUser={notifyingUser}
+            setNotifyingUser={setNotifyingUser}
+            notifForm={notifForm}
+            setNotifForm={setNotifForm}
+            handleSendNotification={handleSendNotification}
+          />
+        )}
+
+        {editingScheduleUser && (
+          <ScheduleModal
+            key="sched-modal"
+            editingScheduleUser={editingScheduleUser}
+            setEditingScheduleUser={setEditingScheduleUser}
+            tempDueDate={tempDueDate}
+            setTempDueDate={setTempDueDate}
+            tempClientId={tempClientId}
+            setTempClientId={setTempClientId}
+            tempWifi5softAccountId={tempWifi5softAccountId}
+            setTempWifi5softAccountId={setTempWifi5softAccountId}
+            wifi5softAccounts={wifi5softAccounts}
+            updateClientProfile={updateClientProfile}
+          />
+        )}
+
+        {editingCycle && (
+          <BillingCycleModal
+            key="cycle-modal"
+            editingCycle={editingCycle}
+            setEditingCycle={setEditingCycle}
+            handleSaveCycle={handleSaveCycle}
+          />
+        )}
+
+        {/* WiFi5Soft Account Edit Modal */}
+        {wifi5softAccountToEdit && (
+          <motion.div
+            key="wifi5soft-edit-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10002] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
+          >
+            <motion.form
+              onSubmit={handleSaveWifi5SoftAccount}
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="bg-bg-surface border border-border-subtle p-10 max-w-xl w-full space-y-8"
+            >
+              <div>
+                <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+                  INFRASTRUCTURE <span className="text-primary not-italic">NODE</span>
+                </h3>
+                <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+                  Configure WiFi5Soft server credentials for payment automation.
+                </p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Node Name</label>
+                  <input
+                    required
+                    value={wifi5softAccountToEdit.name}
+                    onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, name: e.target.value})}
+                    placeholder="e.g. Branch A Server"
+                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-bold uppercase text-white"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Owner Email (Account Owner)</label>
+                  <input
+                    type="email"
+                    value={wifi5softAccountToEdit.ownerEmail || ""}
+                    onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, ownerEmail: e.target.value})}
+                    placeholder="owner@example.com"
+                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Client ID</label>
+                    <input
+                      required
+                      value={wifi5softAccountToEdit.clientId}
+                      onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, clientId: e.target.value})}
+                      placeholder="89CTzJeX"
+                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-xs font-mono text-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">API Key</label>
+                    <input
+                      required
+                      type="password"
+                      value={wifi5softAccountToEdit.apiKey}
+                      onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, apiKey: e.target.value})}
+                      placeholder="xNaLMOSE... "
+                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-xs font-mono text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2"
+                >
+                  <Zap size={14} />
+                  Deploy Node
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWifi5softAccountToEdit(null)}
+                  className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.form>
+          </motion.div>
+        )}
+
+        {/* WiFi5Soft Account Delete Modal */}
+        {wifi5softAccountToDelete && (
+          <motion.div
+            key="wifi5soft-delete-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10003] bg-black/95 flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-bg-surface border border-primary/30 p-12 max-w-md w-full text-center space-y-8"
+            >
+              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle size={40} className="text-primary" />
+              </div>
+              <div>
+                <h4 className="text-xl font-black uppercase italic tracking-tighter mb-2">Decomission Node?</h4>
+                <p className="text-[10px] text-text-muted leading-relaxed uppercase tracking-widest">
+                  Are you sure you want to remove <span className="text-white font-bold">{wifi5softAccountToDelete.name}</span>? This will disconnect all linked subscribers from automatic synchronization.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleDeleteWifi5SoftAccount}
+                  className="w-full py-4 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-[11px] hover:bg-primary-dark transition-all"
+                >
+                  Confirm Decommission
+                </button>
+                <button
+                  onClick={() => setWifi5softAccountToDelete(null)}
+                  className="w-full py-4 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+                >
+                  Abort Operation
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </section>
   );
@@ -3651,14 +3920,13 @@ function BillingCycleModal({
   if (!editingCycle) return null;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
-        onClick={() => setEditingCycle(null)}
-      >
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+      onClick={() => setEditingCycle(null)}
+    >
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -3777,7 +4045,6 @@ function BillingCycleModal({
           </form>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
   );
 }
 
@@ -3786,23 +4053,33 @@ function ScheduleModal({
   setEditingScheduleUser,
   tempDueDate,
   setTempDueDate,
-  updateClientDueDate,
+  tempClientId,
+  setTempClientId,
+  tempWifi5softAccountId,
+  setTempWifi5softAccountId,
+  wifi5softAccounts,
+  updateClientProfile,
 }: {
   editingScheduleUser: UserProfile | null;
   setEditingScheduleUser: (u: UserProfile | null) => void;
   tempDueDate: string;
   setTempDueDate: (s: string) => void;
-  updateClientDueDate: (uid: string, date: string) => void;
+  tempClientId: string;
+  setTempClientId: (s: string) => void;
+  tempWifi5softAccountId: string;
+  setTempWifi5softAccountId: (s: string) => void;
+  wifi5softAccounts: WiFi5SoftAccount[];
+  updateClientProfile: (uid: string, date: string, clientId: string, wifi5softAccountId?: string) => void;
 }) {
+  if (!editingScheduleUser) return null;
+
   return (
-    <AnimatePresence>
-      {editingScheduleUser && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[10001] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
-        >
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10001] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -3819,6 +4096,37 @@ function ScheduleModal({
             </div>
 
             <div className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                    WiFi5Soft Integration Node
+                  </label>
+                  <select
+                    value={tempWifi5softAccountId}
+                    onChange={(e) => setTempWifi5softAccountId(e.target.value)}
+                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white"
+                  >
+                    <option value="">No Active Sync</option>
+                    {wifi5softAccounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>{acc.name} ({acc.clientId})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                    Client ID (Assignment)
+                  </label>
+                  <input
+                    type="text"
+                    value={tempClientId}
+                    onChange={(e) => setTempClientId(e.target.value)}
+                    placeholder="e.g. PPPOE_USER_001"
+                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
                   New Settlement Timestamp
@@ -3859,7 +4167,7 @@ function ScheduleModal({
 
             <div className="flex gap-4 pt-4">
               <button
-                onClick={() => updateClientDueDate(editingScheduleUser.uid, tempDueDate)}
+                onClick={() => updateClientProfile(editingScheduleUser.uid, tempDueDate, tempClientId, tempWifi5softAccountId)}
                 className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2"
               >
                 <CheckCircle2 size={14} />
@@ -3875,8 +4183,6 @@ function ScheduleModal({
             </div>
           </motion.div>
         </motion.div>
-      )}
-    </AnimatePresence>
   );
 }
 
@@ -3893,15 +4199,15 @@ function NotificationModal({
   setNotifForm: (f: any) => void;
   handleSendNotification: (e: React.FormEvent) => void;
 }) {
+  if (!notifyingUser) return null;
+
   return (
-    <AnimatePresence>
-      {notifyingUser && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
-        >
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
           <motion.form
             onSubmit={handleSendNotification}
             initial={{ scale: 0.95, opacity: 0 }}
@@ -3992,7 +4298,5 @@ function NotificationModal({
             </div>
           </motion.form>
         </motion.div>
-      )}
-    </AnimatePresence>
   );
 }

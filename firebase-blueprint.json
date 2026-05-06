@@ -7,11 +7,13 @@
       "properties": {
         "uid": { "type": "string" },
         "accountNumber": { "type": "string" },
+        "clientId": { "type": "string" },
         "displayName": { "type": "string" },
         "email": { "type": "string" },
         "address": { "type": "string" },
         "currentPlanId": { "type": "string" },
         "balance": { "type": "number" },
+        "wifi5softAccountId": { "type": "string" },
         "dueDate": { "type": "string", "format": "date-time" },
         "billStatus": { "type": "string", "enum": ["paid", "due", "overdue"] },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -105,21 +107,35 @@
       },
       "required": ["text", "senderId", "senderRole", "createdAt"]
     },
-    "telegramSettings": {
-      "title": "Telegram Bot Settings",
-      "description": "Credentials for Telegram bot notifications.",
+    "wifi5softSettings": {
+      "title": "WiFi5Soft API Settings",
+      "description": "Legacy global credentials for WiFi5Soft billing system integration.",
       "type": "object",
       "properties": {
-        "botToken": { "type": "string" },
-        "chatId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "apiKey": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "wifi5softAccount": {
+      "title": "WiFi5Soft Service Node",
+      "description": "Configurable node representing a specific WiFi5Soft branch or server instance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "clientId": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "clientId", "apiKey"]
     }
   },
   "firestore": {
-    "settings/telegram": {
-      "schema": "telegramSettings",
-      "description": "Configuration for Telegram bot alerts."
+    "settings/wifi5soft": {
+      "schema": "wifi5softSettings",
+      "description": "Global settings for WiFi5Soft integration."
     },
     "admins/{userId}": {
       "schema": { "type": "object", "properties": { "role": { "type": "string" } } },
@@ -152,6 +168,10 @@
     "plans/{planId}": {
       "schema": "plans",
       "description": "Available internet service packages."
+    },
+    "wifi5soft_accounts/{accountId}": {
+      "schema": "wifi5softAccount",
+      "description": "Configurable service nodes for automated billing integration."
     }
   }
 }

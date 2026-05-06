@@ -34,6 +34,7 @@ service cloud.firestore {
                data.email is string && data.email.size() <= 256 &&
                data.balance is number &&
                (!('status' in data) || data.status in ['active', 'suspended']) &&
+               (!('wifi5softAccountId' in data) || data.wifi5softAccountId is string) &&
                data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance', 'billStatus']);
       }
 
@@ -128,9 +129,17 @@ service cloud.firestore {
       allow get: if isOwner(chatId) || isAdmin();
       allow create: if (isOwner(chatId) || isAdmin()) && isValidChatMessage(request.resource.data);
     }
-    // Settings collection
-    match /settings/telegram {
-      allow read, write: if isAdmin();
+
+    match /wifi5soft_accounts/{accountId} {
+      allow list: if isAdmin();
+      allow get: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /settings/wifi5soft {
+      allow get: if isAdmin();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }

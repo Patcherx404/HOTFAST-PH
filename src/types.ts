@@ -11,11 +11,14 @@ export interface InternetPlan {
   price: number; // in PHP
   features: string[];
   isPopular?: boolean;
+  updatedAt?: any;
 }
 
 export interface UserProfile {
   uid: string;
   accountNumber: string;
+  clientId?: string;
+  wifi5softAccountId?: string; // Link to a specific WiFi5Soft configuration
   displayName: string;
   email: string;
   address: string;
@@ -24,6 +27,15 @@ export interface UserProfile {
   dueDate?: any; // Timestamp
   billStatus?: 'paid' | 'due' | 'overdue';
   status?: 'active' | 'suspended';
+}
+
+export interface WiFi5SoftAccount {
+  id: string;
+  name: string;
+  ownerEmail?: string;
+  clientId: string;
+  apiKey: string;
+  updatedAt?: any;
 }
 
 export interface SystemNotification {
