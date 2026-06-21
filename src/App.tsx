@@ -93,7 +93,6 @@ import {
   BillingCycle,
   ChatSession,
   ChatMessage,
-  WiFi5SoftAccount,
 } from "./types";
 
 export default function App() {
@@ -1784,16 +1783,9 @@ function AdminPanel({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
-  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "wifi5soft">(
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats">(
     "payments",
   );
-  const [wifi5softSettings, setWifi5softSettings] = useState<any>(null);
-  const [wifi5softAccounts, setWifi5softAccounts] = useState<WiFi5SoftAccount[]>([]);
-  const [wifi5softAccountToEdit, setWifi5softAccountToEdit] = useState<WiFi5SoftAccount | null>(null);
-  const [wifi5softAccountToDelete, setWifi5softAccountToDelete] = useState<WiFi5SoftAccount | null>(null);
-  const [localWifi5Soft, setLocalWifi5Soft] = useState({ clientId: "", apiKey: "" });
-  const [isSavingWifi5Soft, setIsSavingWifi5Soft] = useState(false);
-  const [isTestingWifi5Soft, setIsTestingWifi5Soft] = useState(false);
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
@@ -1808,56 +1800,20 @@ function AdminPanel({
   const [paymentToDelete, setPaymentToDelete] = useState<PaymentRecord | null>(null);
   const [viewingScreenshot, setViewingScreenshot] = useState<string | null>(null);
   const [clientToDelete, setClientToDelete] = useState<UserProfile | null>(null);
+  const [chatToDelete, setChatToDelete] = useState<ChatSession | null>(null);
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
   const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
   const [tempDueDate, setTempDueDate] = useState("");
   const [tempClientId, setTempClientId] = useState("");
-  const [tempWifi5softAccountId, setTempWifi5softAccountId] = useState("");
+  const [tempUid, setTempUid] = useState("");
+  const [tempDisplayName, setTempDisplayName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
+  const [tempPhone, setTempPhone] = useState("");
+  const [tempAddress, setTempAddress] = useState("");
+  const [tempAccountNumber, setTempAccountNumber] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
-
-  useEffect(() => {
-    if (!user || !firebaseIsAdmin) return;
-    const unsub = onSnapshot(collection(db, "wifi5soft_accounts"), (snapshot) => {
-      const accounts = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as WiFi5SoftAccount));
-      setWifi5softAccounts(accounts);
-    }, (error) => {
-      console.error("WiFi5Soft accounts sync error:", error);
-    });
-    return unsub;
-  }, [user, firebaseIsAdmin]);
-
-  useEffect(() => {
-    if (!user || !firebaseIsAdmin) return;
-    const unsub = onSnapshot(doc(db, "settings", "wifi5soft"), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setWifi5softSettings(data);
-        setLocalWifi5Soft({
-          clientId: data.clientId || "",
-          apiKey: data.apiKey || ""
-        });
-      }
-    });
-    return unsub;
-  }, [user, firebaseIsAdmin]);
-
-  const syncToWiFi5Soft = async (userEmail: string, amount: number, referenceId: string, userId?: string) => {
-    try {
-      const response = await fetch("/api/wifi5soft/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userEmail, amount, referenceId, userId })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      toast.success("WiFi5Soft Payment Reflected");
-    } catch (e: any) {
-      console.error("WiFi5Soft Sync Failed:", e);
-      toast.error(`Billing Sync Failed: ${e.message}`);
-    }
-  };
 
   const toISODate = (date: Date) => {
     const year = date.getFullYear();
@@ -2159,8 +2115,7 @@ function AdminPanel({
           billStatus: newBillStatus,
         });
 
-        // Trigger WiFi5Soft Sync
-        syncToWiFi5Soft(userData.email, payment.amount, payment.id || "", payment.userId);
+
       } 
       // If was completed and now changed to failed/pending, add back to user balance
       else if (status !== "completed" && oldStatus === "completed") {
@@ -2217,6 +2172,39 @@ function AdminPanel({
     }
   };
 
+  const deleteConversation = (chat: ChatSession) => {
+    setChatToDelete(chat);
+  };
+
+  const confirmConversationDeletion = async () => {
+    if (!chatToDelete || !chatToDelete.id) return;
+    const progressToast = toast.loading("Purging conversation history...");
+    try {
+      // 1. Delete all subcollection messages
+      const messagesRef = collection(db, "chats", chatToDelete.id, "messages");
+      const messagesSnap = await getDocs(messagesRef);
+      for (const msgDoc of messagesSnap.docs) {
+        await deleteDoc(msgDoc.ref);
+      }
+      
+      // 2. Delete main chat doc
+      await deleteDoc(doc(db, "chats", chatToDelete.id));
+      
+      // Update local state if the deleted chat was selected
+      if (selectedChat?.id === chatToDelete.id) {
+        setSelectedChat(null);
+      }
+      
+      setChatToDelete(null);
+      toast.dismiss(progressToast);
+      toast.success("Conversation history fully purged!");
+    } catch (e) {
+      toast.dismiss(progressToast);
+      console.error("Failed to delete conversation:", e);
+      handleFirestoreError(e, OperationType.DELETE, `chats/${chatToDelete.id}`);
+    }
+  };
+
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedChat || !reply.trim()) return;
@@ -2259,38 +2247,6 @@ function AdminPanel({
     setPlanToDelete(id);
   };
 
-  const handleSaveWifi5SoftAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!wifi5softAccountToEdit) return;
-    try {
-      const accountRef = wifi5softAccountToEdit.id 
-        ? doc(db, "wifi5soft_accounts", wifi5softAccountToEdit.id)
-        : doc(collection(db, "wifi5soft_accounts"));
-      
-      const accountData = {
-        ...wifi5softAccountToEdit,
-        id: accountRef.id,
-        updatedAt: serverTimestamp()
-      };
-      
-      await setDoc(accountRef, accountData);
-      setWifi5softAccountToEdit(null);
-      toast.success("WiFi5Soft account saved.");
-    } catch (err: any) {
-      handleFirestoreError(err, OperationType.UPDATE, `wifi5soft_accounts/${wifi5softAccountToEdit?.id || 'new'}`);
-    }
-  };
-
-  const handleDeleteWifi5SoftAccount = async () => {
-    if (!wifi5softAccountToDelete) return;
-    try {
-      await deleteDoc(doc(db, "wifi5soft_accounts", wifi5softAccountToDelete.id));
-      setWifi5softAccountToDelete(null);
-      toast.success("WiFi5Soft account deleted.");
-    } catch (err: any) {
-      handleFirestoreError(err, OperationType.DELETE, `wifi5soft_accounts/${wifi5softAccountToDelete.id}`);
-    }
-  };
 
   const confirmDeletion = async () => {
     if (!planToDelete) return;
@@ -2304,30 +2260,165 @@ function AdminPanel({
     }
   };
 
-  const updateClientProfile = async (userId: string, dateStr: string, clientId: string, wifi5softAccountId?: string) => {
+  const updateClientProfile = async (
+    userId: string,
+    newUid: string,
+    dateStr: string,
+    clientId: string,
+    displayName: string,
+    email: string,
+    phone: string,
+    address: string,
+    accountNumber: string
+  ) => {
     try {
       const newDate = new Date(dateStr);
       if (isNaN(newDate.getTime())) {
         toast.error("Invalid date format. Please use the calendar picker.");
         return;
       }
-      const userRef = doc(db, "users", userId);
+
       const now = new Date();
       const isPast = newDate < now;
       const isPastGrace = newDate < new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
-      
-      await updateDoc(userRef, { 
-        dueDate: newDate,
-        clientId: clientId || "",
-        wifi5softAccountId: wifi5softAccountId || "",
-        status: isPastGrace ? 'suspended' : 'active',
-        billStatus: isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid')
-      });
+      const updatedStatus = isPastGrace ? 'suspended' : 'active';
+      const updatedBillStatus = isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid');
+
+      if (newUid && newUid !== userId) {
+        // Validate if newUid already exists
+        const existsLocally = clients.some(c => c.uid === newUid);
+        if (existsLocally) {
+          toast.error(`A subscriber with UID/Account ID "${newUid}" already exists!`);
+          return;
+        }
+
+        setIsSyncing(true);
+        const progressToast = toast.loading("Migrating subscriber data and history...");
+
+        try {
+          // 1. Fetch old user document
+          const oldUserRef = doc(db, "users", userId);
+          const oldUserSnap = await getDoc(oldUserRef);
+          if (!oldUserSnap.exists()) {
+            toast.error("Original subscriber document not found.");
+            toast.dismiss(progressToast);
+            setIsSyncing(false);
+            return;
+          }
+
+          const userData = oldUserSnap.data();
+
+          // 2. Prepare new user document data
+          const newUserRef = doc(db, "users", newUid);
+          await setDoc(newUserRef, {
+            ...userData,
+            uid: newUid,
+            displayName: displayName || userData.displayName || "",
+            email: email || userData.email || "",
+            phone: phone || userData.phone || "",
+            address: address || userData.address || "",
+            accountNumber: accountNumber || userData.accountNumber || "",
+            dueDate: newDate,
+            clientId: clientId || "",
+            status: updatedStatus,
+            billStatus: updatedBillStatus
+          });
+
+          // 3. Migrate subcollection: users/{userId}/payments
+          const oldPaymentsRef = collection(db, "users", userId, "payments");
+          const oldPaymentsSnap = await getDocs(oldPaymentsRef);
+          for (const paymentDoc of oldPaymentsSnap.docs) {
+            const paymentData = paymentDoc.data();
+            const newPaymentRef = doc(db, "users", newUid, "payments", paymentDoc.id);
+            await setDoc(newPaymentRef, {
+              ...paymentData,
+              userId: newUid
+            });
+            // Delete old payment doc
+            await deleteDoc(paymentDoc.ref);
+          }
+
+          // 4. Migrate chats/{userId} document
+          const oldChatRef = doc(db, "chats", userId);
+          const oldChatSnap = await getDoc(oldChatRef);
+          if (oldChatSnap.exists()) {
+            const chatData = oldChatSnap.data();
+            const newChatRef = doc(db, "chats", newUid);
+            await setDoc(newChatRef, {
+              ...chatData,
+              userId: newUid
+            });
+
+            // Migrate subcollection: chats/{oldUid}/messages to chats/{newUid}/messages
+            const oldMessagesRef = collection(db, "chats", userId, "messages");
+            const oldMessagesSnap = await getDocs(oldMessagesRef);
+            for (const msgDoc of oldMessagesSnap.docs) {
+              const msgData = msgDoc.data();
+              const newMsgRef = doc(db, "chats", newUid, "messages", msgDoc.id);
+              await setDoc(newMsgRef, msgData);
+              await deleteDoc(msgDoc.ref);
+            }
+
+            // Delete old chat document
+            await deleteDoc(oldChatRef);
+          }
+
+          // 5. Delete old user document
+          await deleteDoc(oldUserRef);
+
+          toast.dismiss(progressToast);
+          toast.success("Subscriber Account ID (UID) and profile migrated successfully!");
+        } catch (migrationErr: any) {
+          console.error("Migration error:", migrationErr);
+          toast.dismiss(progressToast);
+          toast.error(`Migration failed: ${migrationErr.message}`);
+          setIsSyncing(false);
+          return;
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        const userRef = doc(db, "users", userId);
+        await updateDoc(userRef, { 
+          displayName: displayName || "",
+          email: email || "",
+          phone: phone || "",
+          address: address || "",
+          accountNumber: accountNumber || "",
+          dueDate: newDate,
+          clientId: clientId || "",
+          status: updatedStatus,
+          billStatus: updatedBillStatus
+        });
+        toast.success("Subscriber profile updated.");
+      }
       setEditingScheduleUser(null);
-      toast.success("Subscriber profile updated.");
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
     }
+  };
+
+  const triggerEditClient = (client: UserProfile) => {
+    const current = client.dueDate?.toDate 
+      ? client.dueDate.toDate()
+      : (client.dueDate ? new Date(client.dueDate) : new Date());
+    
+    // Format for datetime-local input: YYYY-MM-DDTHH:MM
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    const hours = String(current.getHours()).padStart(2, '0');
+    const mins = String(current.getMinutes()).padStart(2, '0');
+    
+    setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
+    setTempClientId(client.clientId || "");
+    setTempUid(client.uid);
+    setTempDisplayName(client.displayName || "");
+    setTempEmail(client.email || "");
+    setTempPhone(client.phone || "");
+    setTempAddress(client.address || "");
+    setTempAccountNumber(client.accountNumber || "");
+    setEditingScheduleUser(client);
   };
 
   const toggleUserSuspension = async (userId: string, currentStatus: string | undefined) => {
@@ -2463,7 +2554,6 @@ function AdminPanel({
                 { id: "clients", label: "Subscribers", icon: UsersIcon },
                 { id: "cycles", label: "Cycles", icon: Calendar },
                 { id: "chats", label: "Support", icon: MessageSquare },
-                { id: "wifi5soft", label: "WiFi5Soft", icon: Zap },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2955,17 +3045,29 @@ function AdminPanel({
                 <div className="p-8 text-center text-[10px] font-bold text-text-muted uppercase">No active chats</div>
               ) : (
                 chatSessions.map((chat, idx) => (
-                  <button
+                  <div
                     key={`chat-session-${chat.id || idx}`}
                     onClick={() => setSelectedChat(chat)}
-                    className={`w-full p-4 border-b border-border-subtle text-left transition-all hover:bg-bg-base/50 ${selectedChat?.id === chat.id ? "bg-bg-base border-r-4 border-r-primary" : ""}`}
+                    className={`w-full p-4 border-b border-border-subtle text-left transition-all hover:bg-bg-base/50 cursor-pointer flex justify-between items-center group relative ${selectedChat?.id === chat.id ? "bg-bg-base border-r-4 border-r-primary" : ""}`}
                   >
-                    <div className="font-black uppercase italic text-xs mb-1">{chat.userName}</div>
-                    <div className="text-[10px] text-text-muted truncate">{chat.lastMessage || "No messages yet"}</div>
-                    <div className="text-[8px] text-primary mt-2 font-bold uppercase">
-                      {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE }) : "..."}
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-black uppercase italic text-xs mb-1 truncate">{chat.userName}</div>
+                      <div className="text-[10px] text-text-muted truncate">{chat.lastMessage || "No messages yet"}</div>
+                      <div className="text-[8px] text-primary mt-2 font-bold uppercase">
+                        {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE }) : "..."}
+                      </div>
                     </div>
-                  </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteConversation(chat);
+                      }}
+                      className="p-2 border border-red-500/20 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 hover:border-red-500/40 transition-all opacity-0 group-hover:opacity-100 flex items-center justify-center rounded"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -2975,7 +3077,7 @@ function AdminPanel({
           <div className="flex-1 bg-bg-surface border border-border-subtle flex flex-col overflow-hidden relative">
             {selectedChat ? (
               <>
-                <div className="p-4 bg-bg-surface border-b border-border-subtle flex justify-between items-center">
+                <div className="p-4 bg-bg-surface border-b border-border-subtle flex justify-between items-center gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
                       <UserIcon size={20} />
@@ -2985,6 +3087,13 @@ function AdminPanel({
                       <p className="text-[9px] text-text-muted font-bold">UID: {selectedChat.userId}</p>
                     </div>
                   </div>
+                  <button
+                    onClick={() => deleteConversation(selectedChat)}
+                    className="p-3 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic"
+                    title="Purge Conversation History"
+                  >
+                    <Trash2 size={12} /> Purge Chat
+                  </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-bg-base/30">
@@ -3018,107 +3127,6 @@ function AdminPanel({
               <div className="flex-1 flex flex-col items-center justify-center opacity-30">
                 <MessageSquare size={64} className="mb-4" />
                 <p className="text-sm font-black uppercase tracking-[0.2em]">Select a conversation to begin</p>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : adminTab === "wifi5soft" ? (
-        <div className="bg-bg-surface border border-border-subtle p-8 md:p-12">
-          <div className="flex items-start justify-between mb-12">
-            <div className="flex items-start gap-6">
-              <div className="p-4 bg-primary/10 text-primary border border-primary/20">
-                <Zap size={24} />
-              </div>
-              <div>
-                <h4 className="text-xl font-black uppercase italic tracking-tight mb-2">WIFI5SOFT BILLING INTEGRATION</h4>
-                <p className="text-text-muted text-xs font-medium max-w-xl leading-relaxed">
-                  Manage multiple WiFi5Soft service nodes. You can assign these credentials to specific subscribers to automate their payment reflection across different branches or servers.
-                </p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setWifi5softAccountToEdit({ id: "", name: "", ownerEmail: "", clientId: "", apiKey: "" })}
-              className="px-6 py-4 bg-hot-black border border-primary/50 text-white font-black uppercase tracking-widest italic text-[10px] hover:bg-primary transition-all flex items-center gap-2 group"
-            >
-              <PlusIcon size={14} className="group-hover:rotate-90 transition-transform" /> 
-              Deploy Configuration
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {wifi5softAccounts.map((account) => (
-              <div key={account.id} className="sharp-card bg-hot-black p-8 border border-border-subtle group hover:border-primary/50 transition-all relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 -mr-12 -mt-12 rounded-full blur-2xl group-hover:bg-primary/20 transition-all" />
-                
-                <div className="flex justify-between items-start mb-8 relative z-10">
-                  <div>
-                    <h5 className="font-black uppercase italic text-lg tracking-tight text-white mb-1">{account.name}</h5>
-                    <div className="flex items-center gap-2">
-                       <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                       <span className="text-[10px] font-black uppercase tracking-widest text-primary">Active Node</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 mt-1">
-                    <button onClick={() => setWifi5softAccountToEdit(account)} className="p-2 text-text-dim hover:text-white hover:bg-white/5 transition-all rounded">
-                      <Edit3 size={14} />
-                    </button>
-                    <button onClick={() => setWifi5softAccountToDelete(account)} className="p-2 text-text-dim hover:text-primary hover:bg-primary/5 transition-all rounded">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-4 relative z-10">
-                  {account.ownerEmail && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">NODE OWNER</span>
-                      <span className="font-mono text-[10px] text-primary bg-primary/5 px-2 py-1 rounded truncate">{account.ownerEmail}</span>
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">CLIENT IDENTIFIER</span>
-                    <span className="font-mono text-xs text-white bg-white/5 px-2 py-1 rounded truncate">{account.clientId}</span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-text-muted">SECURE API KEY</span>
-                    <span className="font-mono text-xs text-text-dim bg-white/5 px-2 py-1 rounded">••••••••••••••••</span>
-                  </div>
-                </div>
-
-                <div className="mt-8 pt-6 border-t border-white/5 flex gap-3 relative z-10">
-                    <button 
-                      onClick={async () => {
-                        setIsTestingWifi5Soft(true);
-                        try {
-                          const res = await fetch("/api/wifi5soft/test", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(account)
-                          });
-                          const data = await res.json();
-                          if (res.ok) toast.success(`${account.name}: ${data.message}`);
-                          else toast.error(data.error);
-                        } catch (err: any) {
-                          toast.error("Network error: " + err.message);
-                        } finally {
-                          setIsTestingWifi5Soft(false);
-                        }
-                      }}
-                      className="flex-1 py-3 border border-border-subtle hover:bg-white/5 text-[9px] font-black uppercase tracking-widest text-white transition-all flex items-center justify-center gap-2"
-                    >
-                      <Zap size={10} /> Test Sync
-                    </button>
-                </div>
-              </div>
-            ))}
-
-            {wifi5softAccounts.length === 0 && (
-              <div className="md:col-span-2 lg:col-span-3 py-24 text-center border-2 border-dashed border-border-subtle/30 rounded-xl">
-                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Zap size={32} className="text-text-muted opacity-20" />
-                </div>
-                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-text-muted mb-2">No Active Nodes</h3>
-                <p className="text-[10px] text-text-dim uppercase tracking-widest">Connect your WiFi5Soft server to begin automation</p>
               </div>
             )}
           </div>
@@ -3180,37 +3188,43 @@ function AdminPanel({
                     className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
                   >
                     <td className="px-8 py-6">
-                      <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
-                        {client.displayName}
-                        {client.status === 'suspended' && (
-                          <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic">
-                            Suspended
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-text-muted font-mono">
-                        {client.email}
+                      <div 
+                        onClick={() => triggerEditClient(client)}
+                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                        title="Click to Edit Profile & UID"
+                      >
+                        <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
+                          {client.displayName}
+                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                          {client.status === 'suspended' && (
+                            <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic normal-case">
+                              Suspended
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
+                          {client.email}
+                        </div>
                       </div>
                     </td>
                     <td className="px-8 py-6">
-                      <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1">
-                        #{client.accountNumber}
-                      </div>
-                      {client.clientId && (
-                        <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
-                          CID: {client.clientId}
+                      <div 
+                        onClick={() => triggerEditClient(client)}
+                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                        title="Click to Edit Profile & UID"
+                      >
+                        <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1 flex items-center gap-1.5">
+                          #{client.accountNumber}
+                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
-                      )}
-                      {client.wifi5softAccountId && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <Zap size={8} className="text-primary" />
-                          <span className="text-[8px] font-black uppercase text-primary tracking-widest">
-                            {wifi5softAccounts.find(a => a.id === client.wifi5softAccountId)?.name || "Synced Node"}
-                          </span>
+                        {client.clientId && (
+                          <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
+                            CID: {client.clientId}
+                          </div>
+                        )}
+                        <div className="text-[8px] text-text-dim/50 font-mono italic">
+                          UID: {client.uid}
                         </div>
-                      )}
-                      <div className="text-[8px] text-text-dim/50 font-mono italic">
-                        UID: {client.uid.substring(0, 16)}
                       </div>
                     </td>
                     <td className="px-8 py-6">
@@ -3250,32 +3264,22 @@ function AdminPanel({
                             </div>
                           )}
                           <button
-                            onClick={() => {
-                              const current = client.dueDate?.toDate 
-                                ? client.dueDate.toDate()
-                                : (client.dueDate ? new Date(client.dueDate) : new Date());
-                              
-                              // Format for datetime-local input: YYYY-MM-DDTHH:MM
-                              const year = current.getFullYear();
-                              const month = String(current.getMonth() + 1).padStart(2, '0');
-                              const day = String(current.getDate()).padStart(2, '0');
-                              const hours = String(current.getHours()).padStart(2, '0');
-                              const mins = String(current.getMinutes()).padStart(2, '0');
-                              
-                              setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
-                              setTempClientId(client.clientId || "");
-                              setTempWifi5softAccountId(client.wifi5softAccountId || "");
-                              setEditingScheduleUser(client);
-                            }}
-                            className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1"
+                            onClick={() => triggerEditClient(client)}
+                            className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1 flex items-center gap-1"
                           >
-                            Edit Schedule
+                            <Edit3 size={8} /> Edit Profile & UID
                           </button>
                         </div>
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => triggerEditClient(client)}
+                          className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
+                        >
+                          <Edit3 size={10} /> Edit
+                        </button>
                         <button
                           onClick={() => toggleUserSuspension(client.uid, client.status)}
                           className={`px-4 py-2 border ${client.status === 'suspended' ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white" : "border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-white"} text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2`}
@@ -3683,6 +3687,47 @@ function AdminPanel({
           </motion.div>
         )}
 
+        {chatToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setChatToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-sm w-full border-t-8 border-primary bg-bg-base text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Trash2 className="mx-auto text-primary mb-6 animate-bounce" size={48} />
+              <h3 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                PURGE <span className="text-primary not-italic">CHAT</span>?
+              </h3>
+              <p className="text-xs text-text-muted font-bold uppercase tracking-widest leading-relaxed mb-10">
+                Are you sure you want to delete conversation with <span className="text-white">{chatToDelete.userName}</span>?
+                All messages and chat history in this channel will be permanently scrubbed from the system.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmConversationDeletion}
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+                >
+                  CONFIRM PURGE
+                </button>
+                <button
+                  onClick={() => setChatToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all"
+                >
+                  ABORT OPERATION
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {viewingScreenshot && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -3755,9 +3800,18 @@ function AdminPanel({
             setTempDueDate={setTempDueDate}
             tempClientId={tempClientId}
             setTempClientId={setTempClientId}
-            tempWifi5softAccountId={tempWifi5softAccountId}
-            setTempWifi5softAccountId={setTempWifi5softAccountId}
-            wifi5softAccounts={wifi5softAccounts}
+            tempUid={tempUid}
+            setTempUid={setTempUid}
+            tempDisplayName={tempDisplayName}
+            setTempDisplayName={setTempDisplayName}
+            tempEmail={tempEmail}
+            setTempEmail={setTempEmail}
+            tempPhone={tempPhone}
+            setTempPhone={setTempPhone}
+            tempAddress={tempAddress}
+            setTempAddress={setTempAddress}
+            tempAccountNumber={tempAccountNumber}
+            setTempAccountNumber={setTempAccountNumber}
             updateClientProfile={updateClientProfile}
           />
         )}
@@ -3771,138 +3825,7 @@ function AdminPanel({
           />
         )}
 
-        {/* WiFi5Soft Account Edit Modal */}
-        {wifi5softAccountToEdit && (
-          <motion.div
-            key="wifi5soft-edit-modal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10002] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
-          >
-            <motion.form
-              onSubmit={handleSaveWifi5SoftAccount}
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="bg-bg-surface border border-border-subtle p-10 max-w-xl w-full space-y-8"
-            >
-              <div>
-                <h3 className="text-2xl font-black uppercase italic tracking-tighter">
-                  INFRASTRUCTURE <span className="text-primary not-italic">NODE</span>
-                </h3>
-                <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
-                  Configure WiFi5Soft server credentials for payment automation.
-                </p>
-              </div>
 
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Node Name</label>
-                  <input
-                    required
-                    value={wifi5softAccountToEdit.name}
-                    onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, name: e.target.value})}
-                    placeholder="e.g. Branch A Server"
-                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-bold uppercase text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Owner Email (Account Owner)</label>
-                  <input
-                    type="email"
-                    value={wifi5softAccountToEdit.ownerEmail || ""}
-                    onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, ownerEmail: e.target.value})}
-                    placeholder="owner@example.com"
-                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono text-white"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">Client ID</label>
-                    <input
-                      required
-                      value={wifi5softAccountToEdit.clientId}
-                      onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, clientId: e.target.value})}
-                      placeholder="89CTzJeX"
-                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest font-black text-text-dim">API Key</label>
-                    <input
-                      required
-                      type="password"
-                      value={wifi5softAccountToEdit.apiKey}
-                      onChange={(e) => setWifi5softAccountToEdit({...wifi5softAccountToEdit, apiKey: e.target.value})}
-                      placeholder="xNaLMOSE... "
-                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-xs font-mono text-white"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2"
-                >
-                  <Zap size={14} />
-                  Deploy Node
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWifi5softAccountToEdit(null)}
-                  className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </motion.form>
-          </motion.div>
-        )}
-
-        {/* WiFi5Soft Account Delete Modal */}
-        {wifi5softAccountToDelete && (
-          <motion.div
-            key="wifi5soft-delete-modal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10003] bg-black/95 flex items-center justify-center p-6"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-bg-surface border border-primary/30 p-12 max-w-md w-full text-center space-y-8"
-            >
-              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-                <AlertTriangle size={40} className="text-primary" />
-              </div>
-              <div>
-                <h4 className="text-xl font-black uppercase italic tracking-tighter mb-2">Decomission Node?</h4>
-                <p className="text-[10px] text-text-muted leading-relaxed uppercase tracking-widest">
-                  Are you sure you want to remove <span className="text-white font-bold">{wifi5softAccountToDelete.name}</span>? This will disconnect all linked subscribers from automatic synchronization.
-                </p>
-              </div>
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={handleDeleteWifi5SoftAccount}
-                  className="w-full py-4 bg-primary text-white font-black uppercase tracking-[0.2em] italic text-[11px] hover:bg-primary-dark transition-all"
-                >
-                  Confirm Decommission
-                </button>
-                <button
-                  onClick={() => setWifi5softAccountToDelete(null)}
-                  className="w-full py-4 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
-                >
-                  Abort Operation
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
       </AnimatePresence>
     </section>
   );
@@ -4055,9 +3978,18 @@ function ScheduleModal({
   setTempDueDate,
   tempClientId,
   setTempClientId,
-  tempWifi5softAccountId,
-  setTempWifi5softAccountId,
-  wifi5softAccounts,
+  tempUid,
+  setTempUid,
+  tempDisplayName,
+  setTempDisplayName,
+  tempEmail,
+  setTempEmail,
+  tempPhone,
+  setTempPhone,
+  tempAddress,
+  setTempAddress,
+  tempAccountNumber,
+  setTempAccountNumber,
   updateClientProfile,
 }: {
   editingScheduleUser: UserProfile | null;
@@ -4066,10 +3998,29 @@ function ScheduleModal({
   setTempDueDate: (s: string) => void;
   tempClientId: string;
   setTempClientId: (s: string) => void;
-  tempWifi5softAccountId: string;
-  setTempWifi5softAccountId: (s: string) => void;
-  wifi5softAccounts: WiFi5SoftAccount[];
-  updateClientProfile: (uid: string, date: string, clientId: string, wifi5softAccountId?: string) => void;
+  tempUid: string;
+  setTempUid: (s: string) => void;
+  tempDisplayName: string;
+  setTempDisplayName: (s: string) => void;
+  tempEmail: string;
+  setTempEmail: (s: string) => void;
+  tempPhone: string;
+  setTempPhone: (s: string) => void;
+  tempAddress: string;
+  setTempAddress: (s: string) => void;
+  tempAccountNumber: string;
+  setTempAccountNumber: (s: string) => void;
+  updateClientProfile: (
+    userId: string,
+    newUid: string,
+    date: string,
+    clientId: string,
+    displayName: string,
+    email: string,
+    phone: string,
+    address: string,
+    accountNumber: string
+  ) => void;
 }) {
   if (!editingScheduleUser) return null;
 
@@ -4080,109 +4031,208 @@ function ScheduleModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[10001] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
     >
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            className="sharp-card p-10 max-w-md w-full border-t-8 border-primary space-y-8 bg-bg-base shadow-2xl"
-          >
-            <div>
-              <h3 className="text-2xl font-black uppercase italic tracking-tighter">
-                CALIBRATE <span className="text-primary not-italic">RECURRENCE</span>
-              </h3>
-              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
-                Subscriber Identity: {editingScheduleUser.displayName} (#{editingScheduleUser.accountNumber})
-              </p>
-            </div>
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="sharp-card p-8 md:p-10 max-w-xl w-full border-t-8 border-primary space-y-6 bg-bg-base shadow-2xl max-h-[90vh] flex flex-col"
+      >
+        <div>
+          <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+            CALIBRATE <span className="text-primary not-italic">PROFILE & IDENTITY</span>
+          </h3>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+            Subscriber Node: <span className="text-white">{editingScheduleUser.displayName || "Unknown"}</span>
+          </p>
+        </div>
 
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                    WiFi5Soft Integration Node
-                  </label>
-                  <select
-                    value={tempWifi5softAccountId}
-                    onChange={(e) => setTempWifi5softAccountId(e.target.value)}
-                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white"
-                  >
-                    <option value="">No Active Sync</option>
-                    {wifi5softAccounts.map(acc => (
-                      <option key={acc.id} value={acc.id}>{acc.name} ({acc.clientId})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                    Client ID (Assignment)
-                  </label>
-                  <input
-                    type="text"
-                    value={tempClientId}
-                    onChange={(e) => setTempClientId(e.target.value)}
-                    placeholder="e.g. PPPOE_USER_001"
-                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white"
-                  />
-                </div>
+        <div className="flex-1 overflow-y-auto pr-2 space-y-6 scrollbar-thin scrollbar-thumb-primary/20">
+          {/* Identity Fields */}
+          <div className="space-y-4 border-b border-border-subtle/40 pb-6">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part I: Identity Credentials
+            </h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={tempDisplayName}
+                  onChange={(e) => setTempDisplayName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold uppercase text-white"
+                />
               </div>
 
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                  New Settlement Timestamp
+                  Account Number
                 </label>
-                <div className="relative group">
-                  <input
-                    type="datetime-local"
-                    value={tempDueDate}
-                    onChange={(e) => setTempDueDate(e.target.value)}
-                    className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-lg font-mono font-bold uppercase text-white appearance-none"
-                    style={{ colorScheme: 'dark' }}
-                  />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-primary/50 group-hover:text-primary transition-colors">
-                    <Calendar size={18} />
-                  </div>
-                </div>
-                {tempDueDate && (
-                  <div className="mt-3 p-3 bg-primary/5 border border-primary/20">
-                    <div className="text-[10px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format (12HR)</div>
-                    <div className="text-sm font-mono font-bold text-white uppercase italic">
-                      {new Date(tempDueDate).toLocaleString('en-US', {
-                        timeZone: ASIA_TIMEZONE,
-                        month: 'short',
-                        day: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: true
-                      })}
-                    </div>
-                  </div>
-                )}
-                <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed mt-2 italic">
-                  Note: Values before current node time [NOW] will trigger automatic circuit suspension.
-                </p>
+                <input
+                  type="text"
+                  value={tempAccountNumber}
+                  onChange={(e) => setTempAccountNumber(e.target.value)}
+                  placeholder="e.g. HF-7MOSBV-7017"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+                />
               </div>
             </div>
 
-            <div className="flex gap-4 pt-4">
-              <button
-                onClick={() => updateClientProfile(editingScheduleUser.uid, tempDueDate, tempClientId, tempWifi5softAccountId)}
-                className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2"
-              >
-                <CheckCircle2 size={14} />
-                Confirm Shift
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditingScheduleUser(null)}
-                className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
-              >
-                Cancel
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={tempEmail}
+                  onChange={(e) => setTempEmail(e.target.value)}
+                  placeholder="e.g. user@domain.com"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Phone Number
+                </label>
+                <input
+                  type="text"
+                  value={tempPhone}
+                  onChange={(e) => setTempPhone(e.target.value)}
+                  placeholder="e.g. 09123456789"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                />
+              </div>
             </div>
-          </motion.div>
-        </motion.div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Billing Address
+              </label>
+              <input
+                type="text"
+                value={tempAddress}
+                onChange={(e) => setTempAddress(e.target.value)}
+                placeholder="e.g. 123 Quezon Ave, Manila"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold text-white"
+              />
+            </div>
+          </div>
+
+          {/* Database System Core */}
+          <div className="space-y-4 border-b border-border-subtle/40 pb-6">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part II: Core Accounts & Routing Re-linking
+            </h4>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex justify-between">
+                <span>Account ID / UID (Database Reference Key)</span>
+                <span className="text-primary italic font-black">Editable & Migratable</span>
+              </label>
+              <input
+                type="text"
+                value={tempUid}
+                onChange={(e) => setTempUid(e.target.value)}
+                placeholder="e.g. t8mD2xFleddg8vZ8"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white select-all uppercase"
+              />
+              <p className="text-[9px] text-text-muted/60 uppercase tracking-widest leading-relaxed italic">
+                Modifying the database key triggers seamless migration of payment documents, Chat channels, and subscriber history.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Client ID (Assignment / Hotspot Account Mapping)
+              </label>
+              <input
+                type="text"
+                value={tempClientId}
+                onChange={(e) => setTempClientId(e.target.value)}
+                placeholder="e.g. PPPOE_USER_001"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+              />
+            </div>
+          </div>
+
+          {/* Settlement / Billing Recurrence */}
+          <div className="space-y-4">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part III: Settlement Lifecycle
+            </h4>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Settlement Due Timestamp (12-Hour Philippine Standard Time)
+              </label>
+              <div className="relative group">
+                <input
+                  type="datetime-local"
+                  value={tempDueDate}
+                  onChange={(e) => setTempDueDate(e.target.value)}
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white appearance-none"
+                  style={{ colorScheme: 'dark' }}
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-primary/50 group-hover:text-primary transition-colors">
+                  <Calendar size={16} />
+                </div>
+              </div>
+              {tempDueDate && (
+                <div className="p-3 bg-primary/5 border border-primary/20">
+                  <div className="text-[9px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format</div>
+                  <div className="text-xs font-mono font-bold text-white uppercase italic">
+                    {new Date(tempDueDate).toLocaleString('en-US', {
+                      timeZone: ASIA_TIMEZONE,
+                      month: 'short',
+                      day: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })}
+                  </div>
+                </div>
+              )}
+              <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed italic">
+                Note: Entering historical deadlines relative to node clock will lock current access loops and trigger suspend state.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-4 pt-4 border-t border-border-subtle/50">
+          <button
+            onClick={() => updateClientProfile(
+              editingScheduleUser.uid, 
+              tempUid, 
+              tempDueDate, 
+              tempClientId,
+              tempDisplayName,
+              tempEmail,
+              tempPhone,
+              tempAddress,
+              tempAccountNumber
+            )}
+            className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+          >
+            <CheckCircle2 size={14} />
+            Commit Configuration
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingScheduleUser(null)}
+            className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

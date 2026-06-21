@@ -21,7 +21,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'projectile.afk@gmail.com' ||
+        (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -34,7 +34,6 @@ service cloud.firestore {
                data.email is string && data.email.size() <= 256 &&
                data.balance is number &&
                (!('status' in data) || data.status in ['active', 'suspended']) &&
-               (!('wifi5softAccountId' in data) || data.wifi5softAccountId is string) &&
                data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance', 'billStatus']);
       }
 
@@ -85,7 +84,7 @@ service cloud.firestore {
     // Admin collection
     match /admins/{userId} {
       allow read: if isSignedIn();
-      allow create: if isOwner(userId) && request.auth.token.email == 'projectile.afk@gmail.com';
+      allow create: if isOwner(userId) && request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com';
     }
 
     // Collection Group for Admin to see all payments
@@ -116,6 +115,7 @@ service cloud.firestore {
       allow get: if isOwner(chatId) || isAdmin();
       allow create: if isOwner(chatId) && isValidChatSession(request.resource.data);
       allow update: if (isOwner(chatId) || isAdmin()) && isValidChatSession(request.resource.data);
+      allow delete: if (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com') || isAdmin() || isOwner(chatId);
     }
 
     match /chats/{chatId}/messages/{messageId} {
@@ -128,18 +128,7 @@ service cloud.firestore {
       allow list: if isOwner(chatId) || isAdmin();
       allow get: if isOwner(chatId) || isAdmin();
       allow create: if (isOwner(chatId) || isAdmin()) && isValidChatMessage(request.resource.data);
-    }
-
-    match /wifi5soft_accounts/{accountId} {
-      allow list: if isAdmin();
-      allow get: if isAdmin();
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /settings/wifi5soft {
-      allow get: if isAdmin();
-      allow list: if isAdmin();
-      allow write: if isAdmin();
+      allow delete: if (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com') || isAdmin() || isOwner(chatId);
     }
   }
 }

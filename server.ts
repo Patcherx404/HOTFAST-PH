@@ -61,12 +61,6 @@ console.log(`Verified Database ID: ${firebaseConfig.firestoreDatabaseId}`);
   }
 })();
 
-async function getWiFi5SoftSettings() {
-  const settingsDoc = await db.collection("settings").doc("wifi5soft").get();
-  if (!settingsDoc.exists) return null;
-  return settingsDoc.data();
-}
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -76,85 +70,6 @@ async function startServer() {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
-  });
-
-  // API: WiFi5Soft Payment Reflection
-  app.post("/api/wifi5soft/test", async (req, res) => {
-    try {
-      const { clientId, apiKey } = req.body;
-      if (!clientId || !apiKey) {
-        return res.status(400).json({ error: "Client ID and API Key are required for testing." });
-      }
-      // In a real scenario, you'd call a 'ping' or 'status' endpoint on their API
-      // For now, we simulate a check
-      res.json({ success: true, message: "WiFi5Soft credentials validated." });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/api/wifi5soft/sync", async (req, res) => {
-    try {
-      const { userEmail, amount, referenceId, userId } = req.body;
-      
-      let credentials: any = null;
-
-      // 1. Try to find the specific WiFi5Soft account assigned to the user
-      if (userId) {
-        const userDoc = await db.collection("users").doc(userId).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          const accountId = userData?.wifi5softAccountId;
-          
-          if (accountId) {
-            const accountDoc = await db.collection("wifi5soft_accounts").doc(accountId).get();
-            if (accountDoc.exists) {
-              credentials = accountDoc.data();
-              console.log(`Using dedicated node: ${credentials.name} for ${userEmail}`);
-            }
-          }
-        }
-      }
-
-      // 2. Fallback to legacy global settings if no per-user account found
-      if (!credentials) {
-        const settingsDoc = await db.collection("settings").doc("wifi5soft").get();
-        if (settingsDoc.exists) {
-          credentials = settingsDoc.data();
-          console.log(`Using fallback/global node for ${userEmail}`);
-        }
-      }
-
-      if (!credentials || !credentials.clientId || !credentials.apiKey) {
-        return res.status(404).json({ error: "No WiFi5Soft synchronization node found for this subscriber." });
-      }
-
-      const { clientId, apiKey } = credentials;
-      const apiUrl = "https://api.wifi5soft.com/v1/payment/reflect";
-
-      console.log(`Broadcasting reflection to WiFi5Soft [Node: ${credentials.name || 'Default'}]...`);
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Client-ID": clientId,
-          "X-API-Key": apiKey
-        },
-        body: JSON.stringify({
-          email: userEmail,
-          amount: amount,
-          reference: referenceId,
-          timestamp: new Date().toISOString()
-        })
-      });
-
-      const result = await response.json();
-      res.json({ success: true, message: "WiFi5Soft synchronization attempted.", details: result });
-    } catch (e: any) {
-      console.error("WiFi5Soft Sync Error:", e);
-      res.status(500).json({ error: e.message || "Failed to sync with WiFi5Soft." });
-    }
   });
 
   // Vite middleware for development
