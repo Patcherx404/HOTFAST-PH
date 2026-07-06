@@ -1460,8 +1460,8 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
                       </>
                     ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
                       <>
-                        <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase text-yellow-500 tracking-widest italic">
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic">
                           DUE
                         </span>
                       </>
@@ -1480,7 +1480,11 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
           </div>
         </div>
 
-        <div className="md:col-span-4 bg-primary p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative">
+        <div className={`md:col-span-4 ${
+          (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+            ? "bg-red-600"
+            : "bg-emerald-600"
+        } p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative transition-all duration-300`}>
           <div className="absolute top-0 right-0 p-8 opacity-10 -mr-4 -mt-4 group-hover:scale-110 transition-transform">
             <CreditCard size={120} />
           </div>
@@ -1500,7 +1504,11 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
             {profile?.billStatus !== 'paid' ? (
               <button
                 onClick={onPay}
-                className="mt-8 flex items-center gap-3 px-8 py-4 bg-white text-primary font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn"
+                className={`mt-8 flex items-center gap-3 px-8 py-4 bg-white font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn ${
+                  (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+                    ? "text-red-600"
+                    : "text-emerald-600"
+                }`}
               >
                 SECURE SETTLEMENT <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
               </button>
@@ -1814,6 +1822,12 @@ function AdminPanel({
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
   const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+  const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
+  const [bulkNotifForm, setBulkNotifForm] = useState({
+    title: "SETTLEMENT REQ: BALANCE DUE",
+    message: "Network core warning: An outstanding balance has been detected on your subscriber node. Please complete your settlement immediately in the Billing Center to maintain active high-bandwidth uplink.",
+    type: "alert" as "info" | "warning" | "alert",
+  });
 
   const toISODate = (date: Date) => {
     const year = date.getFullYear();
@@ -2519,6 +2533,38 @@ function AdminPanel({
     }
   };
 
+  const handleSendBulkReminders = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targets = clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due');
+    if (targets.length === 0) {
+      toast.error("NO OUTSTANDING NODE BALANCES DETECTED. TRANSMISSION ABORTED.");
+      return;
+    }
+
+    const progressToast = toast.loading(`Dispatching reminder packets to ${targets.length} subscriber nodes...`);
+    try {
+      let count = 0;
+      for (const target of targets) {
+        const notifRef = collection(db, `users/${target.uid}/notifications`);
+        await addDoc(notifRef, {
+          title: bulkNotifForm.title,
+          message: bulkNotifForm.message,
+          type: bulkNotifForm.type,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+        count++;
+      }
+      toast.dismiss(progressToast);
+      toast.success(`Successfully dispatched ${count} settlement reminders!`);
+      setShowBulkReminderModal(false);
+    } catch (err) {
+      toast.dismiss(progressToast);
+      console.error("Bulk reminder routing failed:", err);
+      toast.error("Failed to fully package and dispatch bulk alerts.");
+    }
+  };
+
   const updateClientStatus = async (
     userId: string,
     cycleStatus: "paid" | "due" | "overdue",
@@ -3134,8 +3180,8 @@ function AdminPanel({
       ) : (
         <>
           <div className="flex flex-col gap-6 mb-8">
-            <div className="flex flex-col md:flex-row gap-4 items-center">
-              <div className="relative flex-1 group">
+            <div className="flex flex-col md:flex-row gap-4 items-center w-full">
+              <div className="relative flex-1 group w-full">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
                 <input
                   type="text"
@@ -3145,16 +3191,30 @@ function AdminPanel({
                   className="w-full bg-bg-surface border border-border-subtle pl-12 pr-4 py-4 text-xs text-white focus:outline-none focus:border-primary transition-all italic placeholder:text-text-dim/50"
                 />
               </div>
-              <div className="flex gap-2 p-1 bg-bg-surface border border-border-subtle">
-                {(["all", "active", "suspended", "overdue"] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setClientFilter(f)}
-                    className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
-                  >
-                    {f}
-                  </button>
-                ))}
+              <div className="flex flex-wrap gap-3 items-center justify-end w-full md:w-auto">
+                <div className="flex gap-2 p-1 bg-bg-surface border border-border-subtle">
+                  {(["all", "active", "suspended", "overdue"] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setClientFilter(f)}
+                      className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkReminderModal(true)}
+                  className={`px-5 py-3 text-[9px] font-black uppercase tracking-[0.15em] italic flex items-center gap-2 transition-all border ${
+                    clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length > 0
+                      ? "bg-red-600 border-red-500 hover:bg-red-700 text-white shadow-lg shadow-red-600/20"
+                      : "bg-bg-surface border-border-subtle text-text-muted hover:bg-bg-surface/80"
+                  }`}
+                >
+                  <Bell size={12} className={clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length > 0 ? "animate-bounce" : ""} />
+                  Send Reminder ({clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length})
+                </button>
               </div>
             </div>
             <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest italic pl-1">
@@ -3791,6 +3851,18 @@ function AdminPanel({
           />
         )}
 
+        {showBulkReminderModal && (
+          <BulkReminderModal
+            key="bulk-notif-modal"
+            show={showBulkReminderModal}
+            onClose={() => setShowBulkReminderModal(false)}
+            bulkNotifForm={bulkNotifForm}
+            setBulkNotifForm={setBulkNotifForm}
+            handleSendBulkReminders={handleSendBulkReminders}
+            targets={clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due')}
+          />
+        )}
+
         {editingScheduleUser && (
           <ScheduleModal
             key="sched-modal"
@@ -4348,5 +4420,135 @@ function NotificationModal({
             </div>
           </motion.form>
         </motion.div>
+  );
+}
+
+function BulkReminderModal({
+  show,
+  onClose,
+  bulkNotifForm,
+  setBulkNotifForm,
+  handleSendBulkReminders,
+  targets,
+}: {
+  show: boolean;
+  onClose: () => void;
+  bulkNotifForm: any;
+  setBulkNotifForm: (f: any) => void;
+  handleSendBulkReminders: (e: React.FormEvent) => void;
+  targets: UserProfile[];
+}) {
+  if (!show) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
+      <motion.form
+        onSubmit={handleSendBulkReminders}
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="sharp-card p-10 max-w-lg w-full border-t-8 border-primary space-y-8 bg-bg-base"
+      >
+        <div>
+          <h3 className="text-2xl font-black uppercase italic tracking-tighter text-red-500">
+            BULK <span className="text-white not-italic">REMINDERS</span>
+          </h3>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+            Targeting <span className="text-red-500 font-black">{targets.length} subscriber nodes</span> currently marked DUE or OVERDUE.
+          </p>
+        </div>
+
+        {targets.length > 0 && (
+          <div className="bg-bg-surface border border-border-subtle p-4 max-h-[120px] overflow-y-auto space-y-1 rounded">
+            <span className="text-[9px] font-black uppercase tracking-widest text-text-muted block mb-1">Impacted Subscribers:</span>
+            <div className="flex flex-wrap gap-2">
+              {targets.map(t => (
+                <span key={t.uid} className="px-2 py-1 bg-red-950/40 border border-red-900/50 text-[9px] font-mono text-red-500 rounded">
+                  {t.displayName || t.email}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Classification
+            </label>
+            <div className="flex gap-2">
+              {(["info", "warning", "alert"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setBulkNotifForm({ ...bulkNotifForm, type })}
+                  className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    bulkNotifForm.type === type
+                      ? "bg-red-600 border-red-500 text-white shadow-md shadow-red-600/30"
+                      : "border-border-subtle text-text-muted"
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Subject Line
+            </label>
+            <input
+              type="text"
+              required
+              value={bulkNotifForm.title}
+              onChange={(e) =>
+                setBulkNotifForm({ ...bulkNotifForm, title: e.target.value })
+              }
+              placeholder="e.g. PAYMENT DUE ALERT"
+              className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-red-500 text-xs font-bold uppercase text-white"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Transmission Content
+            </label>
+            <textarea
+              required
+              value={bulkNotifForm.message}
+              onChange={(e) =>
+                setBulkNotifForm({ ...bulkNotifForm, message: e.target.value })
+              }
+              rows={4}
+              placeholder="Provide details regarding account status or payment requirements..."
+              className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-red-500 text-xs font-medium text-white"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={targets.length === 0}
+            className="flex-1 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all shadow-lg shadow-red-600/20"
+          >
+            DISPATCH PACKETS
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+          >
+            Abort
+          </button>
+        </div>
+      </motion.form>
+    </motion.div>
   );
 }
