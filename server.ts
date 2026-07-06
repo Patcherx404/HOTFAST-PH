@@ -14,25 +14,21 @@ const __dirname = path.dirname(__filename);
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
-// CRITICAL: Force the project ID for the entire process before any firebase interaction
-process.env.GOOGLE_CLOUD_PROJECT = firebaseConfig.projectId;
-process.env.GCLOUD_PROJECT = firebaseConfig.projectId;
-process.env.PROJECT_ID = firebaseConfig.projectId;
-process.env.FIREBASE_DATABASE_ID = firebaseConfig.firestoreDatabaseId;
-
-console.log("Configuring Admin SDK with Project ID:", firebaseConfig.projectId);
-
-// Initialize Firebase Admin using forced project ID
+// Initialize Firebase Admin using default environment credentials first to leverage hosting project IAM permissions
 let app: admin.app.App;
 if (!admin.apps.length) {
   try {
+    app = admin.initializeApp();
+    console.log("Firebase Admin initialized using default hosting environment credentials.");
+  } catch (e) {
+    console.error("Default Admin initialization failed, falling back to config projectId:", e);
+    // Fallback override only if default fails
+    process.env.GOOGLE_CLOUD_PROJECT = firebaseConfig.projectId;
+    process.env.GCLOUD_PROJECT = firebaseConfig.projectId;
+    process.env.PROJECT_ID = firebaseConfig.projectId;
     app = admin.initializeApp({
       projectId: firebaseConfig.projectId
     });
-    console.log("Firebase Admin initialized with Project ID:", firebaseConfig.projectId);
-  } catch (e) {
-    console.error("Admin initialization failed:", e);
-    app = admin.initializeApp();
   }
 } else {
   app = admin.app();
@@ -42,15 +38,15 @@ if (!admin.apps.length) {
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Verify current configuration
-console.log(`Verified App Project ID: ${app.options.projectId || firebaseConfig.projectId}`);
+console.log(`Verified App Project ID: ${app.options.projectId || "Default/Detected"}`);
 console.log(`Verified Database ID: ${firebaseConfig.firestoreDatabaseId}`);
 
 // Verify Firestore connectivity on startup
 (async () => {
   try {
     // Attempt a simple query to verify permissions
-    const collections = await db.listCollections();
-    console.log(`✅ Firestore connection verified. Found ${collections.length} root collections.`);
+    const testQuery = await db.collection("users").limit(1).get();
+    console.log(`✅ Firestore connection verified. Read test query succeeded with ${testQuery.size} documents.`);
   } catch (error: any) {
     console.error("❌ Firestore Connection Error:", error.message);
     console.error("Status Code:", error.code);

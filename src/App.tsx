@@ -113,24 +113,15 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
 
-  // Logic to hide plans and payment if user already has an active, paid plan and it's not due soon
+  // Logic to hide plans and payment if user already has an active, paid plan and it's not due
   const shouldHideBillingTabs = (() => {
     // If pending payment, hide it (previous user request)
     if (hasPendingPayment) return true;
 
-    if (profile?.currentPlanId && profile?.dueDate && profile?.billStatus === "paid") {
-      try {
-        const dueDate = profile.dueDate.toDate ? profile.dueDate.toDate() : new Date(profile.dueDate);
-        const now = new Date();
-        const diffTime = dueDate.getTime() - now.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        // If more than 3 days until due date, hide the tabs
-        if (diffDays > 3) {
-          return true;
-        }
-      } catch (e) {
-        console.error("Error calculating due date visibility:", e);
+    if (profile?.currentPlanId) {
+      // If client is not due (their status is 'paid' or not explicitly due/overdue)
+      if (profile?.billStatus === "paid" || !profile?.billStatus) {
+        return true;
       }
     }
     return false;
