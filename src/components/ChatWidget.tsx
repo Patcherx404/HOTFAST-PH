@@ -85,17 +85,17 @@ export function ChatWidget() {
   if (!user) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100]">
+    <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-[100]">
       <AnimatePresence>
         {isOpen && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="mb-4 w-80 md:w-96 h-[500px] bg-bg-base border border-primary/30 shadow-2xl flex flex-col overflow-hidden"
+            className="mb-3 w-[calc(100vw-2rem)] max-w-sm sm:w-96 h-[72vh] max-h-[480px] sm:h-[500px] bg-bg-base border border-primary/40 shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="bg-primary p-4 flex items-center justify-between">
+            <div className="bg-primary p-3.5 sm:p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                   <User size={16} className="text-white" />
@@ -104,13 +104,14 @@ export function ChatWidget() {
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Support Agent</h3>
                   <div className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-[8px] font-bold text-white/70 uppercase">Online</span>
+                    <span className="text-[8px] font-bold text-white/80 uppercase">Online</span>
                   </div>
                 </div>
               </div>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-white/70 hover:text-white transition-colors"
+                className="text-white/80 hover:text-white p-1 transition-colors"
+                aria-label="Close Chat"
               >
                 <Minimize2 size={18} />
               </button>
@@ -119,18 +120,18 @@ export function ChatWidget() {
             {/* Messages */}
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-primary/20"
+              className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 scrollbar-thin scrollbar-thumb-primary/20"
             >
-              <div className="text-center py-4">
-                <span className="text-[9px] font-black uppercase tracking-widest text-text-muted px-4 py-1 border border-border-subtle rounded-full">
-                  Chat Started
+              <div className="text-center py-2 sm:py-4">
+                <span className="text-[9px] font-black uppercase tracking-widest text-text-muted px-3 py-1 border border-border-subtle rounded-full">
+                  Real-time Support
                 </span>
               </div>
 
               {messages.length === 0 && (
-                <div className="text-center py-10 opacity-50">
-                  <MessageSquare size={32} className="mx-auto mb-2 text-text-muted" />
-                  <p className="text-[10px] font-bold uppercase tracking-tighter">How can we help you today?</p>
+                <div className="text-center py-8 sm:py-10 opacity-60">
+                  <MessageSquare size={32} className="mx-auto mb-2 text-primary" />
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-text-dim">How can we assist you today?</p>
                 </div>
               )}
 
@@ -140,9 +141,9 @@ export function ChatWidget() {
                   className={`flex ${msg.senderRole === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[80%] p-3 text-[11px] leading-relaxed ${
+                    className={`max-w-[85%] p-3 text-xs sm:text-[11px] leading-relaxed ${
                       msg.senderRole === "user"
-                        ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl font-medium"
+                        ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl font-medium shadow-md shadow-primary/20"
                         : "bg-white/5 border border-border-subtle text-white rounded-r-xl rounded-tl-xl"
                     }`}
                   >
@@ -153,24 +154,25 @@ export function ChatWidget() {
             </div>
 
             {/* Input */}
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-border-subtle bg-hot-black/50">
+            <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-border-subtle bg-hot-black/50">
               <div className="relative flex items-center gap-2">
                 <input
                   type="text"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Type your message..."
-                  className="flex-1 bg-bg-base border border-border-subtle p-3 text-[11px] text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic"
+                  className="flex-1 bg-bg-base border border-border-subtle p-3 text-xs sm:text-[11px] text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic"
                 />
                 <button
                   type="submit"
                   disabled={loading || !message.trim()}
-                  className="w-10 h-10 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white flex items-center justify-center transition-all group"
+                  className="w-10 h-10 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white flex items-center justify-center transition-all group shrink-0"
+                  aria-label="Send message"
                 >
                   {loading ? (
-                    <Loader2 size={18} className="animate-spin" />
+                    <Loader2 size={16} className="animate-spin" />
                   ) : (
-                    <Send size={18} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    <Send size={16} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                   )}
                 </button>
               </div>
@@ -183,11 +185,12 @@ export function ChatWidget() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all ${
-          isOpen ? "bg-hot-black border border-primary/50 text-primary" : "bg-primary text-white"
+        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center shadow-2xl transition-all cursor-pointer ${
+          isOpen ? "bg-hot-black border border-primary/50 text-primary" : "bg-primary text-white shadow-primary/30"
         }`}
+        aria-label="Open support chat"
       >
-        {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
+        {isOpen ? <X size={20} /> : <MessageSquare size={20} />}
       </motion.button>
     </div>
   );

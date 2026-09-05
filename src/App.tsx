@@ -12,6 +12,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Wifi,
+  Home,
   Zap,
   ShieldCheck,
   ArrowRight,
@@ -463,16 +464,111 @@ export default function App() {
             )}
           </div>
 
-          <button
-            className="md:hidden p-2"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            {isMenuOpen ? <X /> : <Menu />}
-          </button>
+          {/* Mobile Right Controls */}
+          <div className="flex md:hidden items-center gap-1 sm:gap-2">
+            <button
+              onClick={() => setShowLatencyMap(true)}
+              className="p-2 text-primary hover:text-white transition-colors relative"
+              title="Open Latency Map"
+            >
+              <MapPin size={18} className="animate-pulse" />
+            </button>
+
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="p-2 text-text-muted hover:text-primary transition-all relative"
+                  title="Notifications"
+                >
+                  <Bell size={18} />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-primary text-white text-[7px] font-black flex items-center justify-center rounded-full border border-bg-base">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {showNotifications && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="fixed top-16 left-3 right-3 bg-bg-surface border border-border-subtle shadow-2xl z-[150] max-h-[70vh] overflow-y-auto"
+                    >
+                      <div className="p-4 border-b border-border-subtle flex justify-between items-center bg-bg-base/90">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">
+                          Alert Registry
+                        </span>
+                        <button 
+                          onClick={() => setShowNotifications(false)}
+                          className="text-text-muted hover:text-white p-1 text-xs"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      {notifications.length === 0 ? (
+                        <div className="p-6 text-center text-[10px] font-bold uppercase tracking-widest text-text-muted italic">
+                          No active alerts detected
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-border-subtle">
+                          {notifications.map((n, idx) => (
+                            <div
+                              key={`m-notif-${n.id || idx}`}
+                              className={`p-4 hover:bg-white/5 transition-colors cursor-pointer ${!n.read ? "bg-primary/5" : ""}`}
+                              onClick={() => {
+                                handleMarkNotificationAsRead(n.id);
+                                setShowNotifications(false);
+                              }}
+                            >
+                              <div className="flex gap-3">
+                                <div
+                                  className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${n.type === "alert" ? "bg-red-500" : n.type === "warning" ? "bg-yellow-500" : "bg-primary"}`}
+                                />
+                                <div>
+                                  <div className="text-[11px] font-black uppercase tracking-tight">
+                                    {n.title}
+                                  </div>
+                                  <div className="text-[10px] text-text-muted leading-relaxed mt-1">
+                                    {n.message}
+                                  </div>
+                                  <div className="text-[8px] font-mono mt-2 text-text-dim/50 italic">
+                                    {n.createdAt?.toDate
+                                      ? n.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
+                                      : "Just now"}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            <button
+              className="p-2 text-white hover:text-primary transition-colors flex items-center gap-1.5"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              aria-label="Toggle Menu"
+            >
+              {user?.photoURL ? (
+                <div className="w-7 h-7 rounded-full border border-primary/50 overflow-hidden">
+                  <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                isMenuOpen ? <X size={22} /> : <Menu size={22} />
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu Drawer */}
       <AnimatePresence>
         {isMenuOpen && (
           <motion.div
@@ -480,9 +576,9 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed inset-0 z-[100] bg-hot-black p-6 md:hidden flex flex-col"
+            className="fixed inset-0 z-[120] bg-hot-black/95 backdrop-blur-xl p-6 md:hidden flex flex-col overflow-y-auto"
           >
-            <div className="flex justify-between items-center mb-16">
+            <div className="flex justify-between items-center mb-8">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8">
                   <img src="/hoticon.png" alt="Logo" className="w-full h-full" />
@@ -493,13 +589,44 @@ export default function App() {
               </div>
               <button 
                 onClick={() => setIsMenuOpen(false)}
-                className="p-2 text-text-muted hover:text-white"
+                className="p-2 text-text-muted hover:text-white rounded-lg active:bg-white/10"
+                aria-label="Close menu"
               >
-                <X size={32} />
+                <X size={28} />
               </button>
             </div>
 
-            <div className="flex flex-col gap-8">
+            {/* Subscriber Header inside Mobile Menu if Logged In */}
+            {user && (
+              <div className="mb-6 p-4 bg-slate-900/80 border border-border-subtle rounded-none flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 border border-primary/40 rounded-full overflow-hidden shrink-0">
+                    <img src={user.photoURL || ""} className="w-full h-full object-cover" alt="Avatar" />
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-black uppercase text-text-muted tracking-widest">
+                      {profile?.accountNumber ? `#${profile.accountNumber}` : "Subscriber"}
+                    </div>
+                    <div className="text-sm font-bold uppercase text-white truncate max-w-[150px]">
+                      {profile?.displayName}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 border ${
+                    profile?.status === "suspended"
+                      ? "bg-red-700/20 border-red-600 text-red-500"
+                      : (profile?.billStatus === "overdue" || (profile?.balance && profile.balance > 0))
+                      ? "bg-red-500/10 border-red-500/40 text-red-400" 
+                      : "bg-green-500/10 border-green-500/40 text-green-400"
+                  }`}>
+                    {profile?.status === "suspended" ? "Suspended" : (profile?.billStatus === "overdue" || (profile?.balance && profile.balance > 0)) ? "Payment Due" : "Active"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-5 flex-1">
               {(["home", "plans", "payment", "portal", "admin"] as const)
                 .filter((t) => {
                   if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
@@ -514,11 +641,14 @@ export default function App() {
                       setActiveTab(tab);
                       setIsMenuOpen(false);
                     }}
-                    className={`text-4xl font-black uppercase text-left tracking-tighter italic ${
-                      activeTab === tab ? "text-primary" : "text-white"
+                    className={`text-2xl sm:text-3xl font-black uppercase text-left tracking-tighter italic flex items-center justify-between py-2 border-b border-border-subtle/50 transition-colors ${
+                      activeTab === tab ? "text-primary pl-2 border-primary" : "text-white hover:text-primary"
                     }`}
                   >
-                    {tab}
+                    <span>{tab}</span>
+                    {activeTab === tab && (
+                      <span className="text-[10px] uppercase font-mono tracking-widest text-primary not-italic font-bold">Active</span>
+                    )}
                   </button>
                 ))}
 
@@ -527,43 +657,32 @@ export default function App() {
                   setShowLatencyMap(true);
                   setIsMenuOpen(false);
                 }}
-                className="w-full py-3.5 px-4 bg-primary/10 border border-primary/30 text-primary text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 cursor-pointer"
+                className="w-full py-4 px-4 bg-primary/10 border border-primary/30 text-primary text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 active:bg-primary active:text-white transition-all cursor-pointer"
               >
                 <span className="flex items-center gap-2">
-                  <MapPin size={15} /> Latency Map (Google Map Box)
+                  <MapPin size={16} /> Latency Map (Google Map Box)
                 </span>
-                <span className="text-[10px] font-mono text-green-400 font-bold">ONLINE</span>
+                <span className="text-[10px] font-mono text-green-400 font-bold bg-green-500/10 px-2 py-0.5 border border-green-500/20">ONLINE</span>
               </button>
               
-              <div className="mt-8 pt-8 border-t border-border-subtle flex flex-col gap-6">
+              <div className="mt-auto pt-6 border-t border-border-subtle flex flex-col gap-4">
                 {user ? (
-                  <>
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 border border-border-subtle rounded-full overflow-hidden">
-                        <img src={user.photoURL || ""} className="w-full h-full object-cover" alt="Avatar" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-black uppercase text-text-muted tracking-widest">Subscriber</div>
-                        <div className="text-sm font-bold uppercase">{profile?.displayName}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        logout();
-                        setIsMenuOpen(false);
-                      }}
-                      className="flex items-center gap-3 text-primary font-black uppercase text-xs tracking-[0.3em] italic"
-                    >
-                      <LogOut size={16} /> Disconnect Session
-                    </button>
-                  </>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full py-4 bg-slate-900 border border-border-subtle hover:border-primary/50 text-text-muted hover:text-white font-black uppercase text-xs tracking-[0.2em] italic flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <LogOut size={16} /> Disconnect Session
+                  </button>
                 ) : (
                   <button
                     onClick={() => {
                       loginWithGoogle();
                       setIsMenuOpen(false);
                     }}
-                    className="w-full py-5 bg-primary text-white font-black uppercase tracking-[0.3em] italic flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-primary text-white font-black uppercase tracking-[0.2em] italic flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-[0.98] transition-all cursor-pointer"
                   >
                     <LogIn size={18} /> Account Access
                   </button>
@@ -574,7 +693,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className="pt-20">
+      <main className="pt-16 sm:pt-20 pb-24 md:pb-0">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -628,6 +747,83 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Mobile Sticky Bottom Navigation Bar */}
+      <nav 
+        aria-label="Mobile Bottom Navigation"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-hot-black/95 backdrop-blur-xl border-t border-border-subtle/80 px-2 py-1 flex items-center justify-around shadow-[0_-8px_25px_rgba(0,0,0,0.7)]"
+      >
+        <button
+          onClick={() => setActiveTab("home")}
+          className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg transition-colors ${
+            activeTab === "home" ? "text-primary font-black" : "text-text-muted hover:text-white"
+          }`}
+        >
+          <Home size={18} />
+          <span className="text-[9px] uppercase tracking-wider mt-1">Home</span>
+          {activeTab === "home" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
+        </button>
+
+        {!shouldHideBillingTabs && (
+          <button
+            onClick={() => setActiveTab("plans")}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg transition-colors ${
+              activeTab === "plans" ? "text-primary font-black" : "text-text-muted hover:text-white"
+            }`}
+          >
+            <Zap size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-1">Plans</span>
+            {activeTab === "plans" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
+          </button>
+        )}
+
+        {/* Latency Map Trigger Button */}
+        <button
+          onClick={() => setShowLatencyMap(true)}
+          className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors group relative"
+          title="Open Google Map Box for Fiber Node"
+        >
+          <div className="relative">
+            <MapPin size={18} className="text-primary group-hover:scale-110 transition-transform" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          </div>
+          <span className="text-[9px] uppercase tracking-wider mt-1 text-white/90">Map</span>
+        </button>
+
+        {user && !shouldHideBillingTabs && (
+          <button
+            onClick={() => setActiveTab("payment")}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg transition-colors ${
+              activeTab === "payment" ? "text-primary font-black" : "text-text-muted hover:text-white"
+            }`}
+          >
+            <CreditCard size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-1">Pay</span>
+            {activeTab === "payment" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
+          </button>
+        )}
+
+        {user ? (
+          <button
+            onClick={() => setActiveTab("portal")}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg transition-colors ${
+              activeTab === "portal" ? "text-primary font-black" : "text-text-muted hover:text-white"
+            }`}
+          >
+            <UserIcon size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-1">Portal</span>
+            {activeTab === "portal" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
+          </button>
+        ) : (
+          <button
+            onClick={loginWithGoogle}
+            className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors"
+          >
+            <LogIn size={18} />
+            <span className="text-[9px] uppercase tracking-wider mt-1">Login</span>
+          </button>
+        )}
+      </nav>
+
       <ChatWidget />
       <Toaster position="top-center" richColors />
       <Footer 
@@ -646,14 +842,14 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            className="fixed inset-0 z-[9999] bg-hot-black/95 flex items-center justify-center p-3 sm:p-6 backdrop-blur-xl overflow-y-auto"
             onKeyDown={(e) => e.key === "Escape" && setShowAdminLogin(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="sharp-card p-10 md:p-12 max-w-sm w-full border-t-8 border-primary relative"
+              className="sharp-card p-6 sm:p-10 md:p-12 max-w-sm w-full border-t-8 border-primary relative my-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <button
@@ -794,39 +990,39 @@ function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanNam
   }, []);
 
   return (
-    <section className="relative min-h-[90vh] flex items-center overflow-hidden">
+    <section className="relative min-h-[85vh] md:min-h-[90vh] flex items-center overflow-hidden py-10 md:py-16">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/5 rounded-full blur-[120px] -z-10" />
 
-      <div className="max-w-7xl mx-auto px-6 w-full grid grid-cols-1 md:grid-cols-12 gap-12 items-center">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 w-full grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-center">
         <div className="md:col-span-12 lg:col-span-7">
-          <div className="inline-flex items-center gap-3 px-4 py-1.5 bg-primary/10 border-l-2 border-primary text-primary text-[10px] font-black uppercase tracking-[0.3em] mb-10">
+          <div className="inline-flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 bg-primary/10 border-l-2 border-primary text-primary text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] mb-6 sm:mb-10">
             {currentPlanName ? `INFRASTRUCTURE NODE: ${currentPlanName}` : "PH Edge Network Active"}
           </div>
 
-          <h1 className="text-3xl sm:text-6xl md:text-9xl font-black leading-[0.85] tracking-tighter mb-10 uppercase italic">
+          <h1 className="text-4xl sm:text-6xl md:text-8xl lg:text-9xl font-black leading-[0.9] sm:leading-[0.85] tracking-tighter mb-6 sm:mb-10 uppercase italic">
             FIBER <span className="text-primary not-italic">EDGE</span>
             <br />
             RE<span className="text-primary">DEFINED</span>.
           </h1>
 
-          <p className="text-lg text-text-dim max-w-lg mb-12 leading-relaxed font-medium">
+          <p className="text-sm sm:text-base md:text-lg text-text-dim max-w-lg mb-8 sm:mb-12 leading-relaxed font-medium">
             Aggressive fiber performance for the next-gen digital
             infrastructure. Minimal latency. Maximum throughput.
           </p>
 
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto">
             {hasPendingPayment ? (
-              <div className="px-10 py-5 bg-yellow-500/10 border border-yellow-500/50 text-yellow-500 font-black uppercase tracking-widest text-[10px] flex items-center gap-3 italic animate-pulse">
+              <div className="w-full sm:w-auto justify-center px-6 sm:px-10 py-4 sm:py-5 bg-yellow-500/10 border border-yellow-500/50 text-yellow-500 font-black uppercase tracking-widest text-[10px] flex items-center gap-3 italic animate-pulse min-h-[48px]">
                 <Clock size={18} /> SETTLEMENT VERIFICATION IN PROGRESS
               </div>
             ) : shouldHideBilling ? (
-              <div className="px-10 py-5 bg-green-500/10 border border-green-500/50 text-green-400 font-black uppercase tracking-widest text-[10px] flex items-center gap-3 italic">
+              <div className="w-full sm:w-auto justify-center px-6 sm:px-10 py-4 sm:py-5 bg-green-500/10 border border-green-500/50 text-green-400 font-black uppercase tracking-widest text-[10px] flex items-center gap-3 italic min-h-[48px]">
                 <ShieldCheck size={18} /> INFRASTRUCTURE ACTIVE & SECURE
               </div>
             ) : (
               <button
                 onClick={onExplore}
-                className="px-10 py-5 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-primary/20 flex items-center gap-3 italic"
+                className="w-full sm:w-auto justify-center px-8 sm:px-10 py-4 sm:py-5 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-primary/20 flex items-center gap-3 italic min-h-[48px] active:scale-[0.98]"
               >
                 UPGRADE NOW <ArrowRight size={18} />
               </button>
@@ -835,19 +1031,19 @@ function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanNam
             {shouldHideBilling && !hasPendingPayment && (
               <button
                 onClick={onGoToPortal}
-                className="px-10 py-5 bg-bg-surface border border-border-subtle hover:border-primary-dark transition-all text-white font-black uppercase tracking-widest text-xs flex items-center gap-3 italic"
+                className="w-full sm:w-auto justify-center px-8 sm:px-10 py-4 sm:py-5 bg-bg-surface border border-border-subtle hover:border-primary-dark transition-all text-white font-black uppercase tracking-widest text-xs flex items-center gap-3 italic min-h-[48px] active:scale-[0.98]"
               >
                 OPEN PORTAL <ExternalLink size={16} />
               </button>
             )}
           </div>
 
-          <div className="mt-16 grid grid-cols-3 gap-12 pt-10 border-t border-border-subtle">
+          <div className="mt-10 sm:mt-16 grid grid-cols-3 gap-2 sm:gap-6 md:gap-12 pt-6 sm:pt-10 border-t border-border-subtle">
             <div>
-              <div className="text-3xl font-light text-white">
-                {traffic.toFixed(1)}<span className="font-bold text-primary text-xl ml-1">TBPS</span>
+              <div className="text-xl sm:text-2xl md:text-3xl font-light text-white">
+                {traffic.toFixed(1)}<span className="font-bold text-primary text-sm sm:text-lg md:text-xl ml-0.5 sm:ml-1">TBPS</span>
               </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted font-bold mt-1">
+              <div className="text-[8px] sm:text-[10px] uppercase tracking-wider sm:tracking-[0.2em] text-text-muted font-bold mt-1">
                 Incoming Traffic
               </div>
             </div>
@@ -856,20 +1052,41 @@ function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanNam
               className="cursor-pointer group"
               title="Click to open Latency & Coverage Map Box"
             >
-              <div className="text-3xl font-light text-white group-hover:text-primary transition-colors flex items-baseline">
-                {latency || "--"}<span className="font-bold text-primary text-xl ml-1">ms</span>
-                <MapPin size={14} className="ml-1.5 text-primary opacity-60 group-hover:opacity-100 transition-opacity" />
+              <div className="text-xl sm:text-2xl md:text-3xl font-light text-white group-hover:text-primary transition-colors flex items-baseline">
+                {latency || "--"}<span className="font-bold text-primary text-sm sm:text-lg md:text-xl ml-0.5 sm:ml-1">ms</span>
+                <MapPin size={12} className="ml-1 text-primary opacity-70 group-hover:opacity-100 transition-opacity" />
               </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted group-hover:text-primary font-black mt-1 flex items-center gap-1">
-                <span>Latency (8.8.8.8)</span>
+              <div className="text-[8px] sm:text-[10px] uppercase tracking-wider sm:tracking-[0.2em] text-text-muted group-hover:text-primary font-black mt-1 flex items-center gap-1">
+                <span>Latency</span>
                 <span className="text-primary underline font-normal">• Map</span>
               </div>
             </div>
             <div>
-              <div className="text-3xl font-light text-white">12.0<span className="font-bold text-primary text-xl ml-1">TBPS</span></div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted font-bold mt-1">
+              <div className="text-xl sm:text-2xl md:text-3xl font-light text-white">
+                12.0<span className="font-bold text-primary text-sm sm:text-lg md:text-xl ml-0.5 sm:ml-1">TBPS</span>
+              </div>
+              <div className="text-[8px] sm:text-[10px] uppercase tracking-wider sm:tracking-[0.2em] text-text-muted font-bold mt-1">
                 Max Capacity
               </div>
+            </div>
+          </div>
+
+          {/* Quick Mobile Status Pill */}
+          <div 
+            onClick={onOpenLatencyMap}
+            className="mt-6 lg:hidden p-3 bg-slate-900/60 border border-border-subtle flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all group active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <div>
+                <div className="text-[8px] font-black uppercase tracking-widest text-text-muted">Edge Node Status</div>
+                <div className="text-[11px] font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                  Operational • <span className="text-primary">{latency || 14}ms Ping</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/30 px-2 py-1 group-hover:bg-primary group-hover:text-white transition-all">
+              <MapPin size={10} /> Map Box
             </div>
           </div>
         </div>
@@ -965,13 +1182,13 @@ function PlansSection({
   onSelectPlan: (plan: InternetPlan) => void;
 }) {
   return (
-    <section className="py-24 px-6 max-w-7xl mx-auto">
-      <div className="text-center mb-20">
-        <h2 className="text-5xl md:text-7xl font-black tracking-tighter mb-4 uppercase italic">
+    <section className="py-12 md:py-24 px-4 sm:px-6 max-w-7xl mx-auto">
+      <div className="text-center mb-10 sm:mb-20">
+        <h2 className="text-3xl sm:text-5xl md:text-7xl font-black tracking-tighter mb-3 uppercase italic">
           INFRASTRUCTURE{" "}
           <span className="text-primary not-italic tracking-widest">TIERS</span>
         </h2>
-        <p className="text-text-dim max-w-xl mx-auto text-sm uppercase tracking-widest font-bold">
+        <p className="text-text-dim max-w-xl mx-auto text-xs sm:text-sm uppercase tracking-widest font-bold">
           Pick your speed. Scaled for performance.
         </p>
       </div>
@@ -980,40 +1197,39 @@ function PlansSection({
         {plans.map((plan, i) => (
           <div
             key={plan.id}
-            className={`relative group p-6 md:p-10 transition-all border-b md:border-b-0 md:border-r border-border-subtle last:border-b-0 lg:last:border-r-0 hover:bg-primary/5 ${plan.isPopular ? "bg-slate-900/40" : ""}`}
+            className={`relative group p-5 sm:p-8 md:p-10 transition-all border-b md:border-b-0 md:border-r border-border-subtle last:border-b-0 lg:last:border-r-0 hover:bg-primary/5 ${plan.isPopular ? "bg-slate-900/40" : ""}`}
           >
             {plan.isPopular && (
               <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
             )}
 
-            <div className="mb-10">
+            <div className="mb-8 sm:mb-10">
               <div className="text-text-muted uppercase text-[10px] font-black tracking-[0.3em] mb-2">
                 {plan.name}
               </div>
-              <div className="text-5xl font-black italic tracking-tighter uppercase mb-2">
+              <div className="text-4xl sm:text-5xl font-black italic tracking-tighter uppercase mb-2">
                 {plan.speed}{" "}
-                <span className="text-lg text-text-muted not-italic">Mbps</span>
+                <span className="text-base sm:text-lg text-text-muted not-italic">Mbps</span>
               </div>
               <div className="text-[10px] font-black uppercase tracking-widest text-primary italic">
-                {" "}
-                {plan.bandwidth} DATA CAP{" "}
+                {plan.bandwidth} DATA CAP
               </div>
             </div>
 
-            <div className="mb-12 space-y-5">
+            <div className="mb-8 sm:mb-12 space-y-3 sm:space-y-4">
               {plan.features.map((feature, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-3 text-xs font-bold uppercase tracking-tight text-white/80"
+                  className="flex items-center gap-2.5 text-xs font-bold uppercase tracking-tight text-white/80"
                 >
-                  <div className="w-1 h-1 bg-primary rotate-45 shrink-0" />
+                  <div className="w-1.5 h-1.5 bg-primary rotate-45 shrink-0" />
                   {feature}
                 </div>
               ))}
             </div>
 
             <div className="mt-auto">
-              <div className="text-2xl font-mono font-bold mb-8">
+              <div className="text-2xl font-mono font-bold mb-6 sm:mb-8">
                 ₱ {plan.price.toLocaleString()}{" "}
                 <span className="text-xs text-text-muted font-sans uppercase tracking-widest font-black">
                   / mo
@@ -1021,7 +1237,7 @@ function PlansSection({
               </div>
               <button
                 onClick={() => onSelectPlan(plan)}
-                className={`w-full py-5 font-black uppercase tracking-[0.2em] text-[10px] transition-all italic ${plan.isPopular ? "bg-primary hover:bg-primary-dark text-white" : "border border-border-subtle hover:border-primary/50 text-white"}`}
+                className={`w-full py-4 sm:py-5 min-h-[48px] font-black uppercase tracking-[0.2em] text-[10px] transition-all italic active:scale-[0.98] cursor-pointer ${plan.isPopular ? "bg-primary hover:bg-primary-dark text-white shadow-lg shadow-primary/20" : "border border-border-subtle hover:border-primary/50 text-white"}`}
               >
                 Select Tier
               </button>
@@ -1165,17 +1381,17 @@ function PaymentSection({
   }
 
   return (
-    <section className="py-12 md:py-24 px-6 max-w-6xl mx-auto">
+    <section className="py-8 sm:py-12 md:py-24 px-3 sm:px-6 max-w-6xl mx-auto">
       <div className="sharp-card grid grid-cols-1 md:grid-cols-12 gap-0 overflow-hidden">
         {/* Left: QR & Details */}
-        <div className="md:col-span-5 p-6 md:p-10 border-b md:border-b-0 md:border-r border-border-subtle bg-slate-900/20">
+        <div className="md:col-span-5 p-5 sm:p-6 md:p-10 border-b md:border-b-0 md:border-r border-border-subtle bg-slate-900/20">
           <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-6">
             Settlement Channel
           </h3>
 
-          <div className="mb-10 text-center">
-            <div className="aspect-square bg-white p-4 inline-block transform rotate-2 shadow-2xl mb-4 group relative">
-              <div className="w-48 h-48 sm:w-56 sm:h-56 bg-slate-100 flex items-center justify-center relative overflow-hidden">
+          <div className="mb-8 sm:mb-10 text-center">
+            <div className="aspect-square bg-white p-3 sm:p-4 inline-block transform rotate-1 sm:rotate-2 shadow-2xl mb-4 group relative max-w-xs">
+              <div className="w-44 h-44 sm:w-56 sm:h-56 bg-slate-100 flex items-center justify-center relative overflow-hidden">
                 <img
                   src="/your-image.png"
                   alt="GCash QR"
@@ -1189,7 +1405,7 @@ function PaymentSection({
               </div>
             </div>
             
-            <div className="mt-4 space-y-6">
+            <div className="mt-4 space-y-5 sm:space-y-6">
               <div>
                 <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] mb-1">
                   Primary Routing Terminal
@@ -1199,13 +1415,13 @@ function PaymentSection({
                     navigator.clipboard.writeText("09122367040");
                     toast.info("Routing Number Copied: 09122367040");
                   }}
-                  className="group relative inline-block"
+                  className="group relative inline-block p-1"
                   title="Click to copy number"
                 >
-                  <div className="text-3xl font-mono font-bold text-primary tracking-tighter mt-1 italic group-hover:scale-105 transition-transform">
+                  <div className="text-2xl sm:text-3xl font-mono font-bold text-primary tracking-tighter mt-1 italic group-hover:scale-105 transition-transform">
                     0912 236 7040
                   </div>
-                  <div className="absolute -right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute -right-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Copy size={14} className="text-primary" />
                   </div>
                 </button>
@@ -1215,28 +1431,28 @@ function PaymentSection({
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-2 sm:pt-4">
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText("09122367040");
                     toast.info("Account Number Copied! You can now paste it in your GCash app.");
                   }}
-                  className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-white text-[11px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_20px_rgba(220,38,38,0.3)] group cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_20px_rgba(220,38,38,0.3)] group cursor-pointer w-full sm:w-auto min-h-[44px]"
                 >
                   <Copy size={14} className="group-hover:scale-110 transition-transform" />
                   Copy GCash Number
                 </button>
-                <p className="mt-4 text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed max-w-[200px] mx-auto">
+                <p className="mt-3 sm:mt-4 text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed max-w-[220px] mx-auto">
                   Terminal number is copied to clipboard automatically. Dispatch to verified merchant upon verification.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <a
               href="#" // Replace with real FB page link
-              className="w-full p-4 flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white transition-all shadow-lg shadow-blue-600/20"
+              className="w-full p-3.5 sm:p-4 flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white transition-all shadow-lg shadow-blue-600/20 min-h-[44px]"
             >
               <Facebook size={18} />
               <span className="font-black uppercase text-[10px] tracking-widest italic">
@@ -1244,7 +1460,7 @@ function PaymentSection({
               </span>
             </a>
 
-            <div className="p-4 bg-bg-base border border-border-subtle">
+            <div className="p-3.5 sm:p-4 bg-bg-base border border-border-subtle">
               <p className="text-[10px] text-text-muted leading-relaxed font-bold uppercase tracking-tight">
                 Send payment to the number above, then upload your receipt on
                 the right to verify your transaction in our ledger.
@@ -1254,12 +1470,12 @@ function PaymentSection({
         </div>
 
         {/* Right: Form & Upload */}
-        <div className="md:col-span-7 p-6 md:p-12 bg-slate-900/30">
-          <div className="space-y-8">
+        <div className="md:col-span-7 p-5 sm:p-6 md:p-12 bg-slate-900/30">
+          <div className="space-y-6 sm:space-y-8">
             {!selectedPlan && (
-              <div className="bg-red-500/10 border border-red-500/50 p-6 mb-8 flex items-center gap-4 group">
-                <div className="w-12 h-12 bg-red-500 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="text-white" size={24} />
+              <div className="bg-red-500/10 border border-red-500/50 p-4 sm:p-6 mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 group">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-500 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="text-white" size={20} />
                 </div>
                 <div>
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Infrastructure Required</h4>
@@ -1270,7 +1486,7 @@ function PaymentSection({
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
                   Customer Identifier
@@ -1280,14 +1496,14 @@ function PaymentSection({
                   value={accountNumber}
                   onChange={(e) => setAccountNumber(e.target.value)}
                   placeholder="HF-000000"
-                  className="w-full bg-bg-base border border-border-subtle p-4 md:p-5 focus:outline-none focus:border-primary transition-colors text-lg md:text-xl font-mono uppercase tracking-widest placeholder:text-slate-800"
+                  className="w-full bg-bg-base border border-border-subtle p-3.5 sm:p-4 md:p-5 focus:outline-none focus:border-primary transition-colors text-base sm:text-lg md:text-xl font-mono uppercase tracking-widest placeholder:text-slate-800"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
                   Settlement Amount
                 </label>
-                <div className="w-full bg-slate-900 border border-primary/30 p-4 md:p-5 text-xl md:text-2xl font-mono text-primary font-bold italic flex items-center justify-between">
+                <div className="w-full bg-slate-900 border border-primary/30 p-3.5 sm:p-4 md:p-5 text-lg sm:text-xl md:text-2xl font-mono text-primary font-bold italic flex items-center justify-between">
                   <span>₱ {selectedPlan ? selectedPlan.price.toLocaleString() : "0.00"}</span>
                   <span className="text-[8px] bg-primary/20 px-2 py-1 rounded uppercase tracking-[0.2em] font-black not-italic border border-primary/20">Fixed Rate</span>
                 </div>
@@ -1299,13 +1515,13 @@ function PaymentSection({
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
                 Screenshot Upload (Proof)
               </label>
               
               <div
-                className={`relative border-2 border-dashed transition-all p-8 text-center flex flex-col items-center justify-center cursor-pointer ${preview ? "border-primary bg-primary/5" : "border-border-subtle hover:border-text-muted bg-bg-base"}`}
+                className={`relative border-2 border-dashed transition-all p-6 sm:p-8 text-center flex flex-col items-center justify-center cursor-pointer ${preview ? "border-primary bg-primary/5" : "border-border-subtle hover:border-text-muted bg-bg-base"}`}
                 onClick={() => document.getElementById("file-upload")?.click()}
               >
                 <input
@@ -1331,9 +1547,9 @@ function PaymentSection({
                   </div>
                 ) : (
                   <>
-                    <Upload className="text-text-muted mb-4" size={32} />
+                    <Upload className="text-text-muted mb-3 sm:mb-4" size={28} />
                     <div className="text-[11px] font-black uppercase tracking-widest text-text-dim">
-                      Drag Screenshot Here
+                      Tap or Drag Screenshot Here
                     </div>
                     <div className="text-[9px] text-text-muted uppercase mt-2">
                       JPG, PNG allowed (Max 5MB)
@@ -1346,13 +1562,13 @@ function PaymentSection({
             <button
               disabled={processing || !user || !amount || !file}
               onClick={handlePayment}
-              className="w-full py-6 bg-primary hover:bg-primary-dark disabled:opacity-30 text-white font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-4 italic active:scale-[0.98]"
+              className="w-full py-4 sm:py-6 min-h-[48px] bg-primary hover:bg-primary-dark disabled:opacity-30 text-white font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] text-xs sm:text-sm transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3 sm:gap-4 italic active:scale-[0.98] cursor-pointer"
             >
               {processing ? (
                 <Loader2 className="animate-spin" size={24} />
               ) : (
                 <>
-                  PROCESS SETTLEMENT <ArrowRight size={20} />
+                  PROCESS SETTLEMENT <ArrowRight size={18} />
                 </>
               )}
             </button>
@@ -1413,28 +1629,28 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
     .reduce((acc, p) => acc + p.amount, 0);
 
   return (
-    <div className="py-12 px-6 max-w-7xl mx-auto space-y-px bg-border-subtle border border-border-subtle">
+    <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-px bg-border-subtle border border-border-subtle">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
-        <div className="md:col-span-8 bg-bg-base p-6 md:p-12 flex flex-col md:flex-row items-center justify-between text-center md:text-left gap-8">
-          <div className="flex flex-col md:flex-row items-center gap-8">
-            <div className="w-24 h-24 p-1 border border-border-subtle rounded-full overflow-hidden group">
+        <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-12 flex flex-col sm:flex-row items-center sm:items-start md:items-center justify-between text-center sm:text-left gap-6 sm:gap-8">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 sm:gap-8 w-full sm:w-auto">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0">
               <img
                 src={user.photoURL || ""}
                 alt="avatar"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
               />
             </div>
-            <div>
-              <div className="text-[10px] font-black uppercase text-text-muted tracking-[0.4em] mb-3">
+            <div className="w-full sm:w-auto">
+              <div className="text-[10px] font-black uppercase text-text-muted tracking-[0.4em] mb-2 sm:mb-3">
                 Network Profile
               </div>
-              <div className="text-3xl md:text-4xl font-black uppercase italic tracking-tighter">
+              <div className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter">
                 {profile?.displayName}
               </div>
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-6 md:mt-4">
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Network Node</span>
-                  <div className="flex flex-col gap-1">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-start justify-center sm:justify-start gap-3 sm:gap-4 mt-4 md:mt-4 text-left">
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Network Node</span>
+                  <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-mono text-primary font-bold">
                       #{profile?.accountNumber}
                     </span>
@@ -1453,33 +1669,30 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                   </div>
                 </div>
 
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1" />
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
 
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Subscribed Tier</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
-                      <Activity size={10} className="text-primary" /> {currentPlan?.name || "Standard Account"}
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Subscribed Tier</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5">
+                      <Activity size={10} className="text-primary shrink-0" /> {currentPlan?.name || "Standard Account"}
                     </span>
                   </div>
                 </div>
 
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1" />
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
 
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Next Settlement</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2 italic">
-                      <Calendar size={10} className="text-primary" /> 
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Next Settlement</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5 italic">
+                      <Calendar size={10} className="text-primary shrink-0" /> 
                       {profile?.dueDate?.toDate 
                         ? profile.dueDate.toDate().toLocaleString('en-PH', { 
                             timeZone: ASIA_TIMEZONE,
                             month: '2-digit', 
                             day: '2-digit', 
-                            year: 'numeric', 
-                            hour: '2-digit', 
-                            minute: '2-digit', 
-                            hour12: true 
+                            year: 'numeric'
                           }) 
                         : "N/A"}
                     </span>
@@ -1491,16 +1704,16 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                   </div>
                 </div>
 
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1" />
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
 
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1.5 underline decoration-primary/30">Billing State</span>
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Billing State</span>
+                  <div className="flex items-center gap-1.5">
                     {profile?.status === 'suspended' ? (
                       <>
                         <span className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
                         <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1">
-                          <AlertTriangle size={10} /> SERVICE SUSPENDED
+                          <AlertTriangle size={10} /> SUSPENDED
                         </span>
                       </>
                     ) : profile?.billStatus === 'overdue' ? (
@@ -1536,16 +1749,16 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
           (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
             ? "bg-red-600"
             : "bg-emerald-600"
-        } p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative transition-all duration-300`}>
+        } p-6 sm:p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative transition-all duration-300`}>
           <div className="absolute top-0 right-0 p-8 opacity-10 -mr-4 -mt-4 group-hover:scale-110 transition-transform">
             <CreditCard size={120} />
           </div>
           
           <div className="relative z-10">
-            <div className="text-[10px] font-black uppercase text-white/60 tracking-[0.4em] mb-4">
+            <div className="text-[10px] font-black uppercase text-white/60 tracking-[0.4em] mb-3 sm:mb-4">
               Billing Center
             </div>
-            <div className="text-4xl md:text-5xl font-mono font-bold italic tracking-tighter uppercase whitespace-pre-wrap leading-none">
+            <div className="text-3xl sm:text-4xl md:text-5xl font-mono font-bold italic tracking-tighter uppercase whitespace-pre-wrap leading-none">
               {profile?.billStatus === 'overdue' 
                 ? 'OVERDUE' 
                 : profile?.billStatus === 'due' 
@@ -1556,7 +1769,7 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
             {profile?.billStatus !== 'paid' ? (
               <button
                 onClick={onPay}
-                className={`mt-8 flex items-center gap-3 px-8 py-4 bg-white font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn ${
+                className={`mt-6 sm:mt-8 flex items-center justify-center gap-3 w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-white font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn active:scale-[0.98] cursor-pointer min-h-[44px] ${
                   (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
                     ? "text-red-600"
                     : "text-emerald-600"
@@ -1565,19 +1778,19 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                 SECURE SETTLEMENT <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
               </button>
             ) : (
-              <div className="mt-8 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest italic px-4 py-2 border border-white/30 bg-white/10 w-fit">
+              <div className="mt-6 sm:mt-8 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest italic px-4 py-2 border border-white/30 bg-white/10 w-fit">
                 <CheckCircle2 size={12} /> Cycle Synchronized
               </div>
             )}
             
             {totalPending > 0 && (
-              <div className="mt-6 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
+              <div className="mt-4 sm:mt-6 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
                 <Loader2 size={12} className="animate-spin" /> Verification Pending
               </div>
             )}
           </div>
 
-          <div className="mt-12 flex justify-between items-center border-t border-white/20 pt-6 relative z-10">
+          <div className="mt-8 sm:mt-12 flex justify-between items-center border-t border-white/20 pt-4 sm:pt-6 relative z-10">
             <div className="text-[10px] font-black uppercase tracking-widest italic">
               {profile?.billStatus === 'overdue' 
                 ? 'Action Required' 
@@ -1591,21 +1804,65 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
       </div>
 
       <div className="bg-bg-base p-0 relative">
-        <div className="px-6 md:px-10 py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-center justify-between gap-4">
-          <h3 className="text-[10px] md:text-sm font-black uppercase tracking-[0.4em] flex items-center gap-3 italic text-primary">
-            <History size={18} className="not-italic" /> Settlement Ledger
+        <div className="px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <h3 className="text-xs sm:text-sm font-black uppercase tracking-[0.3em] sm:tracking-[0.4em] flex items-center gap-2.5 sm:gap-3 italic text-primary">
+            <History size={16} className="not-italic" /> Settlement Ledger
           </h3>
-          <div className="flex gap-4">
-            <button className="text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
+          <div className="flex gap-3">
+            <button className="text-[9px] sm:text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
               Export CSV
             </button>
-            <button className="text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
+            <button className="text-[9px] sm:text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
               PDF Export
             </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto no-scrollbar">
+        {/* Mobile Ledger Card View */}
+        <div className="md:hidden divide-y divide-border-subtle">
+          {payments.length === 0 ? (
+            <div className="px-4 py-12 text-center text-text-muted italic font-medium uppercase tracking-[0.2em] text-xs">
+              No transaction history detected
+            </div>
+          ) : (
+            payments.map((p) => (
+              <div key={`portal-m-payment-${p.id}`} className="p-4 space-y-3 bg-bg-base hover:bg-slate-900/30 transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-tight text-text-dim">
+                    {p.createdAt?.toDate
+                      ? p.createdAt.toDate().toLocaleDateString("en-PH", {
+                          timeZone: ASIA_TIMEZONE,
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        })
+                      : "Processing"}
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 bg-slate-900 border border-border-subtle text-primary">
+                    {p.method}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-mono text-white/80">
+                    {p.referenceNumber}
+                  </div>
+                  <div className="font-mono font-bold text-lg text-primary italic">
+                    ₱ {p.amount.toLocaleString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedReceipt(p)}
+                  className="w-full py-2.5 px-3 bg-slate-900/80 border border-border-subtle hover:border-primary text-text-dim hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
+                >
+                  <Receipt size={14} className="text-primary" /> View Digital Receipt
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Ledger Table View */}
+        <div className="hidden md:block overflow-x-auto no-scrollbar">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-900/50">
@@ -1668,7 +1925,7 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                     <td className="px-6 md:px-10 py-6 md:py-8 text-right">
                       <button
                         onClick={() => setSelectedReceipt(p)}
-                        className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all"
+                        className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all cursor-pointer"
                         title="View Receipt"
                       >
                         <Receipt size={16} />
@@ -1688,30 +1945,34 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[60] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-6"
+              className="fixed inset-0 z-[150] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
               onClick={() => setSelectedReceipt(null)}
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden"
+                className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden max-h-[90vh] flex flex-col my-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="bg-primary p-6 text-white flex justify-between items-center">
+                <div className="bg-primary p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
                   <div className="flex items-center gap-2">
                     <Receipt size={20} />
-                    <span className="font-black uppercase tracking-widest italic">
+                    <span className="font-black uppercase tracking-widest italic text-sm sm:text-base">
                       Digital Receipt
                     </span>
                   </div>
-                  <button onClick={() => setSelectedReceipt(null)}>
+                  <button 
+                    onClick={() => setSelectedReceipt(null)}
+                    className="p-1 text-white hover:opacity-80 cursor-pointer"
+                    aria-label="Close receipt"
+                  >
                     <X size={20} />
                   </button>
                 </div>
 
-                <div className="p-8 space-y-6">
-                  <div className="flex justify-between border-b border-border-subtle pb-4">
+                <div className="p-5 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto">
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       REFERENCE
                     </span>
@@ -1719,7 +1980,7 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                       {selectedReceipt.referenceNumber}
                     </span>
                   </div>
-                  <div className="flex justify-between border-b border-border-subtle pb-4">
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       DATE
                     </span>
@@ -1729,17 +1990,17 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                         : "Processing"}
                     </span>
                   </div>
-                  <div className="flex justify-between border-b border-border-subtle pb-4">
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       AMOUNT PAID
                     </span>
-                    <span className="text-2xl font-mono font-bold italic text-primary">
+                    <span className="text-xl sm:text-2xl font-mono font-bold italic text-primary">
                       ₱ {selectedReceipt.amount.toLocaleString()}
                     </span>
                   </div>
 
                   {selectedReceipt.screenshotUrl && (
-                    <div className="space-y-3">
+                    <div className="space-y-2 sm:space-y-3">
                       <span className="text-[10px] font-black uppercase text-text-muted flex items-center gap-2">
                         <ImageIcon size={12} /> Verification Snapshot
                       </span>
@@ -1761,7 +2022,7 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
                     </div>
                   )}
 
-                  <div className="pt-4 text-center">
+                  <div className="pt-2 sm:pt-4 text-center">
                     <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest italic leading-tight">
                       Electronically recorded ledger item • Verification pending
                       manual review
@@ -1786,8 +2047,8 @@ function Footer({
 }) {
   const { user, isAdmin } = useAuth();
   return (
-    <footer className="py-24 px-6 border-t border-border-subtle bg-bg-surface/30">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-10">
+    <footer className="py-12 sm:py-20 md:py-24 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 transform rotate-12 flex items-center justify-center overflow-hidden">
             <img
@@ -1801,37 +2062,37 @@ function Footer({
           </span>
         </div>
 
-        <div className="flex flex-wrap justify-center gap-10 text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">
+        <div className="flex flex-wrap justify-center gap-5 sm:gap-8 md:gap-10 text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-text-muted">
           <span 
             onClick={onOpenLatencyMap}
-            className="hover:text-primary cursor-pointer transition-colors"
+            className="hover:text-primary cursor-pointer transition-colors p-1"
           >
             Infrastructure
           </span>
           <span 
             onClick={onOpenLatencyMap}
-            className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-white/90"
+            className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-white/90 p-1"
             title="Open Google Map Box"
           >
             <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
           </span>
-          <span className="hover:text-primary cursor-pointer transition-colors">
+          <span className="hover:text-primary cursor-pointer transition-colors p-1">
             Support
           </span>
-          <span className="hover:text-primary cursor-pointer transition-colors">
+          <span className="hover:text-primary cursor-pointer transition-colors p-1">
             Compliance
           </span>
         </div>
 
-        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-6">
+        <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
           <button
             onClick={() => setShowAdminLogin(true)}
-            className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group"
+            className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2"
           >
             <Lock size={10} className="group-hover:animate-pulse" /> System
             Access
           </button>
-          <span>© 2026 HF NETWORK CORP • BUILD 8.4.2 STABLE</span>
+          <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
         </div>
       </div>
     </footer>
