@@ -59,6 +59,8 @@ import {
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
+import LatencyMapModal from "./components/LatencyMapModal";
+import LatencyMapSection from "./components/LatencyMapSection";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -112,6 +114,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
+  const [showLatencyMap, setShowLatencyMap] = useState(false);
 
   // Logic to hide plans and payment if user already has an active, paid plan and it's not due
   const shouldHideBillingTabs = (() => {
@@ -351,7 +354,16 @@ export default function App() {
               ))}
           </div>
 
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-4">
+            <button
+              onClick={() => setShowLatencyMap(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[10px] font-black uppercase tracking-widest transition-all rounded hover:border-primary cursor-pointer"
+              title="Open Google Map Box for Fiber Node"
+            >
+              <MapPin size={12} className="text-primary animate-pulse" />
+              <span>Latency Map</span>
+            </button>
+
             {user ? (
               <div className="flex items-center gap-6">
                 <div className="relative">
@@ -509,6 +521,19 @@ export default function App() {
                     {tab}
                   </button>
                 ))}
+
+              <button
+                onClick={() => {
+                  setShowLatencyMap(true);
+                  setIsMenuOpen(false);
+                }}
+                className="w-full py-3.5 px-4 bg-primary/10 border border-primary/30 text-primary text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <MapPin size={15} /> Latency Map (Google Map Box)
+                </span>
+                <span className="text-[10px] font-mono text-green-400 font-bold">ONLINE</span>
+              </button>
               
               <div className="mt-8 pt-8 border-t border-border-subtle flex flex-col gap-6">
                 {user ? (
@@ -559,13 +584,19 @@ export default function App() {
             transition={{ duration: 0.3 }}
           >
             {activeTab === "home" && (
-              <HeroSection 
-                onExplore={() => setActiveTab("plans")} 
-                onGoToPortal={() => setActiveTab("portal")}
-                currentPlanName={currentPlan?.name} 
-                hasPendingPayment={hasPendingPayment}
-                shouldHideBilling={shouldHideBillingTabs}
-              />
+              <>
+                <HeroSection 
+                  onExplore={() => setActiveTab("plans")} 
+                  onGoToPortal={() => setActiveTab("portal")}
+                  onOpenLatencyMap={() => setShowLatencyMap(true)}
+                  currentPlanName={currentPlan?.name} 
+                  hasPendingPayment={hasPendingPayment}
+                  shouldHideBilling={shouldHideBillingTabs}
+                />
+                <LatencyMapSection
+                  onOpenMapModal={() => setShowLatencyMap(true)}
+                />
+              </>
             )}
             {activeTab === "plans" && (
               <PlansSection plans={plans} onSelectPlan={handleSelectPlan} />
@@ -581,6 +612,7 @@ export default function App() {
             <CustomerPortal
               plans={plans}
               onPay={() => setActiveTab("plans")}
+              onOpenLatencyMap={() => setShowLatencyMap(true)}
             />
           )}
             {activeTab === "admin" && adminAuth && (
@@ -598,7 +630,15 @@ export default function App() {
 
       <ChatWidget />
       <Toaster position="top-center" richColors />
-      <Footer setShowAdminLogin={setShowAdminLogin} />
+      <Footer 
+        setShowAdminLogin={setShowAdminLogin} 
+        onOpenLatencyMap={() => setShowLatencyMap(true)} 
+      />
+
+      <LatencyMapModal 
+        isOpen={showLatencyMap} 
+        onClose={() => setShowLatencyMap(false)} 
+      />
 
       <AnimatePresence>
         {showAdminLogin && (
@@ -690,7 +730,7 @@ export default function App() {
   );
 }
 
-function HeroSection({ onExplore, onGoToPortal, currentPlanName, hasPendingPayment, shouldHideBilling }: { onExplore: () => void, onGoToPortal: () => void, currentPlanName?: string | null, hasPendingPayment: boolean, shouldHideBilling: boolean }) {
+function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanName, hasPendingPayment, shouldHideBilling }: { onExplore: () => void, onGoToPortal: () => void, onOpenLatencyMap?: () => void, currentPlanName?: string | null, hasPendingPayment: boolean, shouldHideBilling: boolean }) {
   const [latency, setLatency] = useState<number>(0);
   const [traffic, setTraffic] = useState<number>(7.8);
   const [load, setLoad] = useState<number>(65);
@@ -811,12 +851,18 @@ function HeroSection({ onExplore, onGoToPortal, currentPlanName, hasPendingPayme
                 Incoming Traffic
               </div>
             </div>
-            <div>
-              <div className="text-3xl font-light text-white">
+            <div 
+              onClick={onOpenLatencyMap}
+              className="cursor-pointer group"
+              title="Click to open Latency & Coverage Map Box"
+            >
+              <div className="text-3xl font-light text-white group-hover:text-primary transition-colors flex items-baseline">
                 {latency || "--"}<span className="font-bold text-primary text-xl ml-1">ms</span>
+                <MapPin size={14} className="ml-1.5 text-primary opacity-60 group-hover:opacity-100 transition-opacity" />
               </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted font-black mt-1">
-                Latency (8.8.8.8)
+              <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted group-hover:text-primary font-black mt-1 flex items-center gap-1">
+                <span>Latency (8.8.8.8)</span>
+                <span className="text-primary underline font-normal">• Map</span>
               </div>
             </div>
             <div>
@@ -882,13 +928,21 @@ function HeroSection({ onExplore, onGoToPortal, currentPlanName, hasPendingPayme
                 </div>
               </div>
 
-              <div className="bg-bg-base/80 p-6 border border-border-subtle relative overflow-hidden group">
+              <div 
+                onClick={onOpenLatencyMap}
+                className="bg-bg-base/80 p-6 border border-border-subtle hover:border-primary/60 relative overflow-hidden group cursor-pointer transition-all"
+                title="Click to open Google Map Box"
+              >
                 <div className="absolute inset-0 bg-primary/5 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                <div className="text-3xl font-mono font-bold text-primary tabular-nums tracking-tighter italic uppercase">
-                  {latency < 50 ? "ULTRA-LOW PING" : "OPTIMIZED"}
+                <div className="text-3xl font-mono font-bold text-primary tabular-nums tracking-tighter italic uppercase flex items-center justify-between">
+                  <span>{latency < 50 ? "ULTRA-LOW PING" : "OPTIMIZED"}</span>
+                  <span className="text-[9px] font-sans font-black tracking-widest text-white/80 bg-primary/20 px-2 py-0.5 border border-primary/40 flex items-center gap-1">
+                    <MapPin size={10} className="text-primary" /> GOOGLE MAP
+                  </span>
                 </div>
-                <div className="text-[10px] text-text-muted uppercase font-black tracking-[0.2em] mt-2">
-                   SERVER SENSOR [8.8.8.8]: {latency} MS
+                <div className="text-[10px] text-text-muted uppercase font-black tracking-[0.2em] mt-2 flex items-center justify-between">
+                   <span>SERVER SENSOR [8.8.8.8]: {latency} MS</span>
+                   <span className="text-primary underline font-bold group-hover:text-white transition-colors">OPEN MAP BOX</span>
                 </div>
               </div>
             </div>
@@ -1314,7 +1368,7 @@ function PaymentSection({
   );
 }
 
-function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => void }) {
+function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPlan[], onPay: () => void, onOpenLatencyMap?: () => void }) {
   const { user, profile } = useAuth();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
@@ -1389,6 +1443,13 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
                         CID: {profile.clientId}
                       </span>
                     )}
+                    <button
+                      onClick={onOpenLatencyMap}
+                      className="text-[8px] font-mono text-primary hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
+                      title="Open Google Map Box for Node Uplink"
+                    >
+                      <MapPin size={9} /> View Uplink Map
+                    </button>
                   </div>
                 </div>
 
@@ -1718,8 +1779,10 @@ function CustomerPortal({ plans, onPay }: { plans: InternetPlan[], onPay: () => 
 
 function Footer({
   setShowAdminLogin,
+  onOpenLatencyMap,
 }: {
   setShowAdminLogin: (show: boolean) => void;
+  onOpenLatencyMap?: () => void;
 }) {
   const { user, isAdmin } = useAuth();
   return (
@@ -1739,11 +1802,18 @@ function Footer({
         </div>
 
         <div className="flex flex-wrap justify-center gap-10 text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">
-          <span className="hover:text-primary cursor-pointer transition-colors">
+          <span 
+            onClick={onOpenLatencyMap}
+            className="hover:text-primary cursor-pointer transition-colors"
+          >
             Infrastructure
           </span>
-          <span className="hover:text-primary cursor-pointer transition-colors">
-            Latency Map
+          <span 
+            onClick={onOpenLatencyMap}
+            className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-white/90"
+            title="Open Google Map Box"
+          >
+            <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
           </span>
           <span className="hover:text-primary cursor-pointer transition-colors">
             Support
