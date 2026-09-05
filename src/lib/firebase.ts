@@ -6,6 +6,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { toast } from 'sonner';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -17,13 +18,27 @@ export const loginWithGoogle = async () => {
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
-    console.error("Login Error:", error);
-    if (error.code === 'auth/unauthorized-domain') {
-      alert("This domain is not authorized in Firebase Console. Please add your Vercel domain to Firebase -> Authentication -> Settings -> Authorized domains.");
-    } else {
-      alert("Login failed: " + error.message);
+    // If the user dismissed or closed the popup window, treat it as a graceful cancel
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request'
+    ) {
+      return null;
     }
-    throw error;
+
+    if (error?.code === 'auth/popup-blocked') {
+      toast.error("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+      return null;
+    }
+
+    if (error?.code === 'auth/unauthorized-domain') {
+      toast.error("This domain is not authorized in Firebase Console. Please add your domain to Authentication -> Settings -> Authorized domains.");
+      return null;
+    }
+
+    console.error("Firebase Auth Error:", error);
+    toast.error(error?.message ? `Login failed: ${error.message}` : "Unable to sign in with Google. Please try again.");
+    return null;
   }
 };
 export const logout = () => signOut(auth);

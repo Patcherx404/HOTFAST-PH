@@ -62,6 +62,7 @@ import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
 import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
+import DataConsumptionChart from "./components/DataConsumptionChart";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -1802,6 +1803,13 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
           </div>
         </div>
       </div>
+
+      {/* 30-Day Data Consumption Trends Line Chart */}
+      <DataConsumptionChart
+        accountNumber={profile?.accountNumber}
+        planName={currentPlan?.name}
+        planSpeed={currentPlan?.speed}
+      />
 
       <div className="bg-bg-base p-0 relative">
         <div className="px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
