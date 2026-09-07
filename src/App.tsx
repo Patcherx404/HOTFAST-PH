@@ -63,6 +63,8 @@ import { ChatWidget } from "./components/ChatWidget";
 import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
 import DataConsumptionChart from "./components/DataConsumptionChart";
+import { usePWAInstall } from "./hooks/usePWAInstall";
+import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -117,6 +119,18 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [showLatencyMap, setShowLatencyMap] = useState(false);
+
+  // PWA Install state & trigger
+  const {
+    isInstallable,
+    isInstalled,
+    isIOS,
+    isAndroid,
+    isInAppBrowser,
+    isModalOpen: showInstallModal,
+    setIsModalOpen: setShowInstallModal,
+    triggerInstall,
+  } = usePWAInstall();
 
   // Logic to hide plans and payment if user already has an active, paid plan and it's not due
   const shouldHideBillingTabs = (() => {
@@ -356,7 +370,18 @@ export default function App() {
               ))}
           </div>
 
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-3">
+            {!isInstalled && (
+              <button
+                onClick={triggerInstall}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 to-primary hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest transition-all rounded shadow-md shadow-primary/20 border border-red-500 cursor-pointer"
+                title="Install HOTFAST PH App to Home Screen"
+              >
+                <Smartphone size={12} />
+                <span>Install App</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowLatencyMap(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[10px] font-black uppercase tracking-widest transition-all rounded hover:border-primary cursor-pointer"
@@ -467,6 +492,17 @@ export default function App() {
 
           {/* Mobile Right Controls */}
           <div className="flex md:hidden items-center gap-1 sm:gap-2">
+            {!isInstalled && (
+              <button
+                onClick={triggerInstall}
+                className="px-2 py-1 bg-primary/20 hover:bg-primary border border-primary/40 text-white rounded transition-colors flex items-center gap-1"
+                title="Add to Home Screen / Install App"
+              >
+                <Smartphone size={14} className="text-primary group-hover:text-white" />
+                <span className="text-[9px] font-black uppercase tracking-wider text-primary">App</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowLatencyMap(true)}
               className="p-2 text-primary hover:text-white transition-colors relative"
@@ -653,6 +689,24 @@ export default function App() {
                   </button>
                 ))}
 
+              {!isInstalled && (
+                <button
+                  onClick={() => {
+                    triggerInstall();
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full py-3.5 px-4 bg-gradient-to-r from-red-950/70 via-slate-900 to-slate-900 border border-primary/50 text-white text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 active:bg-primary transition-all cursor-pointer"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Smartphone size={17} className="text-primary" /> 
+                    <span>Add to Home Screen</span>
+                  </span>
+                  <span className="text-[9px] font-mono text-primary font-bold bg-primary/20 px-2 py-0.5 border border-primary/30">
+                    INSTALL
+                  </span>
+                </button>
+              )}
+
               <button
                 onClick={() => {
                   setShowLatencyMap(true);
@@ -729,12 +783,14 @@ export default function App() {
               />
             )}
             {activeTab === "portal" && (
-            <CustomerPortal
-              plans={plans}
-              onPay={() => setActiveTab("plans")}
-              onOpenLatencyMap={() => setShowLatencyMap(true)}
-            />
-          )}
+              <CustomerPortal
+                plans={plans}
+                onPay={() => setActiveTab("plans")}
+                onOpenLatencyMap={() => setShowLatencyMap(true)}
+                onOpenInstallModal={() => setShowInstallModal(true)}
+                isInstalled={isInstalled}
+              />
+            )}
             {activeTab === "admin" && adminAuth && (
               <AdminPanel
                 plans={plans}
@@ -830,11 +886,22 @@ export default function App() {
       <Footer 
         setShowAdminLogin={setShowAdminLogin} 
         onOpenLatencyMap={() => setShowLatencyMap(true)} 
+        onOpenInstallModal={() => setShowInstallModal(true)}
       />
 
       <LatencyMapModal 
         isOpen={showLatencyMap} 
         onClose={() => setShowLatencyMap(false)} 
+      />
+
+      <PWAInstallModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        onInstall={triggerInstall}
+        isInstallable={isInstallable}
+        isIOS={isIOS}
+        isAndroid={isAndroid}
+        isInAppBrowser={isInAppBrowser}
       />
 
       <AnimatePresence>
@@ -1741,7 +1808,19 @@ function PaymentSection({
   );
 }
 
-function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPlan[], onPay: () => void, onOpenLatencyMap?: () => void }) {
+function CustomerPortal({ 
+  plans, 
+  onPay, 
+  onOpenLatencyMap,
+  onOpenInstallModal,
+  isInstalled,
+}: { 
+  plans: InternetPlan[]; 
+  onPay: () => void; 
+  onOpenLatencyMap?: () => void;
+  onOpenInstallModal?: () => void;
+  isInstalled?: boolean;
+}) {
   const { user, profile } = useAuth();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
@@ -1786,8 +1865,12 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
     .reduce((acc, p) => acc + p.amount, 0);
 
   return (
-    <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-px bg-border-subtle border border-border-subtle">
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
+    <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
+      {onOpenInstallModal && !isInstalled && (
+        <PWAInstallBanner onOpenModal={onOpenInstallModal} isInstalled={!!isInstalled} />
+      )}
+      <div className="space-y-px bg-border-subtle border border-border-subtle">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
         <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-12 flex flex-col sm:flex-row items-center sm:items-start md:items-center justify-between text-center sm:text-left gap-6 sm:gap-8">
           <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 sm:gap-8 w-full sm:w-auto">
             <div className="w-20 h-20 sm:w-24 sm:h-24 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0">
@@ -2198,6 +2281,7 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
           )}
         </AnimatePresence>
       </div>
+      </div>
     </div>
   );
 }
@@ -2205,9 +2289,11 @@ function CustomerPortal({ plans, onPay, onOpenLatencyMap }: { plans: InternetPla
 function Footer({
   setShowAdminLogin,
   onOpenLatencyMap,
+  onOpenInstallModal,
 }: {
   setShowAdminLogin: (show: boolean) => void;
   onOpenLatencyMap?: () => void;
+  onOpenInstallModal?: () => void;
 }) {
   const { user, isAdmin } = useAuth();
   return (
@@ -2227,6 +2313,15 @@ function Footer({
         </div>
 
         <div className="flex flex-wrap justify-center gap-5 sm:gap-8 md:gap-10 text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-text-muted">
+          {onOpenInstallModal && (
+            <span 
+              onClick={onOpenInstallModal}
+              className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-primary p-1"
+              title="Add HOTFAST App to Home Screen"
+            >
+              <Smartphone size={10} /> Install App
+            </span>
+          )}
           <span 
             onClick={onOpenLatencyMap}
             className="hover:text-primary cursor-pointer transition-colors p-1"
