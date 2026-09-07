@@ -319,9 +319,9 @@ export default function App() {
             className="flex items-center gap-2 md:gap-3 cursor-pointer group"
             onClick={() => setActiveTab("home")}
           >
-            <div className="w-8 h-8 md:w-10 md:h-10 overflow-hidden transform group-hover:rotate-12 transition-transform duration-500">
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center transform group-hover:scale-105 group-hover:border-primary transition-all duration-300 shrink-0">
               <img
-                src="/hoticon.png"
+                src="/hoticon2.png"
                 alt="HOTFAST Logo"
                 className="w-full h-full object-contain"
               />
@@ -581,8 +581,8 @@ export default function App() {
           >
             <div className="flex justify-between items-center mb-8">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8">
-                  <img src="/hoticon.png" alt="Logo" className="w-full h-full" />
+                <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
+                  <img src="/hoticon2.png" alt="Logo" className="w-full h-full object-contain" />
                 </div>
                 <span className="text-xl font-black uppercase tracking-tighter">
                   HOTFAST<span className="text-primary italic">PH</span>
@@ -862,9 +862,9 @@ export default function App() {
               </button>
 
               <div className="text-center mb-10 text-white">
-                <div className="w-16 h-16 mx-auto mb-6 opacity-80">
+                <div className="w-20 h-20 mx-auto mb-6 p-2 rounded-2xl bg-slate-900/90 border-2 border-primary/50 shadow-xl shadow-primary/20 flex items-center justify-center overflow-hidden">
                   <img
-                    src="/hoticon.png"
+                    src="/hoticon2.png"
                     alt="Logo"
                     className="w-full h-full object-contain"
                   />
@@ -1276,14 +1276,19 @@ function PaymentSection({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
+  const [showGCashGuide, setShowGCashGuide] = useState(false);
 
   useEffect(() => {
     if (selectedPlan) setAmount(selectedPlan.price.toString());
   }, [selectedPlan]);
 
   useEffect(() => {
-    if (profile?.accountNumber) setAccountNumber(profile.accountNumber);
-  }, [profile]);
+    if (profile?.accountNumber) {
+      setAccountNumber(profile.accountNumber);
+    } else if (user?.uid) {
+      setAccountNumber(`HF-${user.uid.substring(0, 8).toUpperCase()}`);
+    }
+  }, [profile, user]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -1295,18 +1300,41 @@ function PaymentSection({
     }
   };
 
+  const getGCashDeepLink = () => {
+    if (typeof navigator === "undefined") return "gcash://";
+    const ua = navigator.userAgent || "";
+    // Android Chrome requires an explicit Intent URI to wake up the package manager
+    if (/android/i.test(ua)) {
+      return "intent://#Intent;package=com.globe.gcash.android;scheme=gcash;end";
+    }
+    // iOS Safari uses standard URL scheme
+    return "gcash://";
+  };
+
   const handleOpenGCash = () => {
     const gcashNumber = "09122367040";
     navigator.clipboard.writeText(gcashNumber);
 
-    const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+    const deepLink = getGCashDeepLink();
+
+    setShowGCashGuide(true);
+
     if (isMobile) {
-      toast.success("GCash number (0912 236 7040) copied! Opening GCash app...", { duration: 4500 });
-      window.location.href = "gcash://";
+      toast.success("GCash number (0912 236 7040) copied! Opening GCash...", { duration: 4000 });
+      // Direct navigation attempt
+      try {
+        if (window.top && window.top !== window.self) {
+          window.top.location.href = deepLink;
+        } else {
+          window.location.href = deepLink;
+        }
+      } catch {
+        window.location.href = deepLink;
+      }
     } else {
-      toast.info("GCash number (0912 236 7040) copied to clipboard! On a smartphone, this launches the GCash app directly.", { duration: 5500 });
-      window.location.href = "gcash://";
+      toast.info("GCash number (0912 236 7040) copied! Note: GCash is a smartphone app. Scan the QR code with your phone or open this site on your mobile phone.", { duration: 6000 });
     }
   };
 
@@ -1484,16 +1512,18 @@ function PaymentSection({
               </div>
 
               <div className="pt-2 sm:pt-4 space-y-2.5 sm:space-y-3">
-                {/* Primary: Open GCash App Direct Action */}
-                <button
-                  type="button"
+                {/* Primary: Open GCash App Direct Action with native top-level anchor fallback */}
+                <a
+                  href={getGCashDeepLink()}
+                  target="_top"
+                  rel="noopener noreferrer"
                   onClick={handleOpenGCash}
-                  className="w-full py-3.5 sm:py-4 px-4 bg-[#007DFE] hover:bg-[#006bd8] text-white font-black uppercase text-[11px] sm:text-[12px] tracking-[0.2em] italic flex items-center justify-center gap-2.5 transition-all shadow-[0_10px_25px_rgba(0,125,254,0.35)] active:scale-[0.98] cursor-pointer min-h-[46px] border border-[#3ba0ff]"
+                  className="w-full py-3.5 sm:py-4 px-4 bg-[#007DFE] hover:bg-[#006bd8] text-white font-black uppercase text-[11px] sm:text-[12px] tracking-[0.2em] italic flex items-center justify-center gap-2.5 transition-all shadow-[0_10px_25px_rgba(0,125,254,0.35)] active:scale-[0.98] cursor-pointer min-h-[46px] border border-[#3ba0ff] text-center no-underline"
                 >
                   <Smartphone size={16} className="shrink-0" />
                   <span>Pay via GCash (Open App)</span>
                   <ExternalLink size={13} className="opacity-80 shrink-0" />
-                </button>
+                </a>
 
                 {/* Secondary: Quick Save QR Code & Copy Number */}
                 <div className="grid grid-cols-2 gap-2">
@@ -1521,9 +1551,50 @@ function PaymentSection({
                   </button>
                 </div>
 
-                <p className="text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed text-center px-1">
-                  Tapping automatically copies 0912 236 7040 &amp; opens GCash. In GCash, select Express Send or scan QR from gallery.
-                </p>
+                {/* Interactive guidance if app does not open automatically */}
+                {showGCashGuide ? (
+                  <div className="p-3 bg-slate-900/90 border border-[#007DFE]/40 text-left space-y-2 mt-2 transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-[#007DFE] uppercase flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#007DFE] animate-ping" />
+                        0912 236 7040 Copied!
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowGCashGuide(false)}
+                        className="text-text-muted hover:text-white text-[10px] font-mono font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-[9px] font-mono text-slate-300 leading-relaxed">
+                      <strong>Did GCash not open?</strong> If you are testing inside an app preview or computer browser, security policies block app launching.
+                    </p>
+                    <div className="pt-1 flex flex-wrap gap-1.5">
+                      <a
+                        href="intent://#Intent;package=com.globe.gcash.android;scheme=gcash;end"
+                        target="_top"
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[#007DFE] text-[8px] font-mono font-bold uppercase border border-slate-700 inline-flex items-center gap-1"
+                      >
+                        Launch Android Intent &rarr;
+                      </a>
+                      <a
+                        href="gcash://"
+                        target="_top"
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[#007DFE] text-[8px] font-mono font-bold uppercase border border-slate-700 inline-flex items-center gap-1"
+                      >
+                        Launch iOS (iPhone) &rarr;
+                      </a>
+                    </div>
+                    <p className="text-[8px] font-mono text-text-muted">
+                      Or simply open your GCash app, tap <strong>Express Send</strong>, and paste <strong>0912 236 7040</strong>.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed text-center px-1">
+                    Tapping automatically copies 0912 236 7040 &amp; opens GCash. In GCash, select Express Send or scan QR from gallery.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1567,16 +1638,23 @@ function PaymentSection({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
-                  Customer Identifier
-                </label>
-                <input
-                  type="text"
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
-                  placeholder="HF-000000"
-                  className="w-full bg-bg-base border border-border-subtle p-3.5 sm:p-4 md:p-5 focus:outline-none focus:border-primary transition-colors text-base sm:text-lg md:text-xl font-mono uppercase tracking-widest placeholder:text-slate-800"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
+                    Customer Identifier
+                  </label>
+                  <span className="text-[8px] bg-primary/20 text-primary px-2 py-0.5 rounded uppercase tracking-[0.2em] font-black not-italic border border-primary/20 flex items-center gap-1">
+                    <Lock size={9} /> Locked
+                  </span>
+                </div>
+                <div className="w-full bg-slate-900 border border-primary/30 p-3.5 sm:p-4 md:p-5 text-base sm:text-lg md:text-xl font-mono text-white font-bold flex items-center justify-between select-none">
+                  <span className="tracking-widest">
+                    {accountNumber || profile?.accountNumber || (user ? `HF-${user.uid.substring(0, 8).toUpperCase()}` : "HF-000000")}
+                  </span>
+                  <ShieldCheck size={18} className="text-primary shrink-0" />
+                </div>
+                <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest mt-2 italic px-1">
+                  System locked: Bound to verified subscriber profile
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
@@ -2136,9 +2214,9 @@ function Footer({
     <footer className="py-12 sm:py-20 md:py-24 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 transform rotate-12 flex items-center justify-center overflow-hidden">
+          <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
             <img
-              src="/hoticon.png"
+              src="/hoticon2.png"
               alt="HOTFAST Logo"
               className="w-full h-full object-contain"
             />
