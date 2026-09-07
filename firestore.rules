@@ -41,7 +41,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if (isOwner(userId) && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId']) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId', 'phone']) &&
                       isValidUser(request.resource.data)) || isAdmin();
       allow delete: if isAdmin();
     }

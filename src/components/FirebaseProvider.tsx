@@ -135,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               accountNumber: `HF-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.floor(Math.random() * 10000)}`,
               displayName: user.displayName || 'New Customer',
               email: user.email || '',
+              phone: '',
               address: '',
               currentPlanId: 'starter',
               balance: 999,

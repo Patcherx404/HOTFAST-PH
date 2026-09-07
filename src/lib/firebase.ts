@@ -4,7 +4,14 @@
  */
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  User,
+} from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { toast } from 'sonner';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -41,6 +48,7 @@ export const loginWithGoogle = async () => {
     return null;
   }
 };
+
 export const logout = () => signOut(auth);
 
 // Test Connection

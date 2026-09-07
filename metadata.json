@@ -2,5 +2,5 @@
   "name": "HOTFAST PH",
   "description": "High-speed fiber internet services in the Philippines with seamless online payment integration.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -458,7 +458,7 @@ export default function App() {
             ) : (
               <button
                 onClick={loginWithGoogle}
-                className="px-8 py-2.5 bg-primary hover:bg-primary-dark transition-all font-black uppercase tracking-widest text-[11px] flex items-center gap-2 italic"
+                className="px-8 py-2.5 bg-primary hover:bg-primary-dark transition-all font-black uppercase tracking-widest text-[11px] flex items-center gap-2 italic cursor-pointer"
               >
                 <LogIn size={14} /> Account Access
               </button>
@@ -817,7 +817,7 @@ export default function App() {
         ) : (
           <button
             onClick={loginWithGoogle}
-            className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors"
+            className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors cursor-pointer"
           >
             <LogIn size={18} />
             <span className="text-[9px] uppercase tracking-wider mt-1">Login</span>
@@ -1295,6 +1295,31 @@ function PaymentSection({
     }
   };
 
+  const handleOpenGCash = () => {
+    const gcashNumber = "09122367040";
+    navigator.clipboard.writeText(gcashNumber);
+
+    const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      toast.success("GCash number (0912 236 7040) copied! Opening GCash app...", { duration: 4500 });
+      window.location.href = "gcash://";
+    } else {
+      toast.info("GCash number (0912 236 7040) copied to clipboard! On a smartphone, this launches the GCash app directly.", { duration: 5500 });
+      window.location.href = "gcash://";
+    }
+  };
+
+  const handleDownloadQR = () => {
+    const link = document.createElement("a");
+    link.href = "/your-image.png";
+    link.download = "HOTFAST-GCash-QR.png";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("QR code downloaded! In GCash, tap 'QR' > 'Upload QR' from gallery to pay without a 2nd screen.");
+  };
+
   const handlePayment = async () => {
     if (!user) {
       toast.error("Please login first.");
@@ -1391,7 +1416,7 @@ function PaymentSection({
           </h3>
 
           <div className="mb-8 sm:mb-10 text-center">
-            <div className="aspect-square bg-white p-3 sm:p-4 inline-block transform rotate-1 sm:rotate-2 shadow-2xl mb-4 group relative max-w-xs">
+            <div className="aspect-square bg-white p-3 sm:p-4 inline-block transform rotate-1 sm:rotate-2 shadow-2xl mb-3 group relative max-w-xs">
               <div className="w-44 h-44 sm:w-56 sm:h-56 bg-slate-100 flex items-center justify-center relative overflow-hidden">
                 <img
                   src="/your-image.png"
@@ -1404,6 +1429,32 @@ function PaymentSection({
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Instructional helper text & tooltip near QR code */}
+            <div className="mb-6 flex flex-col items-center justify-center px-2">
+              <div
+                className="group relative inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/40 hover:border-primary transition-all cursor-help"
+                title="After scanning this QR code, please take a screenshot of your payment receipt and upload it in the form to confirm your transaction."
+              >
+                <Upload size={13} className="text-primary shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-slate-200">
+                  Upload receipt after scanning
+                </span>
+                <HelpCircle size={12} className="text-primary/80 group-hover:text-primary transition-colors shrink-0" />
+
+                {/* Hover Tooltip Popup */}
+                <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 text-white text-[10px] font-mono normal-case tracking-normal border border-primary shadow-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 z-30 text-center leading-relaxed">
+                  <div className="font-black text-primary uppercase text-[9px] mb-1 tracking-wider flex items-center justify-center gap-1">
+                    <Receipt size={12} /> Receipt Upload Required
+                  </div>
+                  Scan with GCash or your banking app, save your confirmation screenshot, and upload it in the verification form to settle your billing.
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-primary" />
+                </div>
+              </div>
+              <p className="mt-1.5 text-[9px] font-mono text-text-muted uppercase tracking-wider text-center">
+                Scan QR with e-wallet &rarr; Attach screenshot in form
+              </p>
             </div>
             
             <div className="mt-4 space-y-5 sm:space-y-6">
@@ -1432,19 +1483,46 @@ function PaymentSection({
                 </div>
               </div>
 
-              <div className="pt-2 sm:pt-4">
+              <div className="pt-2 sm:pt-4 space-y-2.5 sm:space-y-3">
+                {/* Primary: Open GCash App Direct Action */}
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText("09122367040");
-                    toast.info("Account Number Copied! You can now paste it in your GCash app.");
-                  }}
-                  className="inline-flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3.5 sm:py-4 bg-primary text-white text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_20px_rgba(220,38,38,0.3)] group cursor-pointer w-full sm:w-auto min-h-[44px]"
+                  type="button"
+                  onClick={handleOpenGCash}
+                  className="w-full py-3.5 sm:py-4 px-4 bg-[#007DFE] hover:bg-[#006bd8] text-white font-black uppercase text-[11px] sm:text-[12px] tracking-[0.2em] italic flex items-center justify-center gap-2.5 transition-all shadow-[0_10px_25px_rgba(0,125,254,0.35)] active:scale-[0.98] cursor-pointer min-h-[46px] border border-[#3ba0ff]"
                 >
-                  <Copy size={14} className="group-hover:scale-110 transition-transform" />
-                  Copy GCash Number
+                  <Smartphone size={16} className="shrink-0" />
+                  <span>Pay via GCash (Open App)</span>
+                  <ExternalLink size={13} className="opacity-80 shrink-0" />
                 </button>
-                <p className="mt-3 sm:mt-4 text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed max-w-[220px] mx-auto">
-                  Terminal number is copied to clipboard automatically. Dispatch to verified merchant upon verification.
+
+                {/* Secondary: Quick Save QR Code & Copy Number */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadQR}
+                    className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-primary/50 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
+                    title="Download QR code to phone gallery"
+                  >
+                    <Download size={13} className="text-primary shrink-0" />
+                    <span className="truncate">Save QR Code</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText("09122367040");
+                      toast.success("Routing number (0912 236 7040) copied!");
+                    }}
+                    className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-primary/50 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
+                    title="Copy GCash phone number"
+                  >
+                    <Copy size={13} className="text-primary shrink-0" />
+                    <span className="truncate">Copy Number</span>
+                  </button>
+                </div>
+
+                <p className="text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed text-center px-1">
+                  Tapping automatically copies 0912 236 7040 &amp; opens GCash. In GCash, select Express Send or scan QR from gallery.
                 </p>
               </div>
             </div>
@@ -3096,12 +3174,14 @@ function AdminPanel({
             Real-time data synchronization may be restricted until your identity is verified.
           </p>
           {!user && (
-            <button
-              onClick={loginWithGoogle}
-              className="px-8 py-3 bg-primary text-white font-black uppercase text-[10px] tracking-[0.2em] italic hover:bg-primary-dark transition-all"
-            >
-              Sign in with Google
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                onClick={loginWithGoogle}
+                className="px-8 py-3 bg-primary text-white font-black uppercase text-[10px] tracking-[0.2em] italic hover:bg-primary-dark transition-all flex items-center gap-2 cursor-pointer shadow-md"
+              >
+                <LogIn size={14} /> Sign in with Google
+              </button>
+            </div>
           )}
         </motion.div>
       )}
