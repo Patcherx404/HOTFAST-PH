@@ -1367,41 +1367,67 @@ function PaymentSection({
     }
   };
 
-  const getGCashDeepLink = () => {
-    if (typeof navigator === "undefined") return "gcash://";
-    const ua = navigator.userAgent || "";
-    // Android Chrome requires an explicit Intent URI to wake up the package manager
-    if (/android/i.test(ua)) {
-      return "intent://#Intent;package=com.globe.gcash.android;scheme=gcash;end";
+  const copyGCashNumber = () => {
+    const gcashNumber = "09122367040";
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(gcashNumber).catch(() => {
+          fallbackCopyText(gcashNumber);
+        });
+      } else {
+        fallbackCopyText(gcashNumber);
+      }
+    } catch {
+      fallbackCopyText(gcashNumber);
     }
-    // iOS Safari uses standard URL scheme
+  };
+
+  const fallbackCopyText = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.top = "-9999px";
+      textArea.style.left = "-9999px";
+      textArea.setAttribute("readonly", "");
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+    } catch (e) {
+      console.warn("Fallback copy failed", e);
+    }
+  };
+
+  const getGCashDeepLink = () => {
+    // Strictly open GCash app directly via registered scheme - never redirect to Play Store
     return "gcash://";
   };
 
   const handleOpenGCash = () => {
-    const gcashNumber = "09122367040";
-    navigator.clipboard.writeText(gcashNumber);
+    // 1. Auto-copy the GCash mobile number
+    copyGCashNumber();
 
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
-    const deepLink = getGCashDeepLink();
 
     setShowGCashGuide(true);
 
     if (isMobile) {
-      toast.success("GCash number (0912 236 7040) copied! Opening GCash...", { duration: 4000 });
-      // Direct navigation attempt
+      toast.success("GCash number (0912 236 7040) copied! Opening GCash app...", { duration: 4000 });
+      // Direct navigation attempt strictly to gcash:// - never open Play Store
       try {
         if (window.top && window.top !== window.self) {
-          window.top.location.href = deepLink;
+          window.top.location.href = "gcash://";
         } else {
-          window.location.href = deepLink;
+          window.location.href = "gcash://";
         }
       } catch {
-        window.location.href = deepLink;
+        window.location.href = "gcash://";
       }
     } else {
-      toast.info("GCash number (0912 236 7040) copied! Note: GCash is a smartphone app. Scan the QR code with your phone or open this site on your mobile phone.", { duration: 6000 });
+      toast.info("GCash number (0912 236 7040) copied! Note: GCash is a mobile app. Launch GCash on your phone to send payment.", { duration: 6000 });
     }
   };
 
@@ -1559,10 +1585,10 @@ function PaymentSection({
                 </div>
                 <button 
                   onClick={() => {
-                    navigator.clipboard.writeText("09122367040");
-                    toast.info("Routing Number Copied: 09122367040");
+                    copyGCashNumber();
+                    toast.success("Routing Number Copied: 0912 236 7040");
                   }}
-                  className="group relative inline-block p-1"
+                  className="group relative inline-block p-1 cursor-pointer"
                   title="Click to copy number"
                 >
                   <div className="text-2xl sm:text-3xl font-mono font-bold text-primary tracking-tighter mt-1 italic group-hover:scale-105 transition-transform">
@@ -1579,9 +1605,9 @@ function PaymentSection({
               </div>
 
               <div className="pt-2 sm:pt-4 space-y-2.5 sm:space-y-3">
-                {/* Primary: Open GCash App Direct Action with native top-level anchor fallback */}
+                {/* Primary: Open GCash App Direct Action strictly via gcash:// (no Play Store) */}
                 <a
-                  href={getGCashDeepLink()}
+                  href="gcash://"
                   target="_top"
                   rel="noopener noreferrer"
                   onClick={handleOpenGCash}
@@ -1607,7 +1633,7 @@ function PaymentSection({
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText("09122367040");
+                      copyGCashNumber();
                       toast.success("Routing number (0912 236 7040) copied!");
                     }}
                     className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-primary/50 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
@@ -1624,7 +1650,7 @@ function PaymentSection({
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-mono font-bold text-[#007DFE] uppercase flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#007DFE] animate-ping" />
-                        0912 236 7040 Copied!
+                        0912 236 7040 Auto-Copied!
                       </span>
                       <button
                         type="button"
@@ -1635,31 +1661,25 @@ function PaymentSection({
                       </button>
                     </div>
                     <p className="text-[9px] font-mono text-slate-300 leading-relaxed">
-                      <strong>Did GCash not open?</strong> If you are testing inside an app preview or computer browser, security policies block app launching.
+                      Number auto-copied to clipboard! Opening GCash app directly (never Play Store).
                     </p>
                     <div className="pt-1 flex flex-wrap gap-1.5">
                       <a
-                        href="intent://#Intent;package=com.globe.gcash.android;scheme=gcash;end"
-                        target="_top"
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[#007DFE] text-[8px] font-mono font-bold uppercase border border-slate-700 inline-flex items-center gap-1"
-                      >
-                        Launch Android Intent &rarr;
-                      </a>
-                      <a
                         href="gcash://"
                         target="_top"
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[#007DFE] text-[8px] font-mono font-bold uppercase border border-slate-700 inline-flex items-center gap-1"
+                        onClick={handleOpenGCash}
+                        className="px-3 py-1.5 bg-[#007DFE] hover:bg-[#006bd8] text-white text-[9px] font-mono font-bold uppercase inline-flex items-center gap-1.5 rounded no-underline"
                       >
-                        Launch iOS (iPhone) &rarr;
+                        <Smartphone size={12} /> Open GCash App &rarr;
                       </a>
                     </div>
                     <p className="text-[8px] font-mono text-text-muted">
-                      Or simply open your GCash app, tap <strong>Express Send</strong>, and paste <strong>0912 236 7040</strong>.
+                      In GCash: Tap <strong>Express Send</strong>, paste <strong>0912 236 7040</strong>, then enter payment amount.
                     </p>
                   </div>
                 ) : (
                   <p className="text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed text-center px-1">
-                    Tapping automatically copies 0912 236 7040 &amp; opens GCash. In GCash, select Express Send or scan QR from gallery.
+                    Clicking automatically copies 0912 236 7040 &amp; opens GCash app directly (no Play Store).
                   </p>
                 )}
               </div>
