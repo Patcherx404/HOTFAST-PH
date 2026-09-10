@@ -57,6 +57,7 @@ import {
   Server,
   Save,
   Code2,
+  LifeBuoy,
 } from "lucide-react";
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
@@ -69,6 +70,7 @@ import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt
 import { ComplianceModal } from "./components/ComplianceModal";
 import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
+import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -103,6 +105,7 @@ import {
   BillingCycle,
   ChatSession,
   ChatMessage,
+  SupportTicket,
 } from "./types";
 
 export default function App() {
@@ -2592,11 +2595,12 @@ function AdminPanel({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
-  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats">(
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "tickets">(
     "payments",
   );
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [reply, setReply] = useState("");
@@ -2812,6 +2816,27 @@ function AdminPanel({
 
     return unsubscribe;
   }, [user, firebaseIsAdmin, selectedChat]);
+
+  // Real-time listener for Support Tickets dispatched to Admin Console
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const q = query(
+      collection(db, "support_tickets"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tix = snapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as SupportTicket)
+      );
+      setSupportTickets(tix);
+    }, (error) => {
+      console.error("Support tickets sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
 
   const handleSaveCycle = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3411,23 +3436,29 @@ function AdminPanel({
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
               <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
                 {[
-                  { id: "payments", label: "Settlements", icon: CreditCard },
-                  { id: "plans", label: "Infrastructure", icon: Zap },
-                  { id: "clients", label: "Subscribers", icon: UsersIcon },
-                  { id: "cycles", label: "Cycles", icon: Calendar },
-                  { id: "chats", label: "Support", icon: MessageSquare },
+                  { id: "payments", label: "Settlements", icon: CreditCard, count: null },
+                  { id: "plans", label: "Infrastructure", icon: Zap, count: null },
+                  { id: "clients", label: "Subscribers", icon: UsersIcon, count: null },
+                  { id: "cycles", label: "Cycles", icon: Calendar, count: null },
+                  { id: "tickets", label: "Tickets", icon: LifeBuoy, count: supportTickets.filter(t => t.status === "open").length },
+                  { id: "chats", label: "Live Chat", icon: MessageSquare, count: null },
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setAdminTab(tab.id as any)}
-                    className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                    className={`flex items-center gap-2 px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
                       adminTab === tab.id 
                       ? "bg-primary text-white italic" 
                       : "text-text-muted hover:text-white hover:bg-white/5"
                     }`}
                   >
                     <tab.icon size={14} />
-                    {tab.label}
+                    <span>{tab.label}</span>
+                    {typeof tab.count === "number" && tab.count > 0 && (
+                      <span className="px-1.5 py-0.5 text-[8px] font-black bg-amber-400 text-black rounded-full leading-none">
+                        {tab.count}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -4007,6 +4038,8 @@ function AdminPanel({
             )}
           </div>
         </div>
+      ) : adminTab === "tickets" ? (
+        <AdminTicketsTab tickets={supportTickets} />
       ) : (
         <>
           <div className="flex flex-col gap-6 mb-8">

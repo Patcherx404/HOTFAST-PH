@@ -104,6 +104,29 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Support Tickets sent to Admin Console
+    match /support_tickets/{ticketId} {
+      function isValidSupportTicket(data) {
+        return data.ticketId is string && data.ticketId.size() <= 64 &&
+               data.clientName is string && data.clientName.size() <= 128 &&
+               data.phone is string && data.phone.size() <= 64 &&
+               data.category is string && data.category.size() <= 128 &&
+               data.message is string && data.message.size() <= 4096 &&
+               data.status in ['open', 'in_progress', 'resolved', 'closed'] &&
+               data.createdAt == request.time;
+      }
+
+      // Public can create support tickets with valid payload
+      allow create: if isValidSupportTicket(request.resource.data);
+      // Admin can view all tickets, subscribers can view their own if logged in
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      // Admin can update ticket status or notes
+      allow update: if isAdmin();
+      // Admin can delete tickets
+      allow delete: if isAdmin() || (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com');
+    }
+
     // Support Chats
     match /chats/{chatId} {
       function isValidChatSession(data) {

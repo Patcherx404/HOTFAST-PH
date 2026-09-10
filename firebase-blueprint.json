@@ -106,12 +106,36 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["text", "senderId", "senderRole", "createdAt"]
+    },
+    "supportTicket": {
+      "title": "Support Ticket",
+      "description": "Formal support request submitted by a user or subscriber.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "contact": { "type": "string" },
+        "phone": { "type": "string" },
+        "category": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "closed"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketId", "clientName", "phone", "category", "message", "status", "createdAt"]
     }
   },
   "firestore": {
     "admins/{userId}": {
       "schema": { "type": "object", "properties": { "role": { "type": "string" } } },
       "description": "Collection of authorized administrators."
+    },
+    "support_tickets/{ticketId}": {
+      "schema": "supportTicket",
+      "description": "Customer support tickets submitted to admin console."
     },
     "billing_cycles/{cycleId}": {
       "schema": "billingCycles",

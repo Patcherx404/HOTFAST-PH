@@ -17,6 +17,8 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "./FirebaseProvider";
+import { db } from "../lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 interface SupportModalProps {
   isOpen: boolean;
@@ -50,25 +52,30 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
   // Sync profile details whenever opened
   React.useEffect(() => {
     if (isOpen) {
-      setName(userDisplayName || "Subscriber / Guest Client");
-      setAccountNumber(userAccountNumber || (hasUser ? "HF-CLIENT" : "N/A"));
-      setEmail(userEmail || (user?.email ? user.email : ""));
+      if (hasUser) {
+        setName(userDisplayName || "Subscriber Client");
+        setAccountNumber(userAccountNumber || "HF-CLIENT");
+        setEmail(userEmail || (user?.email ? user.email : ""));
+      } else {
+        if (!name) setName("");
+        setAccountNumber("N/A");
+      }
       if (userPhone && !phone) {
         setPhone(userPhone);
       }
     }
-  }, [isOpen, profile, user, userDisplayName, userAccountNumber, userEmail, userPhone]);
+  }, [isOpen, profile, user, hasUser, userDisplayName, userAccountNumber, userEmail, userPhone]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
 
-    const clientName = (userDisplayName || name || "").trim();
+    const clientName = (hasUser ? (userDisplayName || name) : name || "").trim();
     const clientAccount = (userAccountNumber || accountNumber || "").trim();
     const clientPhone = phone.trim();
 
     if (!clientName || clientName.length < 2) {
-      setErrorMessage("Client name could not be identified. Please verify your profile or sign in.");
+      setErrorMessage("Please enter your full name (at least 2 characters).");
       return;
     }
 
@@ -89,11 +96,29 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
       ? `${clientPhone} (${userEmail})`
       : clientPhone;
 
+    const generatedTicketId = `HF-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
     try {
-      const res = await fetch("/api/support", {
+      // 1. Always store directly in Firestore 'support_tickets' so it arrives in the Admin Console instantly
+      await addDoc(collection(db, "support_tickets"), {
+        ticketId: generatedTicketId,
+        clientName,
+        accountNumber: clientAccount !== "N/A" ? clientAccount : "N/A",
+        contact: combinedContact,
+        phone: clientPhone,
+        category,
+        message: message.trim(),
+        status: "open",
+        userId: user?.uid || null,
+        createdAt: serverTimestamp(),
+      });
+
+      // 2. Also dispatch to Telegram via /api/support if available (non-blocking for resilience)
+      fetch("/api/support", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ticketId: generatedTicketId,
           name: clientName,
           accountNumber: clientAccount !== "N/A" ? clientAccount : undefined,
           contact: combinedContact,
@@ -101,23 +126,45 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
           category,
           message: message.trim(),
         }),
+      }).catch((apiErr) => {
+        console.warn("Telegram dispatch notice:", apiErr);
       });
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data.error || "Unable to submit support request right now.");
-      }
-
       setSubmittedTicket({
-        ticketId: data.ticketId || "HF-TICKET",
-        message: data.message || "Your support request has been submitted successfully!",
+        ticketId: generatedTicketId,
+        message: "Your support request has been registered and dispatched directly to the Hotfast Admin Console! Our team will review your ticket shortly.",
       });
 
       // Clear input fields for safety
       setMessage("");
     } catch (err: any) {
-      setErrorMessage(err?.message || "Failed to submit support request. Please try again.");
+      console.error("Support form submission error:", err);
+      // If direct Firestore failed (e.g. offline), try fallback to /api/support
+      try {
+        const res = await fetch("/api/support", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: clientName,
+            accountNumber: clientAccount !== "N/A" ? clientAccount : undefined,
+            contact: combinedContact,
+            phone: clientPhone,
+            category,
+            message: message.trim(),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setSubmittedTicket({
+            ticketId: data.ticketId || generatedTicketId,
+            message: "Your support request has been submitted to the administrator.",
+          });
+          setMessage("");
+          return;
+        }
+      } catch {}
+
+      setErrorMessage(err?.message || "Failed to submit support request. Please check your network connection and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -281,12 +328,23 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <div>
                         <label className="block text-[9px] font-mono uppercase tracking-wider text-text-dim mb-0.5 flex items-center gap-1">
-                          <User size={10} className="text-primary" /> Client Name
+                          <User size={10} className="text-primary" /> Client Name {!hasUser && <span className="text-primary">*</span>}
                         </label>
-                        <div className="px-2.5 py-1.5 bg-slate-900/90 border border-border-subtle/70 rounded text-xs font-semibold text-slate-100 flex items-center justify-between select-none">
-                          <span className="truncate">{userDisplayName || name || "Subscriber Client"}</span>
-                          <Lock size={11} className="text-text-dim shrink-0 ml-1" />
-                        </div>
+                        {hasUser ? (
+                          <div className="px-2.5 py-1.5 bg-slate-900/90 border border-border-subtle/70 rounded text-xs font-semibold text-slate-100 flex items-center justify-between select-none">
+                            <span className="truncate">{userDisplayName || "Subscriber Client"}</span>
+                            <Lock size={11} className="text-text-dim shrink-0 ml-1" />
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            required
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Your Full Name"
+                            className="w-full px-2.5 py-1.5 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim"
+                          />
+                        )}
                       </div>
 
                       <div>

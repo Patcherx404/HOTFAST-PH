@@ -77,3 +77,19 @@ export interface ChatMessage {
   senderRole: 'user' | 'admin';
   createdAt: any;
 }
+
+export interface SupportTicket {
+  id?: string;
+  ticketId: string;
+  clientName: string;
+  accountNumber?: string;
+  contact?: string;
+  phone: string;
+  category: string;
+  message: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  userId?: string;
+  createdAt: any;
+  resolvedAt?: any;
+  adminNotes?: string;
+}
