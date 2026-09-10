@@ -35,144 +35,184 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const checkAdmin = async (user: User) => {
+  const checkAdmin = async (currentUser: User) => {
     try {
-      const adminDoc = await getDoc(doc(db, `admins/${user.uid}`));
+      // Direct super-admin check based on configured root admin email
+      if (currentUser.email === 'projectile.afk@gmail.com') {
+        setIsAdmin(true);
+      }
+
+      const adminDoc = await getDoc(doc(db, `admins/${currentUser.uid}`));
       let currentlyAdmin = adminDoc.exists();
-      if (!currentlyAdmin && user.email === 'projectile.afk@gmail.com') {
-        await setDoc(doc(db, `admins/${user.uid}`), {
-          email: user.email,
+      if (!currentlyAdmin && currentUser.email === 'projectile.afk@gmail.com') {
+        await setDoc(doc(db, `admins/${currentUser.uid}`), {
+          email: currentUser.email,
           role: 'super_admin',
           createdAt: serverTimestamp()
         });
         currentlyAdmin = true;
       }
-      setIsAdmin(currentlyAdmin);
+      setIsAdmin(currentlyAdmin || currentUser.email === 'projectile.afk@gmail.com');
     } catch (e) {
-      console.warn("Admin check failed:", e);
+      console.warn("Admin check notice:", e);
+      if (currentUser.email === 'projectile.afk@gmail.com') {
+        setIsAdmin(true);
+      }
     }
   };
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
+    let isMounted = true;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-        unsubscribeProfile = null;
-      }
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      async (currentUser) => {
+        if (!isMounted) return;
+        setUser(currentUser);
 
-      if (user) {
-        const path = `users/${user.uid}`;
-        const docRef = doc(db, path);
-        
-        // Don't await checkAdmin here to prevent blocking profile listener/loading state
-        checkAdmin(user);
+        if (unsubscribeProfile) {
+          unsubscribeProfile();
+          unsubscribeProfile = null;
+        }
 
-        unsubscribeProfile = onSnapshot(docRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data() as UserProfile;
-            
-            // Auto-suspension and auto-billing logic
-            const now = new Date();
-            const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate ? new Date(data.dueDate) : null);
-            
-            if (dueDate) {
-              const updates: any = {};
-              
-              // Exact deadline check
-              if (now >= dueDate) {
-                // Scenario A: Deadline reached but user hasn't paid (balance exists)
-                if (data.balance && data.balance > 0) {
-                  if (data.billStatus !== 'overdue') {
-                    updates.billStatus = 'overdue';
+        if (currentUser) {
+          // Pre-assign admin immediately if root admin email
+          if (currentUser.email === 'projectile.afk@gmail.com') {
+            setIsAdmin(true);
+          }
+          checkAdmin(currentUser);
+
+          const path = `users/${currentUser.uid}`;
+          const docRef = doc(db, path);
+
+          try {
+            unsubscribeProfile = onSnapshot(
+              docRef,
+              (snapshot) => {
+                if (!isMounted) return;
+                if (snapshot.exists()) {
+                  const data = snapshot.data() as UserProfile;
+
+                  // Auto-suspension and auto-billing logic
+                  const now = new Date();
+                  const dueDate = data.dueDate?.toDate
+                    ? data.dueDate.toDate()
+                    : (data.dueDate ? new Date(data.dueDate) : null);
+
+                  if (dueDate) {
+                    const updates: any = {};
+
+                    // Exact deadline check
+                    if (now >= dueDate) {
+                      if (data.balance && data.balance > 0) {
+                        if (data.billStatus !== 'overdue') {
+                          updates.billStatus = 'overdue';
+                        }
+                        const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+                        if (now > suspendThreshold && data.status !== 'suspended') {
+                          updates.status = 'suspended';
+                        }
+                      } else if (data.billStatus === 'paid') {
+                        const plan = INTERNET_PLANS.find(p => p.id === data.currentPlanId) || INTERNET_PLANS[0];
+                        const nextMonth = new Date(dueDate);
+                        nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+                        updates.dueDate = nextMonth;
+                        updates.balance = (data.balance || 0) + plan.price;
+                        updates.billStatus = 'due';
+                      }
+                    }
+
+                    if (data.status === 'suspended' && data.billStatus === 'paid' && (!data.balance || data.balance <= 0)) {
+                      updates.status = 'active';
+                    }
+
+                    if (now < dueDate && (data.balance && data.balance > 0) && data.billStatus === 'paid') {
+                      updates.billStatus = 'due';
+                    }
+
+                    if (Object.keys(updates).length > 0) {
+                      updateDoc(docRef, updates).catch(e => console.warn("Auto-billing background update notice:", e));
+                    }
                   }
-                  
-                  // Suspension check (2-day grace period)
-                  const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
-                  if (now > suspendThreshold && data.status !== 'suspended') {
-                    updates.status = 'suspended';
-                  }
-                } 
-                // Scenario B: Deadline reached and user was 'paid' (cycle rollover)
-                else if (data.billStatus === 'paid') {
-                  const plan = INTERNET_PLANS.find(p => p.id === data.currentPlanId) || INTERNET_PLANS[0];
-                  const nextMonth = new Date(dueDate);
+
+                  setProfile(data);
+                } else {
+                  // New user initialization
+                  const nextMonth = new Date();
                   nextMonth.setMonth(nextMonth.getMonth() + 1);
-                  
-                  updates.dueDate = nextMonth;
-                  updates.balance = (data.balance || 0) + plan.price;
-                  updates.billStatus = 'due';
-                  // Keep status as is, but if it was suspended, maybe reactivate if they were paid?
-                  // (Handled by rollover logic)
+                  const newProfile: UserProfile = {
+                    uid: currentUser.uid,
+                    accountNumber: `HF-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.floor(Math.random() * 10000)}`,
+                    displayName: currentUser.displayName || 'New Customer',
+                    email: currentUser.email || '',
+                    phone: '',
+                    address: '',
+                    currentPlanId: 'starter',
+                    balance: 999,
+                    billStatus: 'due',
+                    status: 'suspended',
+                    dueDate: nextMonth,
+                  };
+                  setDoc(docRef, {
+                    ...newProfile,
+                    createdAt: serverTimestamp(),
+                  }).catch(e => console.warn("New user profile creation notice:", e));
+                  setProfile(newProfile);
+                }
+                setLoading(false);
+              },
+              (error) => {
+                console.warn("Profile listener notice:", error?.message || error);
+                if (isMounted) {
+                  setLoading(false);
                 }
               }
-
-              // Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
-              if (data.status === 'suspended' && data.billStatus === 'paid' && (!data.balance || data.balance <= 0)) {
-                updates.status = 'active';
-              }
-
-              // Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
-              if (now < dueDate && (data.balance && data.balance > 0) && data.billStatus === 'paid') {
-                updates.billStatus = 'due';
-              }
-              
-              if (Object.keys(updates).length > 0) {
-                updateDoc(docRef, updates).catch(e => console.error("Auto-billing check failed:", e));
-              }
+            );
+          } catch (listenerError) {
+            console.warn("Error setting up profile snapshot listener:", listenerError);
+            if (isMounted) {
+              setLoading(false);
             }
-
-            setProfile(data);
-          } else {
-            // New user initialization
-            const nextMonth = new Date();
-            nextMonth.setMonth(nextMonth.getMonth() + 1);
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              accountNumber: `HF-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.floor(Math.random() * 10000)}`,
-              displayName: user.displayName || 'New Customer',
-              email: user.email || '',
-              phone: '',
-              address: '',
-              currentPlanId: 'starter',
-              balance: 999,
-              billStatus: 'due',
-              status: 'suspended',
-              dueDate: nextMonth,
-            };
-            setDoc(docRef, {
-              ...newProfile,
-              createdAt: serverTimestamp(),
-            }).catch(e => console.error("Error creating profile:", e));
-            setProfile(newProfile);
           }
+        } else {
+          setProfile(null);
+          setIsAdmin(false);
           setLoading(false);
-        }, (error) => {
-          console.error("Profile onSnapshot error:", error);
+        }
+      },
+      (authError) => {
+        console.warn("Auth state change error:", authError?.message || authError);
+        if (isMounted) {
           setLoading(false);
-          // Only show error if it's not a permission issue during initial setup
-          if (!(error as any).code?.includes('permission-denied')) {
-            handleFirestoreError(error, OperationType.GET, path);
-          }
-        });
-      } else {
-        setProfile(null);
-        setIsAdmin(false);
-        setLoading(false);
+        }
       }
-    });
+    );
 
     return () => {
+      isMounted = false;
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
     };
   }, []);
 
+  const refreshProfile = async () => {
+    if (user) {
+      await checkAdmin(user);
+      try {
+        const snap = await getDoc(doc(db, `users/${user.uid}`));
+        if (snap.exists()) {
+          setProfile(snap.data() as UserProfile);
+        }
+      } catch (e) {
+        console.warn("Profile refresh notice:", e);
+      }
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, isAdmin, loading, refreshProfile: async () => { if (user) await checkAdmin(user); } }}>
+    <AuthContext.Provider value={{ user, profile, isAdmin, loading, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

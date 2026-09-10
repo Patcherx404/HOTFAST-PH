@@ -67,6 +67,7 @@ import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
 import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
 import { ComplianceModal } from "./components/ComplianceModal";
+import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
@@ -123,6 +124,7 @@ export default function App() {
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [showLatencyMap, setShowLatencyMap] = useState(false);
   const [showComplianceModal, setShowComplianceModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
 
   // PWA Install state & trigger
   const {
@@ -272,6 +274,9 @@ export default function App() {
       if (path === "/compliance" || path === "/compliance.html" || search.includes("compliance")) {
         setShowComplianceModal(true);
       }
+      if (path === "/support" || path === "/support.html" || search.includes("support")) {
+        setShowSupportModal(true);
+      }
     }
   }, []);
 
@@ -404,6 +409,15 @@ export default function App() {
             >
               <MapPin size={12} className="text-primary animate-pulse" />
               <span>Latency Map</span>
+            </button>
+
+            <button
+              onClick={() => setShowSupportModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-border-subtle hover:border-primary/50 text-[10px] font-black uppercase tracking-widest transition-all rounded cursor-pointer"
+              title="Open Hotfast Customer Support Form"
+            >
+              <MessageSquare size={12} className="text-primary" />
+              <span>Support</span>
             </button>
 
             {user ? (
@@ -738,6 +752,22 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
+                  setShowSupportModal(true);
+                  setIsMenuOpen(false);
+                }}
+                className="w-full py-3.5 px-4 bg-primary/15 border border-primary/40 text-white text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 active:bg-primary transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <MessageSquare size={16} className="text-primary" /> Customer Support
+                </span>
+                <span className="text-[10px] font-mono text-primary font-bold bg-primary/20 px-2 py-0.5 border border-primary/30">
+                  NOC 24/7
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   setShowComplianceModal(true);
                   setIsMenuOpen(false);
                 }}
@@ -812,6 +842,7 @@ export default function App() {
                   onExplore={() => setActiveTab("plans")} 
                   onGoToPortal={() => setActiveTab("portal")}
                   onOpenLatencyMap={() => setShowLatencyMap(true)}
+                  onOpenSupport={() => setShowSupportModal(true)}
                   currentPlanName={currentPlan?.name} 
                   hasPendingPayment={hasPendingPayment}
                   shouldHideBilling={shouldHideBillingTabs}
@@ -838,6 +869,7 @@ export default function App() {
                 onOpenLatencyMap={() => setShowLatencyMap(true)}
                 onOpenInstallModal={() => setShowInstallModal(true)}
                 isInstalled={isInstalled}
+                onOpenSupport={() => setShowSupportModal(true)}
               />
             )}
             {activeTab === "admin" && adminAuth && (
@@ -895,6 +927,19 @@ export default function App() {
           <span className="text-[9px] uppercase tracking-wider mt-1 text-white/90">Map</span>
         </button>
 
+        {/* 24/7 Customer Support Trigger Button (side of Map & aside of Portal) */}
+        <button
+          onClick={() => setShowSupportModal(true)}
+          className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors group relative cursor-pointer"
+          title="Open Hotfast Customer Support Form"
+        >
+          <div className="relative">
+            <MessageSquare size={18} className="text-primary group-hover:scale-110 transition-transform" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+          </div>
+          <span className="text-[9px] uppercase tracking-wider mt-1 text-white/90">Support</span>
+        </button>
+
         {user && !shouldHideBillingTabs && (
           <button
             onClick={() => setActiveTab("payment")}
@@ -930,13 +975,20 @@ export default function App() {
         )}
       </nav>
 
-      <ChatWidget />
+      <ChatWidget onOpenTicketForm={() => setShowSupportModal(true)} />
       <Toaster position="top-center" richColors />
       <Footer 
         setShowAdminLogin={setShowAdminLogin} 
         onOpenLatencyMap={() => setShowLatencyMap(true)} 
         onOpenInstallModal={() => setShowInstallModal(true)}
         onOpenCompliance={() => setShowComplianceModal(true)}
+        onOpenSupport={() => setShowSupportModal(true)}
+        activeTab={activeTab}
+      />
+
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
       />
 
       <LatencyMapModal 
@@ -1063,7 +1115,7 @@ export default function App() {
   );
 }
 
-function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanName, hasPendingPayment, shouldHideBilling }: { onExplore: () => void, onGoToPortal: () => void, onOpenLatencyMap?: () => void, currentPlanName?: string | null, hasPendingPayment: boolean, shouldHideBilling: boolean }) {
+function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, onOpenSupport, currentPlanName, hasPendingPayment, shouldHideBilling }: { onExplore: () => void, onGoToPortal: () => void, onOpenLatencyMap?: () => void, onOpenSupport?: () => void, currentPlanName?: string | null, hasPendingPayment: boolean, shouldHideBilling: boolean }) {
   const [latency, setLatency] = useState<number>(0);
   const [traffic, setTraffic] = useState<number>(7.8);
   const [load, setLoad] = useState<number>(65);
@@ -1171,6 +1223,17 @@ function HeroSection({ onExplore, onGoToPortal, onOpenLatencyMap, currentPlanNam
                 className="w-full sm:w-auto justify-center px-8 sm:px-10 py-4 sm:py-5 bg-bg-surface border border-border-subtle hover:border-primary-dark transition-all text-white font-black uppercase tracking-widest text-xs flex items-center gap-3 italic min-h-[48px] active:scale-[0.98]"
               >
                 OPEN PORTAL <ExternalLink size={16} />
+              </button>
+            )}
+
+            {onOpenSupport && (
+              <button
+                onClick={onOpenSupport}
+                className="w-full sm:w-auto justify-center px-6 sm:px-8 py-4 sm:py-5 bg-slate-900/80 border border-border-subtle hover:border-primary/60 text-slate-200 hover:text-white font-black uppercase tracking-widest text-xs transition-all flex items-center gap-2.5 italic min-h-[48px] cursor-pointer"
+                title="Open Hotfast Customer Support Ticket Form"
+              >
+                <MessageSquare size={16} className="text-primary" />
+                <span>24/7 SUPPORT</span>
               </button>
             )}
           </div>
@@ -1903,12 +1966,14 @@ function CustomerPortal({
   onOpenLatencyMap,
   onOpenInstallModal,
   isInstalled,
+  onOpenSupport,
 }: { 
   plans: InternetPlan[]; 
   onPay: () => void; 
   onOpenLatencyMap?: () => void;
   onOpenInstallModal?: () => void;
   isInstalled?: boolean;
+  onOpenSupport?: () => void;
 }) {
   const { user, profile } = useAuth();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -2369,6 +2434,32 @@ function CustomerPortal({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* 24/7 Dedicated Support Banner for Portal Users */}
+        <div className="mt-12 bg-gradient-to-r from-slate-900 via-bg-surface to-slate-900 border border-border-subtle p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 mt-0.5">
+              <MessageSquare size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black uppercase tracking-wider text-white">Need Assistance with your Service?</h4>
+                <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 border border-emerald-500/20">NOC DISPATCH</span>
+              </div>
+              <p className="text-xs text-text-muted mt-1 max-w-xl">
+                Submit an urgent support ticket directly to our network engineering team. Submissions notify the Hotfast support administrator in real time.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSupport}
+            className="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white text-xs font-black uppercase tracking-wider rounded transition-all shadow-md shadow-primary/20 shrink-0 cursor-pointer flex items-center gap-2"
+          >
+            <Send size={13} />
+            <span>Open Support Ticket</span>
+          </button>
+        </div>
       </div>
       </div>
     </div>
@@ -2380,21 +2471,30 @@ function Footer({
   onOpenLatencyMap,
   onOpenInstallModal,
   onOpenCompliance,
+  onOpenSupport,
+  activeTab = "home",
 }: {
   setShowAdminLogin: (show: boolean) => void;
   onOpenLatencyMap?: () => void;
   onOpenInstallModal?: () => void;
   onOpenCompliance?: () => void;
+  onOpenSupport?: () => void;
+  activeTab?: string;
 }) {
   const { user, isAdmin } = useAuth();
+  const isAdminTab = activeTab === "admin";
+
   return (
     <footer className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
       <div className="max-w-7xl mx-auto">
         {/* Balanced Bottom Sections: [ Compliance ] [ Credits & Development ] */}
-        <FooterCreditsAndCompliance onOpenCompliance={onOpenCompliance} />
+        {/* Conditionally hidden when activeTab is set to 'admin' using component rendering logic */}
+        {!isAdminTab && (
+          <FooterCreditsAndCompliance onOpenCompliance={onOpenCompliance} />
+        )}
 
         {/* Footer Brand & Navigation Bar */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left pt-8 border-t border-border-subtle/50">
+        <div className={`flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left ${!isAdminTab ? 'pt-8 border-t border-border-subtle/50' : ''}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
               <img
@@ -2431,27 +2531,35 @@ function Footer({
             >
               <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
             </span>
-            <span className="hover:text-primary cursor-pointer transition-colors p-1">
+            <span 
+              onClick={onOpenSupport}
+              className="hover:text-primary cursor-pointer transition-colors p-1"
+              title="Customer Support Form (Telegram NOC)"
+            >
               Support
             </span>
-            <span
-              id="footer-compliance-link"
-              onClick={onOpenCompliance}
-              className="hover:text-primary cursor-pointer transition-colors p-1"
-              title="Client Privacy and Data Protection"
-            >
-              Compliance
-            </span>
-            <span
-              id="footer-credits-link"
-              onClick={() => {
-                document.getElementById('footer-credits-section')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="hover:text-primary cursor-pointer transition-colors p-1"
-              title="Hotfast IT & Operations Team"
-            >
-              Credits &amp; Dev
-            </span>
+            {!isAdminTab && (
+              <>
+                <span
+                  id="footer-compliance-link"
+                  onClick={onOpenCompliance}
+                  className="hover:text-primary cursor-pointer transition-colors p-1"
+                  title="Client Privacy and Data Protection"
+                >
+                  Compliance
+                </span>
+                <span
+                  id="footer-credits-link"
+                  onClick={() => {
+                    document.getElementById('footer-credits-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="hover:text-primary cursor-pointer transition-colors p-1"
+                  title="Hotfast IT & Operations Team"
+                >
+                  Credits &amp; Dev
+                </span>
+              </>
+            )}
           </div>
 
           <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">

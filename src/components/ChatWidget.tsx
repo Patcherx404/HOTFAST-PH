@@ -16,7 +16,11 @@ import {
 } from "firebase/firestore";
 import { ChatMessage, ChatSession } from "../types";
 
-export function ChatWidget() {
+interface ChatWidgetProps {
+  onOpenTicketForm?: () => void;
+}
+
+export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
   const { user, profile } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -75,6 +79,19 @@ export function ChatWidget() {
         createdAt: serverTimestamp(),
       });
 
+      // Background notification to Telegram for real-time chat messages
+      fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: profile?.displayName || user.displayName || "Customer (Live Chat)",
+          accountNumber: profile?.accountNumber || "N/A",
+          contact: profile?.phone || user.email || "Registered Client",
+          category: "Live Chat Support Message",
+          message: text,
+        }),
+      }).catch((err) => console.warn("Live chat telegram dispatch notice:", err));
+
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `chats/${user.uid}/messages`);
     } finally {
@@ -108,13 +125,28 @@ export function ChatWidget() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-white/80 hover:text-white p-1 transition-colors"
-                aria-label="Close Chat"
-              >
-                <Minimize2 size={18} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {onOpenTicketForm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenTicketForm();
+                    }}
+                    className="text-[9px] font-mono font-bold bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded transition-colors uppercase cursor-pointer"
+                    title="Open Detailed Support Ticket Form"
+                  >
+                    Ticket Form
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="text-white/80 hover:text-white p-1 transition-colors"
+                  aria-label="Close Chat"
+                >
+                  <Minimize2 size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Messages */}
