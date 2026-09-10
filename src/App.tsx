@@ -56,6 +56,7 @@ import {
   Send,
   Server,
   Save,
+  Code2,
 } from "lucide-react";
 import { INTERNET_PLANS } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
@@ -65,6 +66,8 @@ import LatencyMapSection from "./components/LatencyMapSection";
 import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
 import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
+import { ComplianceModal } from "./components/ComplianceModal";
+import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -119,6 +122,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [showLatencyMap, setShowLatencyMap] = useState(false);
+  const [showComplianceModal, setShowComplianceModal] = useState(false);
 
   // PWA Install state & trigger
   const {
@@ -259,6 +263,17 @@ export default function App() {
       setHasDoneLoginRedirect(false);
     }
   }, [user, activeTab, hasDoneLoginRedirect, plans]);
+
+  // Detect direct URL navigation to compliance
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      if (path === "/compliance" || path === "/compliance.html" || search.includes("compliance")) {
+        setShowComplianceModal(true);
+      }
+    }
+  }, []);
 
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
 
@@ -719,6 +734,40 @@ export default function App() {
                 </span>
                 <span className="text-[10px] font-mono text-green-400 font-bold bg-green-500/10 px-2 py-0.5 border border-green-500/20">ONLINE</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowComplianceModal(true);
+                  setIsMenuOpen(false);
+                }}
+                className="w-full py-3.5 px-4 bg-slate-900/80 border border-border-subtle hover:border-primary/50 text-text-muted hover:text-white text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-primary" /> Client Privacy &amp; Compliance
+                </span>
+                <span className="text-[10px] font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 border border-primary/20">
+                  VIEW
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setTimeout(() => {
+                    document.getElementById('footer-credits-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }}
+                className="w-full py-3.5 px-4 bg-slate-900/80 border border-border-subtle hover:border-primary/50 text-text-muted hover:text-white text-xs font-black uppercase tracking-widest flex items-center justify-between mt-2 transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Code2 size={16} className="text-primary" /> Credits &amp; Development
+                </span>
+                <span className="text-[10px] font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 border border-primary/20">
+                  TEAM
+                </span>
+              </button>
               
               <div className="mt-auto pt-6 border-t border-border-subtle flex flex-col gap-4">
                 {user ? (
@@ -887,11 +936,17 @@ export default function App() {
         setShowAdminLogin={setShowAdminLogin} 
         onOpenLatencyMap={() => setShowLatencyMap(true)} 
         onOpenInstallModal={() => setShowInstallModal(true)}
+        onOpenCompliance={() => setShowComplianceModal(true)}
       />
 
       <LatencyMapModal 
         isOpen={showLatencyMap} 
         onClose={() => setShowLatencyMap(false)} 
+      />
+
+      <ComplianceModal
+        isOpen={showComplianceModal}
+        onClose={() => setShowComplianceModal(false)}
       />
 
       <PWAInstallModal
@@ -981,10 +1036,24 @@ export default function App() {
 
                 <button
                   type="submit"
-                  className="w-full py-5 bg-primary text-white font-black uppercase text-[11px] tracking-widest italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20"
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[11px] tracking-widest italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20 cursor-pointer"
                 >
                   Authenticate
                 </button>
+
+                <div className="pt-2 border-t border-border-subtle text-center">
+                  <a
+                    id="admin-login-main-server-btn"
+                    href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-text-muted hover:text-primary transition-colors uppercase tracking-wider py-1"
+                  >
+                    <Server size={12} />
+                    <span>Open Main Server Dashboard</span>
+                    <ExternalLink size={10} />
+                  </a>
+                </div>
               </form>
             </motion.div>
           </motion.div>
@@ -2310,68 +2379,91 @@ function Footer({
   setShowAdminLogin,
   onOpenLatencyMap,
   onOpenInstallModal,
+  onOpenCompliance,
 }: {
   setShowAdminLogin: (show: boolean) => void;
   onOpenLatencyMap?: () => void;
   onOpenInstallModal?: () => void;
+  onOpenCompliance?: () => void;
 }) {
   const { user, isAdmin } = useAuth();
   return (
-    <footer className="py-12 sm:py-20 md:py-24 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
-            <img
-              src="/hoticon2.png"
-              alt="HOTFAST Logo"
-              className="w-full h-full object-contain"
-            />
-          </div>
-          <span className="text-xl font-black uppercase italic tracking-tighter">
-            HOTFAST<span className="text-primary not-italic">PH</span>
-          </span>
-        </div>
+    <footer className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
+      <div className="max-w-7xl mx-auto">
+        {/* Balanced Bottom Sections: [ Compliance ] [ Credits & Development ] */}
+        <FooterCreditsAndCompliance onOpenCompliance={onOpenCompliance} />
 
-        <div className="flex flex-wrap justify-center gap-5 sm:gap-8 md:gap-10 text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-text-muted">
-          {onOpenInstallModal && (
-            <span 
-              onClick={onOpenInstallModal}
-              className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-primary p-1"
-              title="Add HOTFAST App to Home Screen"
-            >
-              <Smartphone size={10} /> Install App
+        {/* Footer Brand & Navigation Bar */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left pt-8 border-t border-border-subtle/50">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
+              <img
+                src="/hoticon2.png"
+                alt="HOTFAST Logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <span className="text-xl font-black uppercase italic tracking-tighter">
+              HOTFAST<span className="text-primary not-italic">PH</span>
             </span>
-          )}
-          <span 
-            onClick={onOpenLatencyMap}
-            className="hover:text-primary cursor-pointer transition-colors p-1"
-          >
-            Infrastructure
-          </span>
-          <span 
-            onClick={onOpenLatencyMap}
-            className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-white/90 p-1"
-            title="Open Google Map Box"
-          >
-            <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
-          </span>
-          <span className="hover:text-primary cursor-pointer transition-colors p-1">
-            Support
-          </span>
-          <span className="hover:text-primary cursor-pointer transition-colors p-1">
-            Compliance
-          </span>
-        </div>
+          </div>
 
-        <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
-          <button
-            onClick={() => setShowAdminLogin(true)}
-            className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2"
-          >
-            <Lock size={10} className="group-hover:animate-pulse" /> System
-            Access
-          </button>
-          <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
+          <div className="flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8 text-[10px] font-black uppercase tracking-[0.25em] sm:tracking-[0.3em] text-text-muted">
+            {onOpenInstallModal && (
+              <span 
+                onClick={onOpenInstallModal}
+                className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-primary p-1"
+                title="Add HOTFAST App to Home Screen"
+              >
+                <Smartphone size={10} /> Install App
+              </span>
+            )}
+            <span 
+              onClick={onOpenLatencyMap}
+              className="hover:text-primary cursor-pointer transition-colors p-1"
+            >
+              Infrastructure
+            </span>
+            <span 
+              onClick={onOpenLatencyMap}
+              className="hover:text-primary cursor-pointer transition-colors flex items-center gap-1 text-white/90 p-1"
+              title="Open Google Map Box"
+            >
+              <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
+            </span>
+            <span className="hover:text-primary cursor-pointer transition-colors p-1">
+              Support
+            </span>
+            <span
+              id="footer-compliance-link"
+              onClick={onOpenCompliance}
+              className="hover:text-primary cursor-pointer transition-colors p-1"
+              title="Client Privacy and Data Protection"
+            >
+              Compliance
+            </span>
+            <span
+              id="footer-credits-link"
+              onClick={() => {
+                document.getElementById('footer-credits-section')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="hover:text-primary cursor-pointer transition-colors p-1"
+              title="Hotfast IT & Operations Team"
+            >
+              Credits &amp; Dev
+            </span>
+          </div>
+
+          <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
+            <button
+              onClick={() => setShowAdminLogin(true)}
+              className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2"
+            >
+              <Lock size={10} className="group-hover:animate-pulse" /> System
+              Access
+            </button>
+            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
+          </div>
         </div>
       </div>
     </footer>
@@ -3193,28 +3285,44 @@ function AdminPanel({
             </h2>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
-            <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
-              {[
-                { id: "payments", label: "Settlements", icon: CreditCard },
-                { id: "plans", label: "Infrastructure", icon: Zap },
-                { id: "clients", label: "Subscribers", icon: UsersIcon },
-                { id: "cycles", label: "Cycles", icon: Calendar },
-                { id: "chats", label: "Support", icon: MessageSquare },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setAdminTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                    adminTab === tab.id 
-                    ? "bg-primary text-white italic" 
-                    : "text-text-muted hover:text-white hover:bg-white/5"
-                  }`}
-                >
-                  <tab.icon size={14} />
-                  {tab.label}
-                </button>
-              ))}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full xl:w-auto">
+            {/* Main Server Link Button */}
+            <a
+              id="admin-main-server-btn"
+              href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-red-700 via-primary to-primary hover:brightness-110 text-white text-[10px] font-black uppercase tracking-widest italic border border-primary shadow-lg shadow-primary/30 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap cursor-pointer group"
+              title="Open Main Server Admin Dashboard"
+            >
+              <Server size={15} className="animate-pulse text-white" />
+              <span>Main Server</span>
+              <ExternalLink size={12} className="opacity-80 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </a>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
+              <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
+                {[
+                  { id: "payments", label: "Settlements", icon: CreditCard },
+                  { id: "plans", label: "Infrastructure", icon: Zap },
+                  { id: "clients", label: "Subscribers", icon: UsersIcon },
+                  { id: "cycles", label: "Cycles", icon: Calendar },
+                  { id: "chats", label: "Support", icon: MessageSquare },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setAdminTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                      adminTab === tab.id 
+                      ? "bg-primary text-white italic" 
+                      : "text-text-muted hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    <tab.icon size={14} />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -3257,7 +3365,18 @@ function AdminPanel({
             </div>
           </div>
           
-          <div className="flex gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              id="admin-status-main-server-btn"
+              href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-5 py-2 bg-gradient-to-r from-red-600 to-primary hover:brightness-110 text-white flex items-center gap-2 transition-all uppercase text-[9px] font-black italic border border-primary shadow-md shadow-primary/20"
+            >
+              <Server size={12} className="animate-pulse" />
+              <span>Main Server</span>
+              <ExternalLink size={11} className="opacity-80" />
+            </a>
             <button
               onClick={syncAllUsersBilling}
               disabled={isSyncing}

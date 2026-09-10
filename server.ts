@@ -68,6 +68,15 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Dedicated Compliance Page route
+  app.get(["/compliance", "/compliance/"], (req, res) => {
+    if (process.env.NODE_ENV !== "production") {
+      res.sendFile(path.join(process.cwd(), "public", "compliance.html"));
+    } else {
+      res.sendFile(path.join(process.cwd(), "dist", "compliance.html"));
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

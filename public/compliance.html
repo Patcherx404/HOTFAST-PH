@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HOTFAST PH • Client Privacy and Data Protection</title>
+  <meta name="description" content="Client Privacy and Data Protection policy of Hotfast.online. Learn how we protect client information, billing records, and digital security.">
+  <link rel="icon" type="image/png" href="/hoticon2.png">
+  <style>
+    :root {
+      --bg-base: #0a0e17;
+      --bg-card: #0f172a;
+      --bg-card-subtle: #141f36;
+      --border-color: rgba(255, 31, 31, 0.25);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --primary: #ff1f1f;
+      --primary-glow: rgba(255, 31, 31, 0.35);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-accent: #fca5a5;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+      flex: 1;
+    }
+
+    /* Top Nav / Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 36px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      background: #020617;
+      border: 2px solid var(--primary);
+      border-radius: 10px;
+      padding: 4px;
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+
+    .brand-logo img {
+      width: 100%;
+      height: 100%;
+      object-contain: contain;
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      text-transform: uppercase;
+      font-style: italic;
+    }
+
+    .brand-title span {
+      color: var(--primary);
+      font-style: normal;
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #1e293b;
+      color: #f1f5f9;
+      border: 1px solid var(--border-subtle);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: #334155;
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: #ef4444;
+      box-shadow: 0 4px 14px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      background: #dc2626;
+    }
+
+    /* Policy Card */
+    .policy-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 31, 31, 0.12);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .policy-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #ff1f1f, #f97316, #ff1f1f);
+    }
+
+    .compliance-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 31, 31, 0.12);
+      border: 1px solid rgba(255, 31, 31, 0.35);
+      color: var(--primary);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      margin-bottom: 20px;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+    }
+
+    h1.policy-title {
+      font-size: 32px;
+      font-weight: 900;
+      line-height: 1.25;
+      margin-bottom: 24px;
+      color: #ffffff;
+      letter-spacing: -0.5px;
+    }
+
+    .policy-content p {
+      font-size: 15px;
+      color: #cbd5e1;
+      margin-bottom: 20px;
+      text-align: justify;
+      line-height: 1.8;
+    }
+
+    .policy-content p strong {
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .highlight-box {
+      background: var(--bg-card-subtle);
+      border-left: 4px solid var(--primary);
+      border-radius: 0 12px 12px 0;
+      padding: 20px 24px;
+      margin: 28px 0;
+    }
+
+    .highlight-box p {
+      margin-bottom: 0;
+      color: #f1f5f9;
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .closing-motto {
+      margin-top: 36px;
+      padding: 24px;
+      background: rgba(255, 31, 31, 0.08);
+      border: 1px solid rgba(255, 31, 31, 0.25);
+      border-radius: 12px;
+      text-align: center;
+    }
+
+    .closing-motto p {
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #ffffff;
+      margin: 0;
+      font-style: italic;
+    }
+
+    .closing-motto p span {
+      color: var(--primary);
+    }
+
+    /* Verification Footer */
+    footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      sm-flex-direction: row;
+      gap: 16px;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    @media (max-width: 640px) {
+      .policy-card {
+        padding: 24px 18px;
+      }
+      h1.policy-title {
+        font-size: 24px;
+      }
+      .policy-content p {
+        font-size: 14px;
+      }
+      header {
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .nav-actions {
+        width: 100%;
+      }
+      .btn {
+        flex: 1;
+        justify-content: center;
+      }
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+        color: #000000;
+      }
+      .policy-card {
+        box-shadow: none;
+        border: 1px solid #ccc;
+        background: #fff;
+      }
+      .nav-actions {
+        display: none;
+      }
+      .policy-content p {
+        color: #111;
+      }
+      h1.policy-title {
+        color: #000;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header with logo and actions -->
+    <header>
+      <a href="/" class="brand" title="Return to HOTFAST PH Portal">
+        <div class="brand-logo">
+          <img src="/hoticon2.png" alt="HOTFAST PH">
+        </div>
+        <div class="brand-title">
+          HOTFAST <span>PH</span>
+        </div>
+      </a>
+
+      <div class="nav-actions">
+        <button type="button" class="btn" onclick="window.print()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          Print Policy
+        </button>
+        <a href="/" class="btn btn-primary">
+          &larr; Back to Portal
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Policy Card -->
+    <main class="policy-card">
+      <div class="compliance-badge">
+        <span class="badge-dot"></span>
+        Official Compliance Statement
+      </div>
+
+      <h1 class="policy-title">Client Privacy and Data Protection</h1>
+
+      <div class="policy-content">
+        <p>
+          At <strong>Hotfast.online</strong>, mahalaga sa amin ang privacy at security ng bawat client. Nauunawaan namin na ang personal information na ibinibigay ng aming clients ay pribado at dapat pangalagaan nang maayos.
+        </p>
+
+        <p>
+          Ang impormasyon tulad ng pangalan, contact details, account information, service details, payment records, at iba pang kinakailangang data ay kinokolekta lamang para sa mga lehitimong layunin, tulad ng account management, billing, customer support, service activation, maintenance, at pagpapabuti ng aming services.
+        </p>
+
+        <p>
+          Hindi namin ibinabahagi o ibinibigay ang personal information ng clients sa unauthorized individuals o third parties maliban kung kinakailangan para sa lehitimong business purpose, legal requirement, o may naaangkop na authorization.
+        </p>
+
+        <p>
+          Gumagamit ang Hotfast.online ng mga security measures upang makatulong na maprotektahan ang client information laban sa unauthorized access, pagkawala, alteration, misuse, at data breaches. Ang access sa confidential information ay nililimitahan lamang sa mga taong awtorisadong humawak nito bilang bahagi ng kanilang responsibilidad.
+        </p>
+
+        <div class="highlight-box">
+          <p>
+            Bilang isang internet service provider, kinikilala namin na ang <strong>privacy at security ng aming clients ay mahalagang bahagi ng aming serbisyo</strong>. Patuloy naming pinapabuti ang aming systems, policies, at security practices upang mapanatili ang tiwala at proteksyon ng aming mga clients.
+          </p>
+        </div>
+
+        <p>
+          Sa paggamit ng Hotfast.online services, inaasahan naming nauunawaan at pinahahalagahan ng bawat client ang kahalagahan ng responsible data handling at digital security.
+        </p>
+
+        <div class="closing-motto">
+          <p>
+            Your data. <span>Your privacy.</span> Our responsibility.
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer Verification -->
+    <footer>
+      <div>
+        HOTFAST.ONLINE NETWORK OPERATIONS &bull; REGULATORY COMPLIANCE
+      </div>
+      <div>
+        EFFECTIVE DATE: 2026 &bull; PHILIPPINE DATA PRIVACY ACT COMPLIANT
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
