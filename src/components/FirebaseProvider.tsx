@@ -9,7 +9,7 @@ import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, updateDoc } from 'firebase/firestore';
 import { UserProfile, InternetPlan } from '../types';
 import { ASIA_TIMEZONE } from '../lib/dateUtils';
-import { INTERNET_PLANS } from '../constants';
+import { INTERNET_PLANS, isAuthorizedAdminEmail } from '../constants';
 
 interface AuthContextType {
   user: User | null;
@@ -35,28 +35,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const syncAdminSession = async (userObj: User | null) => {
+    try {
+      if (userObj && isAuthorizedAdminEmail(userObj.email)) {
+        // Set client-accessible cookie for fast route checks
+        document.cookie = `hf_admin_session=${encodeURIComponent(userObj.email!)}; path=/; max-age=86400; SameSite=Lax`;
+        const token = await userObj.getIdToken().catch(() => "");
+        fetch("/api/admin/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: userObj.email, token }),
+        }).catch(() => {});
+      } else {
+        document.cookie = "hf_admin_session=; path=/; max-age=0; SameSite=Lax";
+        fetch("/api/admin/session", { method: "DELETE" }).catch(() => {});
+      }
+    } catch {
+      // safe fallback
+    }
+  };
+
   const checkAdmin = async (currentUser: User) => {
     try {
-      // Direct super-admin check based on configured root admin email
-      if (currentUser.email === 'projectile.afk@gmail.com') {
-        setIsAdmin(true);
-      }
+      const isAllowedAdmin = isAuthorizedAdminEmail(currentUser.email);
+      setIsAdmin(isAllowedAdmin);
 
-      const adminDoc = await getDoc(doc(db, `admins/${currentUser.uid}`));
-      let currentlyAdmin = adminDoc.exists();
-      if (!currentlyAdmin && currentUser.email === 'projectile.afk@gmail.com') {
-        await setDoc(doc(db, `admins/${currentUser.uid}`), {
-          email: currentUser.email,
-          role: 'super_admin',
-          createdAt: serverTimestamp()
-        });
-        currentlyAdmin = true;
+      if (isAllowedAdmin) {
+        syncAdminSession(currentUser);
+        const adminDoc = await getDoc(doc(db, `admins/${currentUser.uid}`));
+        if (!adminDoc.exists()) {
+          await setDoc(doc(db, `admins/${currentUser.uid}`), {
+            email: currentUser.email,
+            role: 'super_admin',
+            createdAt: serverTimestamp()
+          });
+        }
+      } else {
+        syncAdminSession(null);
       }
-      setIsAdmin(currentlyAdmin || currentUser.email === 'projectile.afk@gmail.com');
     } catch (e) {
       console.warn("Admin check notice:", e);
-      if (currentUser.email === 'projectile.afk@gmail.com') {
-        setIsAdmin(true);
+      const isAllowedAdmin = isAuthorizedAdminEmail(currentUser.email);
+      setIsAdmin(isAllowedAdmin);
+      if (isAllowedAdmin) {
+        syncAdminSession(currentUser);
+      } else {
+        syncAdminSession(null);
       }
     }
   };
@@ -77,10 +101,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (currentUser) {
-          // Pre-assign admin immediately if root admin email
-          if (currentUser.email === 'projectile.afk@gmail.com') {
-            setIsAdmin(true);
-          }
+          const isAllowedAdmin = isAuthorizedAdminEmail(currentUser.email);
+          setIsAdmin(isAllowedAdmin);
+          syncAdminSession(isAllowedAdmin ? currentUser : null);
           checkAdmin(currentUser);
 
           const path = `users/${currentUser.uid}`;
@@ -91,6 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               docRef,
               (snapshot) => {
                 if (!isMounted) return;
+
                 if (snapshot.exists()) {
                   const data = snapshot.data() as UserProfile;
 
@@ -179,6 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           setProfile(null);
           setIsAdmin(false);
+          syncAdminSession(null);
           setLoading(false);
         }
       },

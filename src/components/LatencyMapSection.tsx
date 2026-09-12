@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { HOTFAST_NODE_COORDS } from "./LatencyMapModal";
+import { HOTFAST_NODE_COORDS } from "../constants";
 
 interface LatencyMapSectionProps {
   onOpenMapModal: () => void;

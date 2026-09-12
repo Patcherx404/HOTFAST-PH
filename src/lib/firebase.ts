@@ -75,7 +75,7 @@ if (!resolvedFirebaseConfig.apiKey || !resolvedFirebaseConfig.projectId) {
 // Reuse existing Firebase App if already initialized (prevents duplicate app init errors in dev/HMR)
 const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
 
-// Initialize Firestore targeting the specific named databaseId
+// Initialize Firestore targeting the specific named databaseId with offline persistence
 const firestoreDbId =
   resolvedFirebaseConfig.firestoreDatabaseId &&
   resolvedFirebaseConfig.firestoreDatabaseId !== '(default)'

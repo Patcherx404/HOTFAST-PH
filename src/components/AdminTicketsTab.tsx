@@ -17,7 +17,9 @@ import {
   Filter,
   Check,
   RefreshCw,
+  X,
 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { SupportTicket } from "../types";
 import { ASIA_TIMEZONE } from "../lib/dateUtils";
 import { doc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
@@ -36,6 +38,8 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [adminNote, setAdminNote] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [ticketToDelete, setTicketToDelete] = useState<SupportTicket | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filter tickets
   const filteredTickets = tickets.filter((t) => {
@@ -97,19 +101,26 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
     }
   };
 
-  const handleDeleteTicket = async (ticket: SupportTicket) => {
-    if (!ticket.id) return;
-    if (!confirm(`Are you sure you want to delete support ticket ${ticket.ticketId}?`)) return;
+  const confirmTicketDeletion = async () => {
+    if (!ticketToDelete?.id) return;
+    setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, "support_tickets", ticket.id));
-      toast.success(`Ticket ${ticket.ticketId} deleted`);
-      if (selectedTicket?.id === ticket.id) {
+      await deleteDoc(doc(db, "support_tickets", ticketToDelete.id));
+      toast.success(`Ticket ${ticketToDelete.ticketId} deleted`);
+      if (selectedTicket?.id === ticketToDelete.id) {
         setSelectedTicket(null);
       }
+      setTicketToDelete(null);
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `support_tickets/${ticket.id}`);
+      handleFirestoreError(e, OperationType.DELETE, `support_tickets/${ticketToDelete.id}`);
       toast.error("Failed to delete ticket");
+    } finally {
+      setIsDeleting(false);
     }
+  };
+
+  const handleDeleteTicket = (ticket: SupportTicket) => {
+    setTicketToDelete(ticket);
   };
 
   const getStatusBadge = (status: string) => {
@@ -195,14 +206,14 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 overflow-x-auto max-w-full">
           {/* Status filter pills */}
-          <div className="flex bg-bg-base border border-border-subtle p-0.5">
+          <div className="flex bg-bg-base border border-border-subtle p-0.5 overflow-x-auto no-scrollbar shrink-0">
             {(["all", "open", "in_progress", "resolved"] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                className={`px-2.5 sm:px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap cursor-pointer ${
                   statusFilter === st
                     ? "bg-primary text-white italic"
                     : "text-text-muted hover:text-white"
@@ -218,7 +229,7 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="bg-bg-base border border-border-subtle px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white focus:border-primary focus:outline-none cursor-pointer"
+              className="bg-bg-base border border-border-subtle px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-white focus:border-primary focus:outline-none cursor-pointer shrink-0"
             >
               <option value="all">ALL CATEGORIES</option>
               {uniqueCategories.map((c) => (
@@ -365,12 +376,22 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
                   {selectedTicket.ticketId}
                 </h3>
               </div>
-              <button
-                onClick={() => setSelectedTicket(null)}
-                className="p-2 border border-border-subtle text-text-muted hover:text-white hover:border-white transition-all"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDeleteTicket(selectedTicket)}
+                  className="p-2 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                  title="Delete this ticket"
+                >
+                  <Trash2 size={13} />
+                  <span>Delete</span>
+                </button>
+                <button
+                  onClick={() => setSelectedTicket(null)}
+                  className="p-2 border border-border-subtle text-text-muted hover:text-white hover:border-white transition-all"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Client metadata grid */}
@@ -492,6 +513,65 @@ export function AdminTicketsTab({ tickets, loading = false }: AdminTicketsTabPro
           </div>
         )}
       </div>
+
+      {/* Confirm Delete Ticket Modal */}
+      <AnimatePresence>
+        {ticketToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[160] bg-hot-black/90 flex items-center justify-center p-4 backdrop-blur-md"
+            onClick={() => !isDeleting && setTicketToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="sharp-card p-6 sm:p-8 max-w-sm w-full border-t-8 border-red-500 bg-bg-surface text-center shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 mx-auto flex items-center justify-center mb-5">
+                <Trash2 size={28} />
+              </div>
+              <h3 className="text-lg font-black uppercase italic tracking-tighter text-white mb-2">
+                PURGE SUPPORT <span className="text-red-500 not-italic">TICKET</span>?
+              </h3>
+              <p className="text-xs text-text-muted leading-relaxed mb-6">
+                Are you sure you want to permanently delete support ticket{" "}
+                <span className="text-white font-mono font-bold">#{ticketToDelete.ticketId}</span>{" "}
+                submitted by{" "}
+                <span className="text-primary font-bold">{ticketToDelete.clientName}</span>?
+                This action cannot be undone.
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={confirmTicketDeletion}
+                  disabled={isDeleting}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black uppercase text-xs tracking-widest italic transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isDeleting ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Deleting Ticket...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Delete Ticket</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTicketToDelete(null)}
+                  disabled={isDeleting}
+                  className="w-full py-3 bg-transparent border border-border-subtle hover:border-white text-text-muted hover:text-white font-bold uppercase text-[11px] tracking-wider transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
