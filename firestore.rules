@@ -20,10 +20,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && 
-             request.auth.token != null && 
-             'email' in request.auth.token && 
-             request.auth.token.email == 'projectile.afk@gmail.com';
+      return isSignedIn() && (
+        (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     // User profiles
@@ -83,7 +83,8 @@ service cloud.firestore {
 
     // Admin collection
     match /admins/{userId} {
-      allow read, write: if isAdmin();
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com';
     }
 
     // Collection Group for Admin to see all payments

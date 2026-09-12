@@ -12,19 +12,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import {
-  getFirestore,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  persistentSingleTabManager,
-  CACHE_SIZE_UNLIMITED,
-  doc,
-  getDocFromServer,
-  enableNetwork,
-  disableNetwork,
-  waitForPendingWrites,
-} from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { toast } from 'sonner';
 import firebaseConfigFile from '../../firebase-applet-config.json';
 
@@ -87,64 +75,14 @@ if (!resolvedFirebaseConfig.apiKey || !resolvedFirebaseConfig.projectId) {
 // Reuse existing Firebase App if already initialized (prevents duplicate app init errors in dev/HMR)
 const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
 
-// Initialize Firestore targeting the specific named databaseId with offline persistence
+// Initialize Firestore targeting the specific named databaseId
 const firestoreDbId =
   resolvedFirebaseConfig.firestoreDatabaseId &&
   resolvedFirebaseConfig.firestoreDatabaseId !== '(default)'
     ? resolvedFirebaseConfig.firestoreDatabaseId
     : undefined;
 
-function initFirestoreWithOfflinePersistence() {
-  const isBrowser = typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
-
-  if (isBrowser) {
-    try {
-      // Primary: Multi-tab persistent local cache with unlimited cache size for offline dashboard access
-      const settings = {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-          cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-        }),
-      };
-      return firestoreDbId
-        ? initializeFirestore(app, settings, firestoreDbId)
-        : initializeFirestore(app, settings);
-    } catch (multiTabErr: any) {
-      console.warn(
-        "Notice: Multi-tab Firestore persistence fallback to single-tab:",
-        multiTabErr?.message || multiTabErr
-      );
-      try {
-        const singleTabSettings = {
-          localCache: persistentLocalCache({
-            tabManager: persistentSingleTabManager({}),
-          }),
-        };
-        return firestoreDbId
-          ? initializeFirestore(app, singleTabSettings, firestoreDbId)
-          : initializeFirestore(app, singleTabSettings);
-      } catch (singleTabErr: any) {
-        console.warn(
-          "Notice: Single-tab persistence fallback to default Firestore:",
-          singleTabErr?.message || singleTabErr
-        );
-        return firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
-      }
-    }
-  }
-
-  // SSR or non-browser fallback
-  try {
-    return firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
-  } catch {
-    return firestoreDbId
-      ? initializeFirestore(app, {}, firestoreDbId)
-      : initializeFirestore(app, {});
-  }
-}
-
-export const db = initFirestoreWithOfflinePersistence();
-export { enableNetwork, disableNetwork, waitForPendingWrites };
+export const db = firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
 export const auth = getAuth(app);
 
 export const googleProvider = new GoogleAuthProvider();
@@ -189,16 +127,12 @@ export const logout = () => signOut(auth);
 
 // Test connection safely without throwing unhandled exceptions
 async function testConnection() {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    console.log('Firebase client offline: Firestore persistent cache active for dashboard queries.');
-    return;
-  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log('Firebase Connected Successfully');
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('the client is offline') || error.message.includes('failed to get document from server'))) {
-      console.log("Firebase connection note: device is offline or network is unstable, persistent local cache active.");
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Please check your Firebase configuration: client is offline.");
     }
   }
 }
