@@ -40,18 +40,3 @@ export const INTERNET_PLANS: InternetPlan[] = [
     features: ['Ultimate Speed', 'Dedicated Business Line', 'White-Glove Installation'],
   },
 ];
-
-export const HOTFAST_NODE_COORDS = {
-  lat: 10.509848359158417,
-  lng: 122.82730190382401,
-  nodeName: "HF-NODE-VISAYAS-01",
-  region: "Western Visayas (Negros Occidental)",
-  networkType: "Ultra-Low Latency Fiber & Microwave Backbone",
-};
-
-export const ADMIN_EMAIL = "projectile.afk@gmail.com";
-
-export function isAuthorizedAdminEmail(email?: string | null): boolean {
-  if (!email) return false;
-  return email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
-}
