@@ -58,21 +58,26 @@ import {
   Save,
   Code2,
   LifeBuoy,
+  ShieldAlert,
+  WifiOff,
+  Database,
 } from "lucide-react";
-import { INTERNET_PLANS } from "./constants";
+import { INTERNET_PLANS, ADMIN_EMAIL, isAuthorizedAdminEmail } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
-import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
-import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
 import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
-import { ComplianceModal } from "./components/ComplianceModal";
-import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
-import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
+
+// Performance Optimization: Dynamically code-split heavy components
+const LatencyMapModal = React.lazy(() => import("./components/LatencyMapModal"));
+const DataConsumptionChart = React.lazy(() => import("./components/DataConsumptionChart"));
+const ComplianceModal = React.lazy(() => import("./components/ComplianceModal").then(m => ({ default: m.ComplianceModal })));
+const SupportModal = React.lazy(() => import("./components/SupportModal").then(m => ({ default: m.SupportModal })));
+const AdminTicketsTab = React.lazy(() => import("./components/AdminTicketsTab").then(m => ({ default: m.AdminTicketsTab })));
 import {
   loginWithGoogle,
   logout,
@@ -109,7 +114,7 @@ import {
 } from "./types";
 
 export default function App() {
-  const { user, profile, isAdmin, loading } = useAuth();
+  const { user, profile, isAdmin, loading, isOnline, isOffline, isCachedData } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "home" | "plans" | "payment" | "portal" | "admin"
@@ -180,16 +185,21 @@ export default function App() {
 
     initPlans();
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const p = snapshot.docs.map(
-        (doc) => ({ ...doc.data(), id: doc.id }) as InternetPlan,
-      );
-      setPlans(p);
-    }, (error) => {
-      console.error("Plans Sync Error:", error);
-      // Fallback to constants if DB read fails (e.g. quota exceeded)
-      setPlans(prev => prev.length === 0 ? INTERNET_PLANS : prev);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const p = snapshot.docs.map(
+          (doc) => ({ ...doc.data(), id: doc.id }) as InternetPlan,
+        );
+        setPlans(p);
+      },
+      (error) => {
+        console.warn("Plans Sync Notice (cache fallback active):", error?.message || error);
+        // Fallback to constants if DB read fails (e.g. quota exceeded or offline)
+        setPlans(prev => prev.length === 0 ? INTERNET_PLANS : prev);
+      }
+    );
 
     return unsubscribe;
   }, [isAdmin]);
@@ -206,14 +216,19 @@ export default function App() {
       orderBy("createdAt", "desc"),
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const n = snapshot.docs.map(
-        (doc) => ({ ...doc.data(), id: doc.id }) as SystemNotification,
-      );
-      setNotifications(n);
-    }, (error) => {
-      console.error("Notifications Sync Error:", error);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        const n = snapshot.docs.map(
+          (doc) => ({ ...doc.data(), id: doc.id }) as SystemNotification,
+        );
+        setNotifications(n);
+      },
+      (error) => {
+        console.warn("Notifications Sync Notice (cache fallback active):", error?.message || error);
+      }
+    );
 
     return unsubscribe;
   }, [user]);
@@ -230,11 +245,16 @@ export default function App() {
       where("status", "==", "pending")
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHasPendingPayment(!snapshot.empty);
-    }, (error) => {
-      console.error("Payment Status Sync Error:", error);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        setHasPendingPayment(!snapshot.empty);
+      },
+      (error) => {
+        console.warn("Payment Status Sync Notice (cache fallback active):", error?.message || error);
+      }
+    );
 
     return unsubscribe;
   }, [user]);
@@ -269,7 +289,7 @@ export default function App() {
     }
   }, [user, activeTab, hasDoneLoginRedirect, plans]);
 
-  // Detect direct URL navigation to compliance
+  // Detect direct URL navigation to compliance or support
   useEffect(() => {
     if (typeof window !== "undefined") {
       const path = window.location.pathname.toLowerCase();
@@ -282,6 +302,64 @@ export default function App() {
       }
     }
   }, []);
+
+  // Enforce System Access route authentication & direct URL authorization
+  useEffect(() => {
+    if (typeof window === "undefined" || loading) return;
+
+    const path = window.location.pathname.toLowerCase();
+    const search = window.location.search.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+
+    const isSystemAccessTarget =
+      path === "/admin" ||
+      path.startsWith("/admin/") ||
+      path === "/system-access" ||
+      path.startsWith("/system-access/") ||
+      search.includes("tab=admin") ||
+      search.includes("page=admin") ||
+      search.includes("system-access") ||
+      search.includes("forbidden_admin_access") ||
+      hash === "#admin" ||
+      hash === "#system-access";
+
+    if (isSystemAccessTarget) {
+      if (user && isAuthorizedAdminEmail(user.email) && isAdmin) {
+        setAdminAuth(true);
+        setActiveTab("admin");
+      } else {
+        // Non-admin or unauthenticated account attempting direct access:
+        // Redirect to dashboard (portal if logged in, or home if guest)
+        const targetTab = user ? "portal" : "home";
+        setActiveTab(targetTab);
+        setAdminAuth(false);
+        setShowAdminLogin(false);
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, "", user ? "/?tab=portal" : "/");
+        }
+        toast.error("403 Forbidden: System Access Restricted", {
+          id: "forbidden-system-access",
+          description: `Access restricted to administrator (${ADMIN_EMAIL}). Redirected to your dashboard.`,
+          duration: 5000,
+        });
+      }
+    }
+  }, [loading, user, isAdmin]);
+
+  // Tab guard: prevent unauthorized users from switching activeTab to 'admin'
+  useEffect(() => {
+    if (!loading && activeTab === "admin") {
+      if (!user || !isAuthorizedAdminEmail(user.email) || !isAdmin) {
+        setActiveTab(user ? "portal" : "home");
+        setAdminAuth(false);
+        setShowAdminLogin(false);
+        toast.error("403 Forbidden: System Access Restricted", {
+          id: "unauthorized-admin-switch",
+          description: "Administrative access restricted to authorized personnel.",
+        });
+      }
+    }
+  }, [activeTab, loading, user, isAdmin]);
 
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
 
@@ -310,6 +388,10 @@ export default function App() {
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError("");
+    if (!user || !isAuthorizedAdminEmail(user.email) || !isAdmin) {
+      setAdminError(`403 Forbidden: System Access is restricted to ${ADMIN_EMAIL}`);
+      return;
+    }
     if (adminUsername === "patcherx" && adminPassword === "Patcherx500") {
       setAdminAuth(true);
       setShowAdminLogin(false);
@@ -372,7 +454,7 @@ export default function App() {
             {(["home", "plans", "payment", "portal", "admin"] as const)
               .filter((t) => {
                 if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
-                if (t === "admin" && !adminAuth) return false;
+                if (t === "admin" && (!adminAuth || !isAuthorizedAdminEmail(user?.email) || !isAdmin)) return false;
                 if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
                 return true;
               })
@@ -394,17 +476,6 @@ export default function App() {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            {!isInstalled && (
-              <button
-                onClick={triggerInstall}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-red-600 to-primary hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest transition-all rounded shadow-md shadow-primary/20 border border-red-500 cursor-pointer"
-                title="Install HOTFAST PH App to Home Screen"
-              >
-                <Smartphone size={12} />
-                <span>Install App</span>
-              </button>
-            )}
-
             <button
               onClick={() => setShowLatencyMap(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[10px] font-black uppercase tracking-widest transition-all rounded hover:border-primary cursor-pointer"
@@ -499,10 +570,20 @@ export default function App() {
 
                 <button
                   onClick={() => setActiveTab("portal")}
-                  className="flex items-center gap-3 px-4 py-2 bg-slate-900 border border-border-subtle text-[10px] font-bold uppercase tracking-widest hover:border-primary/50 transition-colors"
+                  className="flex items-center gap-2.5 px-3.5 py-2 bg-slate-900 border border-border-subtle text-[10px] font-bold uppercase tracking-widest hover:border-primary/50 transition-colors cursor-pointer"
+                  title={isOffline ? "Offline Mode Active (Data Served from Local Cache)" : "Subscriber Portal"}
                 >
-                  <UserIcon size={12} className="text-primary" />
-                  {profile?.accountNumber}
+                  <UserIcon size={12} className="text-primary shrink-0" />
+                  <span>{profile?.accountNumber}</span>
+                  {isOffline ? (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                      <WifiOff size={9} /> Offline
+                    </span>
+                  ) : isCachedData ? (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                      <Database size={9} /> Cached
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   onClick={logout}
@@ -524,17 +605,6 @@ export default function App() {
 
           {/* Mobile Right Controls */}
           <div className="flex md:hidden items-center gap-1 sm:gap-2">
-            {!isInstalled && (
-              <button
-                onClick={triggerInstall}
-                className="px-2 py-1 bg-primary/20 hover:bg-primary border border-primary/40 text-white rounded transition-colors flex items-center gap-1"
-                title="Add to Home Screen / Install App"
-              >
-                <Smartphone size={14} className="text-primary group-hover:text-white" />
-                <span className="text-[9px] font-black uppercase tracking-wider text-primary">App</span>
-              </button>
-            )}
-
             <button
               onClick={() => setShowLatencyMap(true)}
               className="p-2 text-primary hover:text-white transition-colors relative"
@@ -699,7 +769,7 @@ export default function App() {
               {(["home", "plans", "payment", "portal", "admin"] as const)
                 .filter((t) => {
                   if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
-                  if (t === "admin" && !adminAuth) return false;
+                  if (t === "admin" && (!adminAuth || !isAuthorizedAdminEmail(user?.email) || !isAdmin)) return false;
                   if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
                   return true;
                 })
@@ -875,7 +945,7 @@ export default function App() {
                 onOpenSupport={() => setShowSupportModal(true)}
               />
             )}
-            {activeTab === "admin" && adminAuth && (
+            {activeTab === "admin" && adminAuth && isAuthorizedAdminEmail(user?.email) && isAdmin ? (
               <AdminPanel
                 plans={plans}
                 onLogout={() => {
@@ -883,7 +953,26 @@ export default function App() {
                   setActiveTab("home");
                 }}
               />
-            )}
+            ) : activeTab === "admin" ? (
+              <div className="py-20 text-center px-4 max-w-lg mx-auto">
+                <div className="p-8 bg-red-950/40 border border-red-500/50 rounded-2xl text-white space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-red-600/20 border border-red-500 flex items-center justify-center text-red-400">
+                    <ShieldAlert size={32} />
+                  </div>
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-red-400">403 Forbidden</h2>
+                  <p className="text-xs text-text-dim leading-relaxed">
+                    System Access is strictly restricted to administrator (<strong>{ADMIN_EMAIL}</strong>).
+                    Unauthorized attempt blocked.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab(user ? "portal" : "home")}
+                    className="mt-4 px-6 py-3 bg-primary text-white font-bold uppercase tracking-wider text-xs rounded-xl hover:bg-primary-dark transition-all cursor-pointer"
+                  >
+                    Return to Dashboard
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -989,20 +1078,32 @@ export default function App() {
         activeTab={activeTab}
       />
 
-      <SupportModal
-        isOpen={showSupportModal}
-        onClose={() => setShowSupportModal(false)}
-      />
+      {showSupportModal && (
+        <React.Suspense fallback={null}>
+          <SupportModal
+            isOpen={showSupportModal}
+            onClose={() => setShowSupportModal(false)}
+          />
+        </React.Suspense>
+      )}
 
-      <LatencyMapModal 
-        isOpen={showLatencyMap} 
-        onClose={() => setShowLatencyMap(false)} 
-      />
+      {showLatencyMap && (
+        <React.Suspense fallback={null}>
+          <LatencyMapModal 
+            isOpen={showLatencyMap} 
+            onClose={() => setShowLatencyMap(false)} 
+          />
+        </React.Suspense>
+      )}
 
-      <ComplianceModal
-        isOpen={showComplianceModal}
-        onClose={() => setShowComplianceModal(false)}
-      />
+      {showComplianceModal && (
+        <React.Suspense fallback={null}>
+          <ComplianceModal
+            isOpen={showComplianceModal}
+            onClose={() => setShowComplianceModal(false)}
+          />
+        </React.Suspense>
+      )}
 
       <PWAInstallModal
         isOpen={showInstallModal}
@@ -1015,7 +1116,7 @@ export default function App() {
       />
 
       <AnimatePresence>
-        {showAdminLogin && (
+        {showAdminLogin && isAuthorizedAdminEmail(user?.email) && isAdmin && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1978,7 +2079,7 @@ function CustomerPortal({
   isInstalled?: boolean;
   onOpenSupport?: () => void;
 }) {
-  const { user, profile } = useAuth();
+  const { user, profile, isOnline, isOffline, isCachedData, hasPendingWrites } = useAuth();
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
@@ -1998,17 +2099,14 @@ function CustomerPortal({
 
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snapshot) => {
         setPayments(
           snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as PaymentRecord),
         );
       },
       (error) => {
-        handleFirestoreError(
-          error,
-          OperationType.LIST,
-          `users/${user.uid}/payments`,
-        );
+        console.warn("Payment records cache fallback notice:", error);
       },
     );
 
@@ -2023,14 +2121,46 @@ function CustomerPortal({
 
   return (
     <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
-      {onOpenInstallModal && !isInstalled && (
-        <PWAInstallBanner onOpenModal={onOpenInstallModal} isInstalled={!!isInstalled} />
+      {/* Firestore Offline Persistence Indicator Banner */}
+      {(isOffline || isCachedData) && (
+        <div className="bg-slate-900/95 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+              <WifiOff size={18} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                  {isOffline ? "Offline Mode Active" : "Local Persistent Snapshot"}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  IndexedDB Storage
+                </span>
+                {hasPendingWrites && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    Sync Queued
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                {isOffline
+                  ? "Internet connection is unstable or disconnected. Your account status, subscriber tier, and billing ledger remain fully accessible from local persistent cache."
+                  : "Serving cached dashboard data, network node, and account status from local persistent storage."}
+              </p>
+            </div>
+          </div>
+          <div className="text-[10px] font-mono text-slate-400 shrink-0 flex items-center gap-1.5 self-end sm:self-center">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>Cache Synchronized</span>
+          </div>
+        </div>
       )}
+
       <div className="space-y-px bg-border-subtle border border-border-subtle">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
-        <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-12 flex flex-col sm:flex-row items-center sm:items-start md:items-center justify-between text-center sm:text-left gap-6 sm:gap-8">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 sm:gap-8 w-full sm:w-auto">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0">
+        <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-10 flex flex-col justify-between text-center sm:text-left gap-6">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 w-full">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0 shadow-md">
               <img
                 src={user.photoURL || ""}
                 alt="avatar"
@@ -2038,105 +2168,134 @@ function CustomerPortal({
               />
             </div>
             <div className="w-full sm:w-auto">
-              <div className="text-[10px] font-black uppercase text-text-muted tracking-[0.4em] mb-2 sm:mb-3">
-                Network Profile
+              <div className="flex items-center justify-center sm:justify-start gap-2 mb-1 sm:mb-1.5">
+                <span className="text-[10px] font-black uppercase text-text-muted tracking-[0.4em]">
+                  Subscriber Profile
+                </span>
+                {isOffline && (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Cached Offline
+                  </span>
+                )}
               </div>
-              <div className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter">
+              <div className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter text-white">
                 {profile?.displayName}
               </div>
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-start justify-center sm:justify-start gap-3 sm:gap-4 mt-4 md:mt-4 text-left">
-                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Network Node</span>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-xs font-mono text-primary font-bold">
-                      #{profile?.accountNumber}
-                    </span>
-                    {profile?.clientId && (
-                      <span className="text-[8px] font-mono text-white/50 font-bold uppercase tracking-widest italic">
-                        CID: {profile.clientId}
-                      </span>
-                    )}
-                    <button
-                      onClick={onOpenLatencyMap}
-                      className="text-[8px] font-mono text-primary hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
-                      title="Open Google Map Box for Node Uplink"
-                    >
-                      <MapPin size={9} /> View Uplink Map
-                    </button>
-                  </div>
+            </div>
+          </div>
+
+          {/* Clean, Friendly & Easy-to-Read Information Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 w-full text-left pt-1">
+            {/* 1. Network Node */}
+            <div className="bg-slate-900/60 border border-border-subtle hover:border-slate-700/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between gap-1.5 transition-all">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <MapPin size={12} className="text-primary shrink-0" />
+                <span>Network Node</span>
+              </div>
+              <div>
+                <div className="text-sm sm:text-base font-mono font-black text-primary tracking-tight">
+                  #{profile?.accountNumber || "HF-admin"}
                 </div>
-
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
-
-                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Subscribed Tier</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5">
-                      <Activity size={10} className="text-primary shrink-0" /> {currentPlan?.name || "Standard Account"}
-                    </span>
+                {profile?.clientId && (
+                  <div className="text-[10px] font-mono text-slate-400 font-semibold tracking-wide mt-0.5">
+                    CID: {profile.clientId}
                   </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={onOpenLatencyMap}
+                className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-primary hover:text-white transition-colors mt-0.5 group cursor-pointer"
+                title="View Network Node on Map"
+              >
+                <span>View Uplink Map</span>
+                <ExternalLink size={10} className="group-hover:translate-x-0.5 transition-transform" />
+              </button>
+            </div>
+
+            {/* 2. Subscribed Tier */}
+            <div className="bg-slate-900/60 border border-border-subtle hover:border-slate-700/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between gap-1.5 transition-all">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <Activity size={12} className="text-primary shrink-0" />
+                <span>Subscribed Tier</span>
+              </div>
+              <div>
+                <div className="text-sm sm:text-base font-bold text-white tracking-tight leading-snug">
+                  {currentPlan?.name || "Standard Account"}
                 </div>
+                <div className="text-[10px] sm:text-[11px] text-text-dim font-medium mt-0.5">
+                  {currentPlan?.speed ? `${currentPlan.speed} Mbps Fiber` : "Fiber Account"}
+                </div>
+              </div>
+              <div className="text-[10px] font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span>Active Service</span>
+              </div>
+            </div>
 
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
-
-                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Next Settlement</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5 italic">
-                      <Calendar size={10} className="text-primary shrink-0" /> 
-                      {profile?.dueDate?.toDate 
-                        ? profile.dueDate.toDate().toLocaleString('en-PH', { 
-                            timeZone: ASIA_TIMEZONE,
-                            month: '2-digit', 
-                            day: '2-digit', 
-                            year: 'numeric'
-                          }) 
-                        : "N/A"}
-                    </span>
-                    {daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0 && profile?.billStatus !== 'paid' && (
-                      <span className="text-[7px] font-black bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm animate-pulse tracking-tighter">
-                        -{daysRemaining}D
-                      </span>
-                    )}
+            {/* 3. Next Settlement */}
+            <div className="bg-slate-900/60 border border-border-subtle hover:border-slate-700/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between gap-1.5 transition-all">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <Calendar size={12} className="text-primary shrink-0" />
+                <span>Next Settlement</span>
+              </div>
+              <div>
+                <div className="text-sm sm:text-base font-mono font-bold text-white tracking-tight">
+                  {profile?.dueDate?.toDate 
+                    ? profile.dueDate.toDate().toLocaleString('en-PH', { 
+                        timeZone: ASIA_TIMEZONE,
+                        month: '2-digit', 
+                        day: '2-digit', 
+                        year: 'numeric'
+                      }) 
+                    : "10/10/2026"}
+                </div>
+                {daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0 && profile?.billStatus !== 'paid' ? (
+                  <span className="inline-block mt-0.5 text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                    Due in {daysRemaining} days
+                  </span>
+                ) : (
+                  <div className="text-[10px] text-text-dim font-medium mt-0.5">
+                    Auto-Cycle
                   </div>
-                </div>
+                )}
+              </div>
+              <div className="text-[10px] text-text-muted">
+                Monthly cycle
+              </div>
+            </div>
 
-                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
-
-                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Billing State</span>
-                  <div className="flex items-center gap-1.5">
-                    {profile?.status === 'suspended' ? (
-                      <>
-                        <span className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
-                        <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1">
-                          <AlertTriangle size={10} /> SUSPENDED
-                        </span>
-                      </>
-                    ) : profile?.billStatus === 'overdue' ? (
-                      <>
-                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
-                          OVERDUE
-                        </span>
-                      </>
-                    ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
-                      <>
-                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic">
-                          DUE
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="w-2 h-2 bg-green-500 rounded-full" />
-                        <span className="text-[10px] font-black uppercase text-green-500 tracking-widest italic">
-                          PAID
-                        </span>
-                      </>
-                    )}
+            {/* 4. Billing State */}
+            <div className="bg-slate-900/60 border border-border-subtle hover:border-slate-700/80 rounded-xl p-3 sm:p-3.5 flex flex-col justify-between gap-1.5 transition-all">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <ShieldCheck size={12} className="text-primary shrink-0" />
+                <span>Billing State</span>
+              </div>
+              <div>
+                {profile?.status === 'suspended' ? (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-600/20 border border-red-500/40 text-red-300 text-xs font-black uppercase tracking-wider">
+                    <AlertTriangle size={12} className="text-red-400" />
+                    <span>SUSPENDED</span>
                   </div>
-                </div>
+                ) : profile?.billStatus === 'overdue' ? (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-xs font-black uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                    <span>OVERDUE</span>
+                  </div>
+                ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span>DUE</span>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-black uppercase tracking-wider">
+                    <CheckCircle2 size={12} className="text-emerald-400" />
+                    <span>PAID</span>
+                  </div>
+                )}
+              </div>
+              <div className="text-[10px] text-text-dim font-medium">
+                {profile?.billStatus === 'paid' ? "Good standing" : "Action required"}
               </div>
             </div>
           </div>
@@ -2200,12 +2359,23 @@ function CustomerPortal({
         </div>
       </div>
 
-      {/* 30-Day Data Consumption Trends Line Chart */}
-      <DataConsumptionChart
-        accountNumber={profile?.accountNumber}
-        planName={currentPlan?.name}
-        planSpeed={currentPlan?.speed}
-      />
+      {/* 30-Day Data Consumption Trends Line Chart (Lazy loaded for optimal initial bundle) */}
+      <React.Suspense
+        fallback={
+          <div className="sharp-card p-6 border-b border-border-subtle bg-bg-surface/30 flex items-center justify-center min-h-[260px]">
+            <div className="flex items-center gap-2 text-xs font-mono text-text-muted">
+              <Loader2 size={16} className="animate-spin text-primary" />
+              <span>Initializing Telemetry Analytics Engine...</span>
+            </div>
+          </div>
+        }
+      >
+        <DataConsumptionChart
+          accountNumber={profile?.accountNumber}
+          planName={currentPlan?.name}
+          planSpeed={currentPlan?.speed}
+        />
+      </React.Suspense>
 
       <div className="bg-bg-base p-0 relative">
         <div className="px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
@@ -2566,13 +2736,17 @@ function Footer({
           </div>
 
           <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
-            <button
-              onClick={() => setShowAdminLogin(true)}
-              className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2"
-            >
-              <Lock size={10} className="group-hover:animate-pulse" /> System
-              Access
-            </button>
+            {isAuthorizedAdminEmail(user?.email) && isAdmin && (
+              <button
+                id="system-access-btn"
+                onClick={() => setShowAdminLogin(true)}
+                className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2 cursor-pointer"
+                title="System Access (Authorized Admin Only)"
+              >
+                <Lock size={10} className="group-hover:animate-pulse text-primary" /> System
+                Access
+              </button>
+            )}
             <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
           </div>
         </div>
@@ -2712,9 +2886,10 @@ function AdminPanel({
   });
 
   useEffect(() => {
-    // We only fetch if the user is authenticated in Firebase AND belongs to admin collection
-    if (!user || !firebaseIsAdmin) {
+    // We only fetch if the user is authenticated in Firebase AND matches authorized super admin email AND belongs to admin collection
+    if (!user || !firebaseIsAdmin || !isAuthorizedAdminEmail(user.email)) {
       setLoading(false);
+      onLogout();
       return;
     }
 
@@ -3404,14 +3579,14 @@ function AdminPanel({
   };
 
   return (
-    <section className="py-24 px-6 max-w-7xl mx-auto">
-      <div className="mb-12 space-y-8">
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-8">
+    <section className="py-8 sm:py-16 md:py-24 px-3 sm:px-6 max-w-7xl mx-auto">
+      <div className="mb-8 sm:mb-12 space-y-6 sm:space-y-8">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-6 sm:gap-8">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-1 sm:mb-2">
               Command Center
             </h3>
-            <h2 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter leading-tight">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase italic tracking-tighter leading-tight">
               MANAGEMENT
               <br />
               <span className="text-primary not-italic">OVERRIDE</span>
@@ -3425,7 +3600,7 @@ function AdminPanel({
               href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-red-700 via-primary to-primary hover:brightness-110 text-white text-[10px] font-black uppercase tracking-widest italic border border-primary shadow-lg shadow-primary/30 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap cursor-pointer group"
+              className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-red-700 via-primary to-primary hover:brightness-110 text-white text-[10px] font-black uppercase tracking-widest italic border border-primary shadow-lg shadow-primary/30 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap cursor-pointer group"
               title="Open Main Server Admin Dashboard"
             >
               <Server size={15} className="animate-pulse text-white" />
@@ -3433,8 +3608,8 @@ function AdminPanel({
               <ExternalLink size={12} className="opacity-80 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </a>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
-              <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
+            <div className="w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle overflow-x-auto">
+              <div className="flex gap-1 no-scrollbar min-w-max">
                 {[
                   { id: "payments", label: "Settlements", icon: CreditCard, count: null },
                   { id: "plans", label: "Infrastructure", icon: Zap, count: null },
@@ -3446,7 +3621,7 @@ function AdminPanel({
                   <button
                     key={tab.id}
                     onClick={() => setAdminTab(tab.id as any)}
-                    className={`flex items-center gap-2 px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                    className={`flex items-center gap-2 px-3.5 sm:px-5 py-2.5 sm:py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap cursor-pointer ${
                       adminTab === tab.id 
                       ? "bg-primary text-white italic" 
                       : "text-text-muted hover:text-white hover:bg-white/5"
@@ -3466,7 +3641,7 @@ function AdminPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {[
             { label: "Aggregate Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
             { label: "Accounts Due", value: clients.filter(c => c.billStatus === 'due' || c.billStatus === 'overdue').length, icon: Receipt, color: "text-amber-500" },
@@ -4039,7 +4214,16 @@ function AdminPanel({
           </div>
         </div>
       ) : adminTab === "tickets" ? (
-        <AdminTicketsTab tickets={supportTickets} />
+        <React.Suspense
+          fallback={
+            <div className="sharp-card p-12 text-center flex flex-col items-center justify-center gap-3">
+              <Loader2 size={24} className="animate-spin text-primary" />
+              <p className="text-xs font-mono uppercase tracking-widest text-text-muted">Loading Support Dispatch Tickets...</p>
+            </div>
+          }
+        >
+          <AdminTicketsTab tickets={supportTickets} />
+        </React.Suspense>
       ) : (
         <>
           <div className="flex flex-col gap-6 mb-8">

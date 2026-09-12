@@ -179,7 +179,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -191,28 +191,33 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
 
           {/* Modal Card */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            initial={{ opacity: 0, scale: 0.96, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="relative w-full max-w-lg bg-bg-surface border border-primary/40 shadow-2xl rounded-lg overflow-hidden my-auto z-10"
+            exit={{ opacity: 0, scale: 0.96, y: 24 }}
+            className="relative w-full max-w-lg bg-bg-surface border border-primary/30 sm:border-primary/40 shadow-2xl rounded-t-2xl sm:rounded-2xl overflow-hidden my-0 sm:my-auto z-10 max-h-[92vh] sm:max-h-[85vh] flex flex-col"
           >
+            {/* Mobile Drag Pill */}
+            <div className="sm:hidden w-full flex justify-center pt-2.5 pb-1 bg-gradient-to-r from-primary via-primary-dark to-slate-900">
+              <div className="w-10 h-1 rounded-full bg-white/30" />
+            </div>
+
             {/* Top Banner */}
-            <div className="bg-gradient-to-r from-primary via-primary-dark to-slate-900 px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between border-b border-primary/30">
+            <div className="bg-gradient-to-r from-primary via-primary-dark to-slate-900 px-4 py-3.5 sm:px-6 sm:py-5 flex items-center justify-between border-b border-primary/30 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-black/30 border border-white/20 flex items-center justify-center text-white shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-black/30 border border-white/20 flex items-center justify-center text-white shrink-0 shadow-sm">
                   <MessageSquare size={18} className="text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-300 bg-black/30 px-2 py-0.5 rounded border border-amber-400/30">
+                    <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-300 bg-black/40 px-2 py-0.5 rounded-full border border-amber-400/30">
                       NOC Dispatch
                     </span>
-                    <span className="flex items-center gap-1 text-[9px] font-mono text-emerald-300">
+                    <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-mono text-emerald-300">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       Active 24/7
                     </span>
                   </div>
-                  <h3 className="text-base sm:text-lg font-black uppercase tracking-wide text-white mt-0.5">
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wide text-white mt-0.5">
                     Hotfast Customer Support
                   </h3>
                 </div>
@@ -228,7 +233,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
             </div>
 
             {/* Content Body */}
-            <div className="p-5 sm:p-6 max-h-[80vh] overflow-y-auto">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
               {submittedTicket ? (
                 /* Success State */
                 <motion.div
@@ -402,12 +407,12 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
                         required
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 0917-123-4567 or +63 912 345 6789"
+                        placeholder="e.g. 0917 123 4567"
                         className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim font-mono transition-colors"
                       />
                     </div>
                     <span className="text-[10px] text-text-dim mt-1 block">
-                      Our NOC technical team will contact this phone number regarding your concern.
+                      Our customer support team will contact you via this phone number regarding your concern.
                     </span>
                   </div>
 
