@@ -125,7 +125,7 @@ ${cleanMessage}
 ${timestamp}
 
 🌐 Source:
-Hotfast.online (Vercel)`;
+Hotfast.online `;
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID || "8732198426";
