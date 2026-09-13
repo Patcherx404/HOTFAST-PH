@@ -18,6 +18,66 @@ try {
   console.warn("Could not load firebase-applet-config.json:", e);
 }
 
+const ADMIN_EMAIL = "projectile.afk@gmail.com";
+
+function parseFirebaseToken(token: string): { email?: string; email_verified?: boolean; uid?: string } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf-8"));
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+const activeAdminTokens = new Set<string>();
+
+function isAuthorizedAdminRequest(req: express.Request): boolean {
+  // 1. Authorization header: Bearer <token>
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7);
+    if (activeAdminTokens.has(token)) return true;
+    const parsed = parseFirebaseToken(token);
+    if (parsed?.email && parsed.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      activeAdminTokens.add(token);
+      return true;
+    }
+  }
+
+  // 2. Custom headers
+  const headerEmail = (req.headers["x-admin-email"] || req.headers["x-user-email"]) as string | undefined;
+  if (headerEmail && headerEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    return true;
+  }
+
+  // 3. Cookies
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const cookies = Object.fromEntries(
+      cookieHeader.split(";").map((c) => {
+        const [k, ...v] = c.trim().split("=");
+        return [k, decodeURIComponent(v.join("="))];
+      })
+    );
+    if (cookies["hf_admin_session"] && cookies["hf_admin_session"].toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      return true;
+    }
+    if (cookies["admin_email"] && cookies["admin_email"].toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      return true;
+    }
+    if (cookies["admin_token"]) {
+      const parsed = parseFirebaseToken(cookies["admin_token"]);
+      if (parsed?.email && parsed.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -176,6 +236,154 @@ Hotfast.online`;
       res.sendFile(path.join(process.cwd(), "public", "compliance.html"));
     } else {
       res.sendFile(path.join(process.cwd(), "dist", "compliance.html"));
+    }
+  });
+
+  // Admin session sync endpoint
+  app.post("/api/auth/session", (req, res) => {
+    const { email, token } = req.body || {};
+    if (typeof email === "string" && email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      if (token && typeof token === "string") {
+        activeAdminTokens.add(token);
+      }
+      res.setHeader("Set-Cookie", `hf_admin_session=${ADMIN_EMAIL}; Path=/; SameSite=Lax; Max-Age=86400`);
+      return res.json({ ok: true, admin: true, email: ADMIN_EMAIL });
+    }
+    return res.status(403).json({ error: "403 Forbidden: Unauthorized account for admin session", ok: false });
+  });
+
+  app.delete("/api/auth/session", (req, res) => {
+    res.setHeader("Set-Cookie", `hf_admin_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+    return res.json({ ok: true, loggedOut: true });
+  });
+
+  // Admin & System Access API routes authorization enforcement
+  app.all(["/api/admin", "/api/admin/*", "/api/system-access", "/api/system-access/*"], (req, res) => {
+    if (!isAuthorizedAdminRequest(req)) {
+      return res.status(403).json({
+        error: "403 Forbidden: Access Denied",
+        message: "System Access is strictly restricted to the authorized administrator account (projectile.afk@gmail.com).",
+        status: 403,
+      });
+    }
+    return res.json({ status: "ok", message: "Admin authorization verified." });
+  });
+
+  // Direct URL navigation enforcement for System Access and Admin routes
+  const systemAccessUrls = ["/admin", "/admin/*", "/system-access", "/system-access/*"];
+  app.get(systemAccessUrls, (req, res, next) => {
+    if (!isAuthorizedAdminRequest(req)) {
+      if (req.headers.accept && req.headers.accept.includes("application/json")) {
+        return res.status(403).json({
+          error: "403 Forbidden: Access Denied",
+          message: "System Access is strictly restricted to the authorized administrator account (projectile.afk@gmail.com).",
+          status: 403,
+        });
+      }
+
+      // Return 403 Unauthorized/Forbidden with styled security screen and auto-redirect to dashboard
+      return res.status(403).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>403 Forbidden - System Access Restricted</title>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-top: 4px solid #ef4444;
+      border-radius: 12px;
+      padding: 36px 32px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      margin: 0 0 12px;
+      letter-spacing: -0.025em;
+    }
+    p {
+      font-size: 14px;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin: 0 0 24px;
+    }
+    .btn {
+      display: inline-block;
+      background: #ef4444;
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 12px 24px;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .btn:hover {
+      background: #dc2626;
+    }
+    .timer {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">403 Forbidden / Unauthorized</div>
+    <h1>System Access Restricted</h1>
+    <p>
+      You do not have permission to access System Access. This portal is strictly restricted to the authorized administrator account (<strong>projectile.afk@gmail.com</strong>).
+    </p>
+    <a href="/" class="btn">Return to Dashboard</a>
+    <div class="timer">Redirecting to dashboard in 3 seconds...</div>
+  </div>
+  <script>
+    setTimeout(function() {
+      window.location.href = "/";
+    }, 3000);
+  </script>
+</body>
+</html>`);
+    }
+
+    // Authorized administrator: proceed to serve the application
+    if (process.env.NODE_ENV !== "production") {
+      next();
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      res.sendFile(path.join(distPath, "index.html"));
     }
   });
 

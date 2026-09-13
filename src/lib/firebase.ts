@@ -123,7 +123,15 @@ export const loginWithGoogle = async () => {
   }
 };
 
-export const logout = () => signOut(auth);
+export const logout = async () => {
+  if (typeof document !== 'undefined') {
+    document.cookie = 'hf_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  }
+  try {
+    await fetch('/api/auth/session', { method: 'DELETE' });
+  } catch {}
+  return signOut(auth);
+};
 
 // Test connection safely without throwing unhandled exceptions
 async function testConnection() {

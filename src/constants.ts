@@ -5,6 +5,13 @@
 
 import { InternetPlan } from './types';
 
+export const ADMIN_EMAIL = 'projectile.afk@gmail.com';
+
+export function isSuperAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+}
+
 export const INTERNET_PLANS: InternetPlan[] = [
   {
     id: 'starter',

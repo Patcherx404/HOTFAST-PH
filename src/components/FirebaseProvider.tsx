@@ -9,7 +9,7 @@ import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, updateDoc } from 'firebase/firestore';
 import { UserProfile, InternetPlan } from '../types';
 import { ASIA_TIMEZONE } from '../lib/dateUtils';
-import { INTERNET_PLANS } from '../constants';
+import { INTERNET_PLANS, ADMIN_EMAIL, isSuperAdminEmail } from '../constants';
 
 interface AuthContextType {
   user: User | null;
@@ -36,15 +36,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const checkAdmin = async (currentUser: User) => {
+    const isSuper = isSuperAdminEmail(currentUser.email);
+    if (!isSuper) {
+      setIsAdmin(false);
+      return;
+    }
+
     try {
-      // Direct super-admin check based on configured root admin email
-      if (currentUser.email === 'projectile.afk@gmail.com') {
-        setIsAdmin(true);
-      }
+      setIsAdmin(true);
 
       const adminDoc = await getDoc(doc(db, `admins/${currentUser.uid}`));
       let currentlyAdmin = adminDoc.exists();
-      if (!currentlyAdmin && currentUser.email === 'projectile.afk@gmail.com') {
+      if (!currentlyAdmin) {
         await setDoc(doc(db, `admins/${currentUser.uid}`), {
           email: currentUser.email,
           role: 'super_admin',
@@ -52,12 +55,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         currentlyAdmin = true;
       }
-      setIsAdmin(currentlyAdmin || currentUser.email === 'projectile.afk@gmail.com');
+      setIsAdmin(true);
     } catch (e) {
       console.warn("Admin check notice:", e);
-      if (currentUser.email === 'projectile.afk@gmail.com') {
-        setIsAdmin(true);
-      }
+      setIsAdmin(true);
     }
   };
 
@@ -77,10 +78,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (currentUser) {
-          // Pre-assign admin immediately if root admin email
-          if (currentUser.email === 'projectile.afk@gmail.com') {
+          const isSuper = isSuperAdminEmail(currentUser.email);
+          if (isSuper) {
             setIsAdmin(true);
+            try {
+              const token = await currentUser.getIdToken();
+              fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: currentUser.email, token }),
+              }).catch(() => {});
+            } catch {}
+            document.cookie = `hf_admin_session=${ADMIN_EMAIL}; path=/; SameSite=Lax`;
+          } else {
+            setIsAdmin(false);
+            document.cookie = 'hf_admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
           }
+
           checkAdmin(currentUser);
 
           const path = `users/${currentUser.uid}`;

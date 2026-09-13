@@ -59,7 +59,7 @@ import {
   Code2,
   LifeBuoy,
 } from "lucide-react";
-import { INTERNET_PLANS } from "./constants";
+import { INTERNET_PLANS, ADMIN_EMAIL, isSuperAdminEmail } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
 import LatencyMapModal from "./components/LatencyMapModal";
@@ -269,7 +269,7 @@ export default function App() {
     }
   }, [user, activeTab, hasDoneLoginRedirect, plans]);
 
-  // Detect direct URL navigation to compliance
+  // Detect direct URL navigation to compliance, support, or admin/system-access
   useEffect(() => {
     if (typeof window !== "undefined") {
       const path = window.location.pathname.toLowerCase();
@@ -280,8 +280,53 @@ export default function App() {
       if (path === "/support" || path === "/support.html" || search.includes("support")) {
         setShowSupportModal(true);
       }
+
+      const isSystemAccessRoute =
+        path === "/admin" ||
+        path.startsWith("/admin/") ||
+        path === "/system-access" ||
+        path.startsWith("/system-access/") ||
+        search.includes("tab=admin") ||
+        search.includes("tab=system-access") ||
+        search.includes("page=admin") ||
+        search.includes("page=system-access");
+
+      if (isSystemAccessRoute) {
+        if (!loading) {
+          if (user && isSuperAdminEmail(user.email)) {
+            setAdminAuth(true);
+            setActiveTab("admin");
+          } else {
+            // Unauthorized direct URL access attempt: enforce 403 and redirect to dashboard
+            setActiveTab(user ? "portal" : "home");
+            setAdminAuth(false);
+            setShowAdminLogin(false);
+            window.history.replaceState({}, "", "/");
+            toast.error(
+              "403 Forbidden: System Access is strictly restricted to the authorized administrator account (projectile.afk@gmail.com).",
+              { duration: 5000 }
+            );
+          }
+        }
+      }
     }
-  }, []);
+  }, [loading, user]);
+
+  // Enforce admin authorization on activeTab === "admin"
+  useEffect(() => {
+    if (activeTab === "admin") {
+      if (!loading && (!user || !isSuperAdminEmail(user.email))) {
+        setActiveTab(user ? "portal" : "home");
+        setAdminAuth(false);
+        setShowAdminLogin(false);
+        window.history.replaceState({}, "", "/");
+        toast.error(
+          "403 Forbidden: System Access is restricted to projectile.afk@gmail.com.",
+          { duration: 5000 }
+        );
+      }
+    }
+  }, [activeTab, user, loading]);
 
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
 
@@ -310,6 +355,10 @@ export default function App() {
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError("");
+    if (!user || !isSuperAdminEmail(user.email)) {
+      setAdminError("403 Forbidden: System Access is restricted to projectile.afk@gmail.com.");
+      return;
+    }
     if (adminUsername === "patcherx" && adminPassword === "Patcherx500") {
       setAdminAuth(true);
       setShowAdminLogin(false);
@@ -372,7 +421,7 @@ export default function App() {
             {(["home", "plans", "payment", "portal", "admin"] as const)
               .filter((t) => {
                 if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
-                if (t === "admin" && !adminAuth) return false;
+                if (t === "admin" && (!adminAuth || !isSuperAdminEmail(user?.email))) return false;
                 if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
                 return true;
               })
@@ -699,7 +748,7 @@ export default function App() {
               {(["home", "plans", "payment", "portal", "admin"] as const)
                 .filter((t) => {
                   if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
-                  if (t === "admin" && !adminAuth) return false;
+                  if (t === "admin" && (!adminAuth || !isSuperAdminEmail(user?.email))) return false;
                   if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
                   return true;
                 })
@@ -875,7 +924,7 @@ export default function App() {
                 onOpenSupport={() => setShowSupportModal(true)}
               />
             )}
-            {activeTab === "admin" && adminAuth && (
+            {activeTab === "admin" && adminAuth && isSuperAdminEmail(user?.email) && (
               <AdminPanel
                 plans={plans}
                 onLogout={() => {
@@ -1038,7 +1087,7 @@ export default function App() {
                 <X size={20} />
               </button>
 
-              <div className="text-center mb-10 text-white">
+              <div className="text-center mb-8 text-white">
                 <div className="w-20 h-20 mx-auto mb-6 p-2 rounded-2xl bg-slate-900/90 border-2 border-primary/50 shadow-xl shadow-primary/20 flex items-center justify-center overflow-hidden">
                   <img
                     src="/hoticon2.png"
@@ -1054,62 +1103,93 @@ export default function App() {
                 </p>
               </div>
 
-              <form onSubmit={handleAdminLogin} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={adminUsername}
-                    onChange={(e) => setAdminUsername(e.target.value)}
-                    className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                    Security Key
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
-                  />
-                </div>
+              {isSuperAdminEmail(user?.email) ? (
+                <>
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-center text-xs font-mono text-white mb-4">
+                    <div className="text-[10px] text-emerald-400 uppercase font-black tracking-widest mb-1">
+                      Verified Administrator
+                    </div>
+                    <span className="text-emerald-300 font-bold">{user?.email}</span>
+                  </div>
 
-                {adminError && (
-                  <motion.div
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-black uppercase tracking-widest text-center italic"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminAuth(true);
+                      setShowAdminLogin(false);
+                      setActiveTab("admin");
+                    }}
+                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[11px] tracking-widest italic rounded-lg transition-all shadow-lg shadow-emerald-600/20 cursor-pointer mb-4"
                   >
-                    {adminError}
-                  </motion.div>
-                )}
+                    Direct System Access
+                  </button>
 
-                <button
-                  type="submit"
-                  className="w-full py-5 bg-primary text-white font-black uppercase text-[11px] tracking-widest italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20 cursor-pointer"
-                >
-                  Authenticate
-                </button>
+                  <div className="flex items-center gap-3 my-4 text-[9px] text-text-muted uppercase tracking-widest">
+                    <div className="flex-1 h-px bg-border-subtle" />
+                    <span>Or Authenticate with Key</span>
+                    <div className="flex-1 h-px bg-border-subtle" />
+                  </div>
 
-                <div className="pt-2 border-t border-border-subtle text-center">
-                  <a
-                    id="admin-login-main-server-btn"
-                    href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-text-muted hover:text-primary transition-colors uppercase tracking-wider py-1"
+                  <form onSubmit={handleAdminLogin} className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={adminUsername}
+                        onChange={(e) => setAdminUsername(e.target.value)}
+                        className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                        Security Key
+                      </label>
+                      <input
+                        type="password"
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
+                      />
+                    </div>
+
+                    {adminError && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-black uppercase tracking-widest text-center italic"
+                      >
+                        {adminError}
+                      </motion.div>
+                    )}
+
+                    <button
+                      type="submit"
+                      className="w-full py-5 bg-primary text-white font-black uppercase text-[11px] tracking-widest italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20 cursor-pointer"
+                    >
+                      Authenticate
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div className="p-5 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono text-center rounded-lg space-y-3">
+                  <p className="font-bold uppercase tracking-wider text-[11px] text-red-400">
+                    403 Forbidden: Access Restricted
+                  </p>
+                  <p className="text-[11px] text-text-muted leading-relaxed">
+                    System Access is strictly restricted to the authorized administrator account (<strong>projectile.afk@gmail.com</strong>).
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminLogin(false)}
+                    className="mt-3 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded cursor-pointer transition-colors"
                   >
-                    <Server size={12} />
-                    <span>Open Main Server Dashboard</span>
-                    <ExternalLink size={10} />
-                  </a>
+                    Return to Dashboard
+                  </button>
                 </div>
-              </form>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -2486,6 +2566,7 @@ function Footer({
 }) {
   const { user, isAdmin } = useAuth();
   const isAdminTab = activeTab === "admin";
+  const isAuthorizedAdmin = Boolean(user && isSuperAdminEmail(user.email));
 
   return (
     <footer className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
@@ -2566,13 +2647,17 @@ function Footer({
           </div>
 
           <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
-            <button
-              onClick={() => setShowAdminLogin(true)}
-              className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2"
-            >
-              <Lock size={10} className="group-hover:animate-pulse" /> System
-              Access
-            </button>
+            {isAuthorizedAdmin && (
+              <button
+                id="footer-system-access-btn"
+                onClick={() => setShowAdminLogin(true)}
+                className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2 cursor-pointer"
+                title="System Access"
+              >
+                <Lock size={10} className="group-hover:animate-pulse" /> System
+                Access
+              </button>
+            )}
             <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
           </div>
         </div>
