@@ -18,7 +18,7 @@ export const INTERNET_PLANS: InternetPlan[] = [
     name: 'Lite Fiber',
     speed: 50,
     bandwidth: 'Unlimited',
-    price: 1000,
+    price: 999,
     features: ['Unlimited Data', 'Free Installation', '24/7 Support'],
   },
   {
@@ -47,11 +47,3 @@ export const INTERNET_PLANS: InternetPlan[] = [
     features: ['Ultimate Speed', 'Dedicated Business Line', 'White-Glove Installation'],
   },
 ];
-
-export const HOTFAST_NODE_COORDS = {
-  lat: 10.509848359158417,
-  lng: 122.82730190382401,
-  nodeName: "HF-NODE-VISAYAS-01",
-  region: "Western Visayas (Negros Occidental)",
-  networkType: "Ultra-Low Latency Fiber & Microwave Backbone",
-};

@@ -3,7 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, Suspense, lazy } from "react";
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Wifi,
@@ -13,6 +18,7 @@ import {
   ArrowRight,
   CreditCard,
   Smartphone,
+  HelpCircle,
   MapPin,
   Menu,
   X,
@@ -22,25 +28,49 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
+  Users as UsersIcon,
   Download,
   CheckCircle2,
   Loader2,
+  Facebook,
+  QrCode,
+  Upload,
+  Image as ImageIcon,
+  ExternalLink,
+  Receipt,
   Lock,
   Bell,
+  Plus as PlusIcon,
   AlertTriangle,
-  LifeBuoy,
-  MessageSquare,
-  Code2,
+  Edit3,
+  Trash2,
+  Filter,
+  Calendar,
   Clock,
-  ExternalLink,
+  RefreshCw,
+  UserMinus,
+  Eye,
+  Copy,
+  Search,
+  MessageSquare,
+  Send,
+  Server,
+  Save,
+  Code2,
+  LifeBuoy,
 } from "lucide-react";
 import { INTERNET_PLANS, ADMIN_EMAIL, isSuperAdminEmail } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
+import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
+import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
-import { PWAInstallModal } from "./components/PWAInstallPrompt";
+import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
+import { ComplianceModal } from "./components/ComplianceModal";
+import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
+import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { toast, Toaster } from "sonner";
 import { ASIA_TIMEZONE } from "./lib/dateUtils";
 import {
@@ -52,64 +82,31 @@ import {
 } from "./lib/firebase";
 import {
   collection,
+  addDoc,
   serverTimestamp,
   query,
   where,
   orderBy,
   getDocs,
+  getDoc,
+  collectionGroup,
+  updateDoc,
   doc,
   onSnapshot,
   setDoc,
-  updateDoc,
+  deleteDoc,
+  increment,
 } from "firebase/firestore";
 import {
   InternetPlan,
+  PaymentRecord,
   SystemNotification,
   UserProfile,
+  BillingCycle,
+  ChatSession,
+  ChatMessage,
+  SupportTicket,
 } from "./types";
-import PaymentSection from "./components/PaymentSection";
-
-// Helper for resilient dynamic imports
-function lazyWithRetry<T extends React.ComponentType<any>>(
-  factory: () => Promise<{ default: T }>,
-  retries = 3,
-  interval = 800
-): React.LazyExoticComponent<T> {
-  return lazy(() =>
-    new Promise<{ default: T }>((resolve, reject) => {
-      const attempt = (remaining: number) => {
-        factory()
-          .then(resolve)
-          .catch((err) => {
-            if (remaining <= 1) {
-              reject(err);
-            } else {
-              setTimeout(() => attempt(remaining - 1), interval);
-            }
-          });
-      };
-      attempt(retries);
-    })
-  );
-}
-
-// Dynamic lazy imports with automatic retry for resilience
-const CustomerPortal = lazyWithRetry(() => import("./components/CustomerPortal"));
-const AdminPanel = lazyWithRetry(() => import("./components/AdminPanel"));
-const LatencyMapModal = lazyWithRetry(() => import("./components/LatencyMapModal"));
-const ComplianceModal = lazyWithRetry(() => import("./components/ComplianceModal").then(m => ({ default: m.ComplianceModal })));
-const SupportModal = lazyWithRetry(() => import("./components/SupportModal").then(m => ({ default: m.SupportModal })));
-
-function TabLoadingSkeleton() {
-  return (
-    <div className="min-h-[50vh] flex flex-col items-center justify-center gap-4 py-20">
-      <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      <span className="text-[10px] font-black uppercase tracking-[0.3em] text-text-muted">
-        Loading Telemetry &amp; Systems...
-      </span>
-    </div>
-  );
-}
 
 export default function App() {
   const { user, profile, isAdmin, loading } = useAuth();
@@ -141,7 +138,6 @@ export default function App() {
     isInAppBrowser,
     isModalOpen: showInstallModal,
     setIsModalOpen: setShowInstallModal,
-    dismissModal,
     triggerInstall,
   } = usePWAInstall();
 
@@ -912,37 +908,30 @@ export default function App() {
               <PlansSection plans={plans} onSelectPlan={handleSelectPlan} />
             )}
             {activeTab === "payment" && (
-              <Suspense fallback={<TabLoadingSkeleton />}>
-                <PaymentSection 
-                  plans={plans} 
-                  selectedPlan={selectedPlan} 
-                  onSelectPlan={handleSelectPlan}
-                  onSuccess={() => setActiveTab("portal")}
-                />
-              </Suspense>
+              <PaymentSection 
+                plans={plans} 
+                selectedPlan={selectedPlan} 
+                onSuccess={() => setActiveTab("portal")}
+              />
             )}
             {activeTab === "portal" && (
-              <Suspense fallback={<TabLoadingSkeleton />}>
-                <CustomerPortal
-                  plans={plans}
-                  onPay={() => setActiveTab("plans")}
-                  onOpenLatencyMap={() => setShowLatencyMap(true)}
-                  onOpenInstallModal={() => setShowInstallModal(true)}
-                  isInstalled={isInstalled}
-                  onOpenSupport={() => setShowSupportModal(true)}
-                />
-              </Suspense>
+              <CustomerPortal
+                plans={plans}
+                onPay={() => setActiveTab("plans")}
+                onOpenLatencyMap={() => setShowLatencyMap(true)}
+                onOpenInstallModal={() => setShowInstallModal(true)}
+                isInstalled={isInstalled}
+                onOpenSupport={() => setShowSupportModal(true)}
+              />
             )}
             {activeTab === "admin" && adminAuth && isSuperAdminEmail(user?.email) && (
-              <Suspense fallback={<TabLoadingSkeleton />}>
-                <AdminPanel
-                  plans={plans}
-                  onLogout={() => {
-                    setAdminAuth(false);
-                    setActiveTab("home");
-                  }}
-                />
-              </Suspense>
+              <AdminPanel
+                plans={plans}
+                onLogout={() => {
+                  setAdminAuth(false);
+                  setActiveTab("home");
+                }}
+              />
             )}
           </motion.div>
         </AnimatePresence>
@@ -988,6 +977,19 @@ export default function App() {
             <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           </div>
           <span className="text-[9px] uppercase tracking-wider mt-1 text-white/90">Map</span>
+        </button>
+
+        {/* 24/7 Customer Support Trigger Button (side of Map & aside of Portal) */}
+        <button
+          onClick={() => setShowSupportModal(true)}
+          className="flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg text-text-muted hover:text-primary transition-colors group relative cursor-pointer"
+          title="Open Hotfast Customer Support Form"
+        >
+          <div className="relative">
+            <MessageSquare size={18} className="text-primary group-hover:scale-110 transition-transform" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+          </div>
+          <span className="text-[9px] uppercase tracking-wider mt-1 text-white/90">Support</span>
         </button>
 
         {user && !shouldHideBillingTabs && (
@@ -1036,36 +1038,24 @@ export default function App() {
         activeTab={activeTab}
       />
 
-      {showSupportModal && (
-        <Suspense fallback={null}>
-          <SupportModal
-            isOpen={showSupportModal}
-            onClose={() => setShowSupportModal(false)}
-          />
-        </Suspense>
-      )}
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+      />
 
-      {showLatencyMap && (
-        <Suspense fallback={null}>
-          <LatencyMapModal 
-            isOpen={showLatencyMap} 
-            onClose={() => setShowLatencyMap(false)} 
-          />
-        </Suspense>
-      )}
+      <LatencyMapModal 
+        isOpen={showLatencyMap} 
+        onClose={() => setShowLatencyMap(false)} 
+      />
 
-      {showComplianceModal && (
-        <Suspense fallback={null}>
-          <ComplianceModal
-            isOpen={showComplianceModal}
-            onClose={() => setShowComplianceModal(false)}
-          />
-        </Suspense>
-      )}
+      <ComplianceModal
+        isOpen={showComplianceModal}
+        onClose={() => setShowComplianceModal(false)}
+      />
 
       <PWAInstallModal
         isOpen={showInstallModal}
-        onClose={dismissModal}
+        onClose={() => setShowInstallModal(false)}
         onInstall={triggerInstall}
         isInstallable={isInstallable}
         isIOS={isIOS}
@@ -1542,6 +1532,1022 @@ function PlansSection({
   );
 }
 
+function PaymentSection({
+  plans,
+  selectedPlan,
+  onSuccess,
+}: {
+  plans: InternetPlan[];
+  selectedPlan: InternetPlan | null;
+  onSuccess?: () => void;
+}) {
+  const { user, profile } = useAuth();
+  const [accountNumber, setAccountNumber] = useState(
+    profile?.accountNumber || "",
+  );
+  const [amount, setAmount] = useState(
+    selectedPlan ? selectedPlan.price.toString() : "",
+  );
+  const [method, setMethod] = useState<"GCash" | "Maya" | "Card">("GCash");
+  const [processing, setProcessing] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  
+  // Selected receipt for admin panel view
+  const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
+    null,
+  );
+  const [showGCashGuide, setShowGCashGuide] = useState(false);
+
+  useEffect(() => {
+    if (selectedPlan) setAmount(selectedPlan.price.toString());
+  }, [selectedPlan]);
+
+  useEffect(() => {
+    if (profile?.accountNumber) {
+      setAccountNumber(profile.accountNumber);
+    } else if (user?.uid) {
+      setAccountNumber(`HF-${user.uid.substring(0, 8).toUpperCase()}`);
+    }
+  }, [profile, user]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected) {
+      setFile(selected);
+      const reader = new FileReader();
+      reader.onloadend = () => setPreview(reader.result as string);
+      reader.readAsDataURL(selected);
+    }
+  };
+
+  const copyGCashNumber = () => {
+    const gcashNumber = "09122367040";
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(gcashNumber).catch(() => {
+          fallbackCopyText(gcashNumber);
+        });
+      } else {
+        fallbackCopyText(gcashNumber);
+      }
+    } catch {
+      fallbackCopyText(gcashNumber);
+    }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.top = "-9999px";
+      textArea.style.left = "-9999px";
+      textArea.setAttribute("readonly", "");
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+    } catch (e) {
+      console.warn("Fallback copy failed", e);
+    }
+  };
+
+  const getGCashDeepLink = () => {
+    // Strictly open GCash app directly via registered scheme - never redirect to Play Store
+    return "gcash://";
+  };
+
+  const handleOpenGCash = () => {
+    // 1. Auto-copy the GCash mobile number
+    copyGCashNumber();
+
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+
+    setShowGCashGuide(true);
+
+    if (isMobile) {
+      toast.success("GCash number (0912 236 7040) copied! Opening GCash app...", { duration: 4000 });
+      // Direct navigation attempt strictly to gcash:// - never open Play Store
+      try {
+        if (window.top && window.top !== window.self) {
+          window.top.location.href = "gcash://";
+        } else {
+          window.location.href = "gcash://";
+        }
+      } catch {
+        window.location.href = "gcash://";
+      }
+    } else {
+      toast.info("GCash number (0912 236 7040) copied! Note: GCash is a mobile app. Launch GCash on your phone to send payment.", { duration: 6000 });
+    }
+  };
+
+  const handleDownloadQR = () => {
+    const link = document.createElement("a");
+    link.href = "/your-image.png";
+    link.download = "HOTFAST-GCash-QR.png";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("QR code downloaded! In GCash, tap 'QR' > 'Upload QR' from gallery to pay without a 2nd screen.");
+  };
+
+  const handlePayment = async () => {
+    if (!user) {
+      toast.error("Please login first.");
+      return;
+    }
+    if (!amount || parseFloat(amount) <= 0) return;
+    if (!file) {
+      toast.error("Please upload your payment screenshot for verification.");
+      return;
+    }
+
+    setProcessing(true);
+    const path = `users/${user.uid}/payments`;
+    try {
+      // Mock screenshot URL using base64 for demo purposes
+      const screenshotUrl = preview || "";
+
+      await addDoc(collection(db, path), {
+        userId: user.uid,
+        accountNumber,
+        amount: parseFloat(amount),
+        method,
+        status: "pending", // Manual verification needed
+        createdAt: serverTimestamp(),
+        referenceNumber: `PH-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        screenshotUrl,
+      });
+
+      setTimeout(() => {
+        setProcessing(false);
+        setSuccess(true);
+        setFile(null);
+        setPreview(null);
+        
+        // Auto-redirect back to portal after 3 seconds
+        setTimeout(() => {
+          setSuccess(false);
+          if (onSuccess) onSuccess();
+        }, 3000);
+      }, 1500);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, path);
+      setProcessing(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <section className="py-24 px-6 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="sharp-card p-12 text-center max-w-md w-full border-t-4 border-t-primary"
+        >
+          <div className="w-16 h-16 bg-primary/10 flex items-center justify-center mx-auto mb-8 transform rotate-45 border border-primary/30">
+            <CheckCircle2
+              className="text-primary transform -rotate-45"
+              size={32}
+            />
+          </div>
+          <h2 className="text-4xl font-black mb-4 uppercase italic tracking-tighter">
+            SUBMITTED
+          </h2>
+          <p className="text-text-muted mb-6 text-[11px] uppercase tracking-[0.2em] font-bold">
+            Screenshot received. Please wait for manual verification by our
+            team.
+          </p>
+
+          <a
+            href="#" // Replace with real FB page link
+            className="flex items-center justify-center gap-2 text-primary font-black uppercase text-[10px] tracking-widest mb-10 hover:underline"
+          >
+            <Facebook size={14} /> Message us on FB for faster verification
+          </a>
+
+          <button
+            onClick={() => setSuccess(false)}
+            className="w-full py-5 bg-slate-900 border border-border-subtle hover:border-primary/50 text-[10px] font-black uppercase tracking-widest transition-all italic"
+          >
+            Back to Payments
+          </button>
+        </motion.div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-8 sm:py-12 md:py-24 px-3 sm:px-6 max-w-6xl mx-auto">
+      <div className="sharp-card grid grid-cols-1 md:grid-cols-12 gap-0 overflow-hidden">
+        {/* Left: QR & Details */}
+        <div className="md:col-span-5 p-5 sm:p-6 md:p-10 border-b md:border-b-0 md:border-r border-border-subtle bg-slate-900/20">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-6">
+            Settlement Channel
+          </h3>
+
+          <div className="mb-8 sm:mb-10 text-center">
+            <div className="aspect-square bg-white p-3 sm:p-4 inline-block transform rotate-1 sm:rotate-2 shadow-2xl mb-3 group relative max-w-xs">
+              <div className="w-44 h-44 sm:w-56 sm:h-56 bg-slate-100 flex items-center justify-center relative overflow-hidden">
+                <img
+                  src="/your-image.png"
+                  alt="GCash QR"
+                  className="w-full h-full object-contain"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-[10px] font-black text-primary uppercase">
+                    Scan to Pay
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Instructional helper text & tooltip near QR code */}
+            <div className="mb-6 flex flex-col items-center justify-center px-2">
+              <div
+                className="group relative inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/40 hover:border-primary transition-all cursor-help"
+                title="After scanning this QR code, please take a screenshot of your payment receipt and upload it in the form to confirm your transaction."
+              >
+                <Upload size={13} className="text-primary shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-mono font-bold uppercase tracking-wider text-slate-200">
+                  Upload receipt after scanning
+                </span>
+                <HelpCircle size={12} className="text-primary/80 group-hover:text-primary transition-colors shrink-0" />
+
+                {/* Hover Tooltip Popup */}
+                <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 text-white text-[10px] font-mono normal-case tracking-normal border border-primary shadow-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 z-30 text-center leading-relaxed">
+                  <div className="font-black text-primary uppercase text-[9px] mb-1 tracking-wider flex items-center justify-center gap-1">
+                    <Receipt size={12} /> Receipt Upload Required
+                  </div>
+                  Scan with GCash or your banking app, save your confirmation screenshot, and upload it in the verification form to settle your billing.
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-primary" />
+                </div>
+              </div>
+              <p className="mt-1.5 text-[9px] font-mono text-text-muted uppercase tracking-wider text-center">
+                Scan QR with e-wallet &rarr; Attach screenshot in form
+              </p>
+            </div>
+            
+            <div className="mt-4 space-y-5 sm:space-y-6">
+              <div>
+                <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] mb-1">
+                  Primary Routing Terminal
+                </div>
+                <button 
+                  onClick={() => {
+                    copyGCashNumber();
+                    toast.success("Routing Number Copied: 0912 236 7040");
+                  }}
+                  className="group relative inline-block p-1 cursor-pointer"
+                  title="Click to copy number"
+                >
+                  <div className="text-2xl sm:text-3xl font-mono font-bold text-primary tracking-tighter mt-1 italic group-hover:scale-105 transition-transform">
+                    0912 236 7040
+                  </div>
+                  <div className="absolute -right-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Copy size={14} className="text-primary" />
+                  </div>
+                </button>
+                <div className="mt-2 flex items-center justify-center gap-2 text-[9px] font-bold text-primary/60 uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                  Automatic Settlement Active
+                </div>
+              </div>
+
+              <div className="pt-2 sm:pt-4 space-y-2.5 sm:space-y-3">
+                {/* Primary: Open GCash App Direct Action strictly via gcash:// (no Play Store) */}
+                <a
+                  href="gcash://"
+                  target="_top"
+                  rel="noopener noreferrer"
+                  onClick={handleOpenGCash}
+                  className="w-full py-3.5 sm:py-4 px-4 bg-[#007DFE] hover:bg-[#006bd8] text-white font-black uppercase text-[11px] sm:text-[12px] tracking-[0.2em] italic flex items-center justify-center gap-2.5 transition-all shadow-[0_10px_25px_rgba(0,125,254,0.35)] active:scale-[0.98] cursor-pointer min-h-[46px] border border-[#3ba0ff] text-center no-underline"
+                >
+                  <Smartphone size={16} className="shrink-0" />
+                  <span>Pay via GCash (Open App)</span>
+                  <ExternalLink size={13} className="opacity-80 shrink-0" />
+                </a>
+
+                {/* Secondary: Quick Save QR Code & Copy Number */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadQR}
+                    className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-primary/50 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
+                    title="Download QR code to phone gallery"
+                  >
+                    <Download size={13} className="text-primary shrink-0" />
+                    <span className="truncate">Save QR Code</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      copyGCashNumber();
+                      toast.success("Routing number (0912 236 7040) copied!");
+                    }}
+                    className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-primary/50 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
+                    title="Copy GCash phone number"
+                  >
+                    <Copy size={13} className="text-primary shrink-0" />
+                    <span className="truncate">Copy Number</span>
+                  </button>
+                </div>
+
+                {/* Interactive guidance if app does not open automatically */}
+                {showGCashGuide ? (
+                  <div className="p-3 bg-slate-900/90 border border-[#007DFE]/40 text-left space-y-2 mt-2 transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-[#007DFE] uppercase flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#007DFE] animate-ping" />
+                        0912 236 7040 Auto-Copied!
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowGCashGuide(false)}
+                        className="text-text-muted hover:text-white text-[10px] font-mono font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-[9px] font-mono text-slate-300 leading-relaxed">
+                      Number auto-copied to clipboard! Opening GCash app directly (never Play Store).
+                    </p>
+                    <div className="pt-1 flex flex-wrap gap-1.5">
+                      <a
+                        href="gcash://"
+                        target="_top"
+                        onClick={handleOpenGCash}
+                        className="px-3 py-1.5 bg-[#007DFE] hover:bg-[#006bd8] text-white text-[9px] font-mono font-bold uppercase inline-flex items-center gap-1.5 rounded no-underline"
+                      >
+                        <Smartphone size={12} /> Open GCash App &rarr;
+                      </a>
+                    </div>
+                    <p className="text-[8px] font-mono text-text-muted">
+                      In GCash: Tap <strong>Express Send</strong>, paste <strong>0912 236 7040</strong>, then enter payment amount.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[8px] text-text-muted font-bold uppercase tracking-widest leading-relaxed text-center px-1">
+                    Clicking automatically copies 0912 236 7040 &amp; opens GCash app directly (no Play Store).
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 sm:space-y-4">
+            <a
+              href="#" // Replace with real FB page link
+              className="w-full p-3.5 sm:p-4 flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white transition-all shadow-lg shadow-blue-600/20 min-h-[44px]"
+            >
+              <Facebook size={18} />
+              <span className="font-black uppercase text-[10px] tracking-widest italic">
+                SEND PROOF ON FB
+              </span>
+            </a>
+
+            <div className="p-3.5 sm:p-4 bg-bg-base border border-border-subtle">
+              <p className="text-[10px] text-text-muted leading-relaxed font-bold uppercase tracking-tight">
+                Send payment to the number above, then upload your receipt on
+                the right to verify your transaction in our ledger.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Form & Upload */}
+        <div className="md:col-span-7 p-5 sm:p-6 md:p-12 bg-slate-900/30">
+          <div className="space-y-6 sm:space-y-8">
+            {!selectedPlan && (
+              <div className="bg-red-500/10 border border-red-500/50 p-4 sm:p-6 mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 group">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-500 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="text-white" size={20} />
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Infrastructure Required</h4>
+                  <p className="text-[9px] text-text-muted font-bold uppercase tracking-tight">
+                    No active node selected. You must select an Infrastructure Tier to initialize settlement.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
+                    Customer Identifier
+                  </label>
+                  <span className="text-[8px] bg-primary/20 text-primary px-2 py-0.5 rounded uppercase tracking-[0.2em] font-black not-italic border border-primary/20 flex items-center gap-1">
+                    <Lock size={9} /> Locked
+                  </span>
+                </div>
+                <div className="w-full bg-slate-900 border border-primary/30 p-3.5 sm:p-4 md:p-5 text-base sm:text-lg md:text-xl font-mono text-white font-bold flex items-center justify-between select-none">
+                  <span className="tracking-widest">
+                    {accountNumber || profile?.accountNumber || (user ? `HF-${user.uid.substring(0, 8).toUpperCase()}` : "HF-000000")}
+                  </span>
+                  <ShieldCheck size={18} className="text-primary shrink-0" />
+                </div>
+                <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest mt-2 italic px-1">
+                  System locked: Bound to verified subscriber profile
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
+                  Settlement Amount
+                </label>
+                <div className="w-full bg-slate-900 border border-primary/30 p-3.5 sm:p-4 md:p-5 text-lg sm:text-xl md:text-2xl font-mono text-primary font-bold italic flex items-center justify-between">
+                  <span>₱ {selectedPlan ? selectedPlan.price.toLocaleString() : "0.00"}</span>
+                  <span className="text-[8px] bg-primary/20 px-2 py-1 rounded uppercase tracking-[0.2em] font-black not-italic border border-primary/20">Fixed Rate</span>
+                </div>
+                {selectedPlan && (
+                  <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest mt-2 italic px-1">
+                    System locked: Integrated with {selectedPlan.name} tier
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3 sm:space-y-4">
+              <label className="text-[10px] uppercase tracking-[0.3em] font-black text-text-muted">
+                Screenshot Upload (Proof)
+              </label>
+              
+              <div
+                className={`relative border-2 border-dashed transition-all p-6 sm:p-8 text-center flex flex-col items-center justify-center cursor-pointer ${preview ? "border-primary bg-primary/5" : "border-border-subtle hover:border-text-muted bg-bg-base"}`}
+                onClick={() => document.getElementById("file-upload")?.click()}
+              >
+                <input
+                  id="file-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {preview ? (
+                  <div className="relative group">
+                    <img
+                      src={preview}
+                      alt="Receipt preview"
+                      className="max-h-48 rounded mb-4"
+                    />
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-[10px] font-black uppercase text-white">
+                        Replace File
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="text-text-muted mb-3 sm:mb-4" size={28} />
+                    <div className="text-[11px] font-black uppercase tracking-widest text-text-dim">
+                      Tap or Drag Screenshot Here
+                    </div>
+                    <div className="text-[9px] text-text-muted uppercase mt-2">
+                      JPG, PNG allowed (Max 5MB)
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <button
+              disabled={processing || !user || !amount || !file}
+              onClick={handlePayment}
+              className="w-full py-4 sm:py-6 min-h-[48px] bg-primary hover:bg-primary-dark disabled:opacity-30 text-white font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] text-xs sm:text-sm transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3 sm:gap-4 italic active:scale-[0.98] cursor-pointer"
+            >
+              {processing ? (
+                <Loader2 className="animate-spin" size={24} />
+              ) : (
+                <>
+                  PROCESS SETTLEMENT <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+            {!user && (
+              <p className="text-[10px] text-center text-primary font-black uppercase tracking-widest italic leading-tight">
+                Authentication required for storage tracking
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CustomerPortal({ 
+  plans, 
+  onPay, 
+  onOpenLatencyMap,
+  onOpenInstallModal,
+  isInstalled,
+  onOpenSupport,
+}: { 
+  plans: InternetPlan[]; 
+  onPay: () => void; 
+  onOpenLatencyMap?: () => void;
+  onOpenInstallModal?: () => void;
+  isInstalled?: boolean;
+  onOpenSupport?: () => void;
+}) {
+  const { user, profile } = useAuth();
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
+    null,
+  );
+
+  const currentPlan = plans.find((p) => p.id === profile?.currentPlanId);
+
+  const dueDate = profile?.dueDate?.toDate ? profile.dueDate.toDate() : null;
+  const daysRemaining = dueDate ? Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null;
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, `users/${user.uid}/payments`),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setPayments(
+          snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as PaymentRecord),
+        );
+      },
+      (error) => {
+        handleFirestoreError(
+          error,
+          OperationType.LIST,
+          `users/${user.uid}/payments`,
+        );
+      },
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  if (!user) return null;
+
+  const totalPending = payments
+    .filter((p) => p.status === "pending")
+    .reduce((acc, p) => acc + p.amount, 0);
+
+  return (
+    <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
+      {onOpenInstallModal && !isInstalled && (
+        <PWAInstallBanner onOpenModal={onOpenInstallModal} isInstalled={!!isInstalled} />
+      )}
+      <div className="space-y-px bg-border-subtle border border-border-subtle">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
+        <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-12 flex flex-col sm:flex-row items-center sm:items-start md:items-center justify-between text-center sm:text-left gap-6 sm:gap-8">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 sm:gap-8 w-full sm:w-auto">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0">
+              <img
+                src={user.photoURL || ""}
+                alt="avatar"
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              />
+            </div>
+            <div className="w-full sm:w-auto">
+              <div className="text-[10px] font-black uppercase text-text-muted tracking-[0.4em] mb-2 sm:mb-3">
+                Network Profile
+              </div>
+              <div className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter">
+                {profile?.displayName}
+              </div>
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-start justify-center sm:justify-start gap-3 sm:gap-4 mt-4 md:mt-4 text-left">
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Network Node</span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-mono text-primary font-bold">
+                      #{profile?.accountNumber}
+                    </span>
+                    {profile?.clientId && (
+                      <span className="text-[8px] font-mono text-white/50 font-bold uppercase tracking-widest italic">
+                        CID: {profile.clientId}
+                      </span>
+                    )}
+                    <button
+                      onClick={onOpenLatencyMap}
+                      className="text-[8px] font-mono text-primary hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
+                      title="Open Google Map Box for Node Uplink"
+                    >
+                      <MapPin size={9} /> View Uplink Map
+                    </button>
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
+
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Subscribed Tier</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5">
+                      <Activity size={10} className="text-primary shrink-0" /> {currentPlan?.name || "Standard Account"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
+
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Next Settlement</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5 italic">
+                      <Calendar size={10} className="text-primary shrink-0" /> 
+                      {profile?.dueDate?.toDate 
+                        ? profile.dueDate.toDate().toLocaleString('en-PH', { 
+                            timeZone: ASIA_TIMEZONE,
+                            month: '2-digit', 
+                            day: '2-digit', 
+                            year: 'numeric'
+                          }) 
+                        : "N/A"}
+                    </span>
+                    {daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0 && profile?.billStatus !== 'paid' && (
+                      <span className="text-[7px] font-black bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm animate-pulse tracking-tighter">
+                        -{daysRemaining}D
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
+
+                <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Billing State</span>
+                  <div className="flex items-center gap-1.5">
+                    {profile?.status === 'suspended' ? (
+                      <>
+                        <span className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
+                        <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1">
+                          <AlertTriangle size={10} /> SUSPENDED
+                        </span>
+                      </>
+                    ) : profile?.billStatus === 'overdue' ? (
+                      <>
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
+                          OVERDUE
+                        </span>
+                      </>
+                    ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
+                      <>
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic">
+                          DUE
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2 h-2 bg-green-500 rounded-full" />
+                        <span className="text-[10px] font-black uppercase text-green-500 tracking-widest italic">
+                          PAID
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`md:col-span-4 ${
+          (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+            ? "bg-red-600"
+            : "bg-emerald-600"
+        } p-6 sm:p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative transition-all duration-300`}>
+          <div className="absolute top-0 right-0 p-8 opacity-10 -mr-4 -mt-4 group-hover:scale-110 transition-transform">
+            <CreditCard size={120} />
+          </div>
+          
+          <div className="relative z-10">
+            <div className="text-[10px] font-black uppercase text-white/60 tracking-[0.4em] mb-3 sm:mb-4">
+              Billing Center
+            </div>
+            <div className="text-3xl sm:text-4xl md:text-5xl font-mono font-bold italic tracking-tighter uppercase whitespace-pre-wrap leading-none">
+              {profile?.billStatus === 'overdue' 
+                ? 'OVERDUE' 
+                : profile?.billStatus === 'due' 
+                  ? 'DUE' 
+                  : 'ACTIVE'}
+            </div>
+            
+            {profile?.billStatus !== 'paid' ? (
+              <button
+                onClick={onPay}
+                className={`mt-6 sm:mt-8 flex items-center justify-center gap-3 w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-white font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn active:scale-[0.98] cursor-pointer min-h-[44px] ${
+                  (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+                    ? "text-red-600"
+                    : "text-emerald-600"
+                }`}
+              >
+                SECURE SETTLEMENT <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
+              </button>
+            ) : (
+              <div className="mt-6 sm:mt-8 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest italic px-4 py-2 border border-white/30 bg-white/10 w-fit">
+                <CheckCircle2 size={12} /> Cycle Synchronized
+              </div>
+            )}
+            
+            {totalPending > 0 && (
+              <div className="mt-4 sm:mt-6 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
+                <Loader2 size={12} className="animate-spin" /> Verification Pending
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 sm:mt-12 flex justify-between items-center border-t border-white/20 pt-4 sm:pt-6 relative z-10">
+            <div className="text-[10px] font-black uppercase tracking-widest italic">
+              {profile?.billStatus === 'overdue' 
+                ? 'Action Required' 
+                : profile?.billStatus === 'due' 
+                  ? 'Invoice Pending' 
+                  : 'System Online'}
+            </div>
+            <Zap size={16} />
+          </div>
+        </div>
+      </div>
+
+      {/* 30-Day Data Consumption Trends Line Chart */}
+      <DataConsumptionChart
+        accountNumber={profile?.accountNumber}
+        planName={currentPlan?.name}
+        planSpeed={currentPlan?.speed}
+      />
+
+      <div className="bg-bg-base p-0 relative">
+        <div className="px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <h3 className="text-xs sm:text-sm font-black uppercase tracking-[0.3em] sm:tracking-[0.4em] flex items-center gap-2.5 sm:gap-3 italic text-primary">
+            <History size={16} className="not-italic" /> Settlement Ledger
+          </h3>
+          <div className="flex gap-3">
+            <button className="text-[9px] sm:text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
+              Export CSV
+            </button>
+            <button className="text-[9px] sm:text-[10px] font-black uppercase text-text-muted tracking-widest hover:text-white transition-colors">
+              PDF Export
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Ledger Card View */}
+        <div className="md:hidden divide-y divide-border-subtle">
+          {payments.length === 0 ? (
+            <div className="px-4 py-12 text-center text-text-muted italic font-medium uppercase tracking-[0.2em] text-xs">
+              No transaction history detected
+            </div>
+          ) : (
+            payments.map((p) => (
+              <div key={`portal-m-payment-${p.id}`} className="p-4 space-y-3 bg-bg-base hover:bg-slate-900/30 transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-tight text-text-dim">
+                    {p.createdAt?.toDate
+                      ? p.createdAt.toDate().toLocaleDateString("en-PH", {
+                          timeZone: ASIA_TIMEZONE,
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        })
+                      : "Processing"}
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 bg-slate-900 border border-border-subtle text-primary">
+                    {p.method}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-mono text-white/80">
+                    {p.referenceNumber}
+                  </div>
+                  <div className="font-mono font-bold text-lg text-primary italic">
+                    ₱ {p.amount.toLocaleString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedReceipt(p)}
+                  className="w-full py-2.5 px-3 bg-slate-900/80 border border-border-subtle hover:border-primary text-text-dim hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
+                >
+                  <Receipt size={14} className="text-primary" /> View Digital Receipt
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Ledger Table View */}
+        <div className="hidden md:block overflow-x-auto no-scrollbar">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-900/50">
+                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                  Timestamp
+                </th>
+                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                  Reference ID
+                </th>
+                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                  Channel
+                </th>
+                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                  Amount
+                </th>
+                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                  Receipt
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 md:px-10 py-20 text-center text-text-muted italic font-medium uppercase tracking-[0.2em] text-xs"
+                  >
+                    No transaction history detected
+                  </td>
+                </tr>
+              ) : (
+                payments.map((p) => (
+                  <tr
+                    key={`portal-payment-${p.id}`}
+                    className="border-b border-border-subtle hover:bg-slate-900/30 transition-colors group"
+                  >
+                    <td className="px-6 md:px-10 py-6 md:py-8 text-[10px] md:text-xs font-bold uppercase tracking-tight text-text-dim whitespace-nowrap">
+                      {p.createdAt?.toDate
+                        ? p.createdAt
+                            .toDate()
+                            .toLocaleDateString("en-PH", {
+                              timeZone: ASIA_TIMEZONE,
+                              month: "short",
+                              day: "2-digit",
+                              year: "numeric",
+                            })
+                        : "Processing"}
+                    </td>
+                    <td className="px-6 md:px-10 py-6 md:py-8 text-xs font-mono text-primary group-hover:text-white transition-colors whitespace-nowrap">
+                      {p.referenceNumber}
+                    </td>
+                    <td className="px-6 md:px-10 py-6 md:py-8">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 bg-slate-900 border border-border-subtle">
+                        {p.method}
+                      </span>
+                    </td>
+                    <td className="px-6 md:px-10 py-6 md:py-8 text-right font-mono font-bold text-lg md:text-xl italic tabular-nums whitespace-nowrap">
+                      ₱ {p.amount.toLocaleString()}
+                    </td>
+                    <td className="px-6 md:px-10 py-6 md:py-8 text-right">
+                      <button
+                        onClick={() => setSelectedReceipt(p)}
+                        className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all cursor-pointer"
+                        title="View Receipt"
+                      >
+                        <Receipt size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Receipt Modal */}
+        <AnimatePresence>
+          {selectedReceipt && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[150] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+              onClick={() => setSelectedReceipt(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden max-h-[90vh] flex flex-col my-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="bg-primary p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Receipt size={20} />
+                    <span className="font-black uppercase tracking-widest italic text-sm sm:text-base">
+                      Digital Receipt
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedReceipt(null)}
+                    className="p-1 text-white hover:opacity-80 cursor-pointer"
+                    aria-label="Close receipt"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="p-5 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto">
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                    <span className="text-[10px] font-black uppercase text-text-muted">
+                      REFERENCE
+                    </span>
+                    <span className="font-mono text-xs font-bold text-primary">
+                      {selectedReceipt.referenceNumber}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                    <span className="text-[10px] font-black uppercase text-text-muted">
+                      DATE
+                    </span>
+                    <span className="text-xs font-bold uppercase">
+                      {selectedReceipt.createdAt?.toDate
+                        ? selectedReceipt.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
+                        : "Processing"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                    <span className="text-[10px] font-black uppercase text-text-muted">
+                      AMOUNT PAID
+                    </span>
+                    <span className="text-xl sm:text-2xl font-mono font-bold italic text-primary">
+                      ₱ {selectedReceipt.amount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {selectedReceipt.screenshotUrl && (
+                    <div className="space-y-2 sm:space-y-3">
+                      <span className="text-[10px] font-black uppercase text-text-muted flex items-center gap-2">
+                        <ImageIcon size={12} /> Verification Snapshot
+                      </span>
+                      <div className="aspect-video bg-slate-900 border border-border-subtle overflow-hidden relative group">
+                        <img
+                          src={selectedReceipt.screenshotUrl}
+                          alt="Receipt proof"
+                          className="w-full h-full object-contain"
+                        />
+                        <a
+                          href={selectedReceipt.screenshotUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest"
+                        >
+                          <ExternalLink size={14} /> View Large Image
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2 sm:pt-4 text-center">
+                    <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest italic leading-tight">
+                      Electronically recorded ledger item • Verification pending
+                      manual review
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 24/7 Dedicated Support Banner for Portal Users */}
+        <div className="mt-12 bg-gradient-to-r from-slate-900 via-bg-surface to-slate-900 border border-border-subtle p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 mt-0.5">
+              <MessageSquare size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black uppercase tracking-wider text-white">Need Assistance with your Service?</h4>
+                <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 border border-emerald-500/20">NOC DISPATCH</span>
+              </div>
+              <p className="text-xs text-text-muted mt-1 max-w-xl">
+                Submit an urgent support ticket directly to our network engineering team. Submissions notify the Hotfast support administrator in real time.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSupport}
+            className="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white text-xs font-black uppercase tracking-wider rounded transition-all shadow-md shadow-primary/20 shrink-0 cursor-pointer flex items-center gap-2"
+          >
+            <Send size={13} />
+            <span>Open Support Ticket</span>
+          </button>
+        </div>
+      </div>
+      </div>
+    </div>
+  );
+}
 
 function Footer({
   setShowAdminLogin,
@@ -1560,23 +2566,19 @@ function Footer({
 }) {
   const { user, isAdmin } = useAuth();
   const isAdminTab = activeTab === "admin";
-  const isPaymentTab = activeTab === "payment";
-  const isPlansTab = activeTab === "plans";
-  const isPortalTab = activeTab === "portal";
-  const shouldHideComplianceAndCredits = isAdminTab || isPaymentTab || isPlansTab || isPortalTab;
   const isAuthorizedAdmin = Boolean(user && isSuperAdminEmail(user.email));
 
   return (
     <footer className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
       <div className="max-w-7xl mx-auto">
         {/* Balanced Bottom Sections: [ Compliance ] [ Credits & Development ] */}
-        {/* Conditionally hidden when activeTab is set to 'admin' or 'payment' */}
-        {!shouldHideComplianceAndCredits && (
+        {/* Conditionally hidden when activeTab is set to 'admin' using component rendering logic */}
+        {!isAdminTab && (
           <FooterCreditsAndCompliance onOpenCompliance={onOpenCompliance} />
         )}
 
         {/* Footer Brand & Navigation Bar */}
-        <div className={`flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left ${!shouldHideComplianceAndCredits ? 'pt-8 border-t border-border-subtle/50' : ''}`}>
+        <div className={`flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left ${!isAdminTab ? 'pt-8 border-t border-border-subtle/50' : ''}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
               <img
@@ -1613,7 +2615,14 @@ function Footer({
             >
               <MapPin size={10} className="text-primary animate-pulse" /> Latency Map
             </span>
-            {!shouldHideComplianceAndCredits && (
+            <span 
+              onClick={onOpenSupport}
+              className="hover:text-primary cursor-pointer transition-colors p-1"
+              title="Customer Support Form (Telegram NOC)"
+            >
+              Support
+            </span>
+            {!isAdminTab && (
               <>
                 <span
                   id="footer-compliance-link"
@@ -1654,5 +2663,2840 @@ function Footer({
         </div>
       </div>
     </footer>
+  );
+}
+
+function AdminPanel({
+  plans,
+  onLogout,
+}: {
+  plans: InternetPlan[];
+  onLogout: () => void;
+}) {
+  const { user, isAdmin: firebaseIsAdmin } = useAuth();
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [clients, setClients] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
+    null,
+  );
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "tickets">(
+    "payments",
+  );
+  const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [reply, setReply] = useState("");
+  const [editingCycle, setEditingCycle] = useState<BillingCycle | null>(null);
+  const [processingCycle, setProcessingCycle] = useState<string | null>(null);
+  const [cycleToDelete, setCycleToDelete] = useState<BillingCycle | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "pending" | "failed">("all");
+  const [editingPlan, setEditingPlan] = useState<InternetPlan | null>(null);
+  const [planToDelete, setPlanToDelete] = useState<string | null>(null);
+  const [paymentToDelete, setPaymentToDelete] = useState<PaymentRecord | null>(null);
+  const [viewingScreenshot, setViewingScreenshot] = useState<string | null>(null);
+  const [clientToDelete, setClientToDelete] = useState<UserProfile | null>(null);
+  const [chatToDelete, setChatToDelete] = useState<ChatSession | null>(null);
+  const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
+  const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
+  const [tempDueDate, setTempDueDate] = useState("");
+  const [tempClientId, setTempClientId] = useState("");
+  const [tempUid, setTempUid] = useState("");
+  const [tempDisplayName, setTempDisplayName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
+  const [tempPhone, setTempPhone] = useState("");
+  const [tempAddress, setTempAddress] = useState("");
+  const [tempAccountNumber, setTempAccountNumber] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+  const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
+  const [bulkNotifForm, setBulkNotifForm] = useState({
+    title: "SETTLEMENT REQ: BALANCE DUE",
+    message: "Network core warning: An outstanding balance has been detected on your subscriber node. Please complete your settlement immediately in the Billing Center to maintain active high-bandwidth uplink.",
+    type: "alert" as "info" | "warning" | "alert",
+  });
+
+  const toISODate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const generateNextCycle = () => {
+    let nextStart = new Date();
+    let nextEnd = new Date();
+    let nextDue = new Date();
+    let cycleName = "";
+
+    if (billingCycles.length > 0) {
+      const latest = billingCycles[0];
+      const latestEnd = latest.endDate?.toDate ? latest.endDate.toDate() : new Date(latest.endDate);
+      
+      // Start next day after latest end
+      nextStart = new Date(latestEnd);
+      nextStart.setDate(latestEnd.getDate() + 1);
+      
+      // End date 1 month later
+      nextEnd = new Date(nextStart);
+      nextEnd.setMonth(nextStart.getMonth() + 1);
+      nextEnd.setDate(nextEnd.getDate() - 1);
+
+      // Due date 5 days after end date by default
+      nextDue = new Date(nextEnd);
+      nextDue.setDate(nextDue.getDate() + 5);
+      
+      cycleName = `CYCLE ${nextStart.toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`;
+    } else {
+      // Defaults if no cycles exist
+      nextStart.setDate(1);
+      nextEnd = new Date(nextStart);
+      nextEnd.setMonth(nextStart.getMonth() + 1);
+      nextEnd.setDate(nextEnd.getDate() - 1);
+      nextDue = new Date(nextEnd);
+      nextDue.setDate(nextDue.getDate() + 5);
+      cycleName = `CYCLE ${nextStart.toLocaleString("en-US", { timeZone: ASIA_TIMEZONE, month: "long", year: "numeric" }).toUpperCase()}`;
+    }
+
+    setEditingCycle({
+      id: "",
+      name: cycleName,
+      startDate: toISODate(nextStart),
+      endDate: toISODate(nextEnd),
+      dueDate: toISODate(nextDue),
+      status: "active",
+      createdAt: serverTimestamp(),
+    });
+  };
+
+  const filteredClients = clients.filter(client => {
+    const matchesSearch = 
+      (client.displayName || "").toLowerCase().includes(clientSearch.toLowerCase()) || 
+      (client.accountNumber || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.clientId || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.email || "").toLowerCase().includes(clientSearch.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    if (clientFilter === "all") return true;
+    if (clientFilter === "active") return client.status !== "suspended";
+    if (clientFilter === "suspended") return client.status === "suspended";
+    if (clientFilter === "overdue") return client.billStatus === "overdue";
+    return true;
+  });
+
+  const totalRevenue = payments.filter(p => p.status === "completed").reduce((acc, p) => acc + (p.amount || 0), 0);
+  const activeSubs = clients.filter(c => c.status !== "suspended").length;
+  const suspendedSubs = clients.filter(c => c.status === "suspended").length;
+  const [notifForm, setNotifForm] = useState({
+    title: "",
+    message: "",
+    type: "info" as any,
+  });
+
+  useEffect(() => {
+    // We only fetch if the user is authenticated in Firebase AND belongs to admin collection
+    if (!user || !firebaseIsAdmin) {
+      setLoading(false);
+      return;
+    }
+
+    // Fetch ALL payments using collection group
+    const q = query(
+      collectionGroup(db, "payments"),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const p = snapshot.docs.map((doc) => {
+          const data = doc.data() as PaymentRecord;
+          // Ensure userId is present from path for collectionGroup
+          const userId = data.userId || doc.ref.parent.parent?.id || "unknown";
+          return { ...data, id: doc.id, userId } as PaymentRecord;
+        });
+        setPayments(p);
+        setLoading(false);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, "all-payments");
+        setLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const c = snapshot.docs.map((doc) => ({ ...doc.data(), uid: doc.id }) as UserProfile);
+      setClients(c);
+    }, (error) => {
+      console.error("Clients sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const q = query(
+      collection(db, "billing_cycles"),
+      orderBy("startDate", "desc"),
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const cy = snapshot.docs.map(
+        (doc) => ({ ...doc.data(), id: doc.id }) as BillingCycle,
+      );
+      setBillingCycles(cy);
+    }, (error) => {
+      console.error("Cycles sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const q = query(
+      collection(db, "chats"),
+      orderBy("updatedAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatSession));
+      setChatSessions(chats);
+    }, (error) => {
+      console.error("Chats sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin || !selectedChat) {
+      setChatMessages([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, `chats/${selectedChat.userId}/messages`),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ChatMessage));
+      setChatMessages(msgs);
+    }, (error) => {
+      console.error("Messages sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin, selectedChat]);
+
+  // Real-time listener for Support Tickets dispatched to Admin Console
+  useEffect(() => {
+    if (!user || !firebaseIsAdmin) return;
+
+    const q = query(
+      collection(db, "support_tickets"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tix = snapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as SupportTicket)
+      );
+      setSupportTickets(tix);
+    }, (error) => {
+      console.error("Support tickets sync error:", error);
+    });
+
+    return unsubscribe;
+  }, [user, firebaseIsAdmin]);
+
+  const handleSaveCycle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCycle) return;
+    try {
+      const cycleRef = editingCycle.id
+        ? doc(db, "billing_cycles", editingCycle.id)
+        : doc(collection(db, "billing_cycles"));
+
+      // Convert input strings to Date objects for reliable Firestore storage
+      const startDate = typeof editingCycle.startDate === 'string' ? new Date(editingCycle.startDate) : editingCycle.startDate;
+      const endDate = typeof editingCycle.endDate === 'string' ? new Date(editingCycle.endDate) : editingCycle.endDate;
+      const dueDate = typeof editingCycle.dueDate === 'string' ? new Date(editingCycle.dueDate) : editingCycle.dueDate;
+
+      const cycleData = {
+        ...editingCycle,
+        id: cycleRef.id,
+        startDate,
+        endDate,
+        dueDate,
+        createdAt: editingCycle.createdAt || serverTimestamp(),
+      };
+
+      await setDoc(cycleRef, cycleData);
+      setEditingCycle(null);
+      toast.success("Billing cycle synchronized successfully.");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, "billing_cycles");
+    }
+  };
+
+  const confirmCycleDeletion = async () => {
+    if (!cycleToDelete) return;
+    try {
+      await deleteDoc(doc(db, "billing_cycles", cycleToDelete.id));
+      setCycleToDelete(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `billing_cycles/${cycleToDelete.id}`);
+    }
+  };
+
+  const triggerBillingRoutine = async (cycle: BillingCycle) => {
+    setProcessingCycle(cycle.id);
+    try {
+      const usersSnap = await getDocs(collection(db, "users"));
+      const today = new Date();
+      const cycleDueDate = cycle.dueDate?.toDate
+        ? cycle.dueDate.toDate()
+        : new Date(cycle.dueDate);
+
+      const promises = usersSnap.docs.map(async (userDoc) => {
+        const userData = userDoc.data() as UserProfile;
+        let newStatus = userData.billStatus;
+
+        const gracePeriodDate = new Date(cycleDueDate);
+        gracePeriodDate.setDate(gracePeriodDate.getDate() + 2);
+
+        if (userData.balance > 0) {
+          if (today > gracePeriodDate) {
+            newStatus = "overdue";
+          } else if (today > cycleDueDate) {
+            newStatus = "due";
+          } else {
+            newStatus = "due"; // Still due if balance > 0
+          }
+        } else {
+          newStatus = "paid";
+        }
+
+        if (newStatus !== userData.billStatus) {
+          await updateDoc(userDoc.ref, {
+            billStatus: newStatus,
+            dueDate: cycle.dueDate,
+          });
+        }
+      });
+
+      await Promise.all(promises);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, "users-billing-sync");
+    } finally {
+      setProcessingCycle(null);
+    }
+  };
+
+  const filteredPayments = payments.filter((p) => {
+    if (statusFilter === "all") return true;
+    return p.status === statusFilter;
+  });
+
+  const updateStatus = async (
+    payment: PaymentRecord,
+    status: "completed" | "failed",
+  ) => {
+    if (!payment.id) return;
+    const oldStatus = payment.status;
+    try {
+      const paymentRef = doc(
+        db,
+        `users/${payment.userId}/payments/${payment.id}`,
+      );
+      await updateDoc(paymentRef, { status, updatedAt: serverTimestamp() });
+
+      const userRef = doc(db, "users", payment.userId);
+      
+      // If marked as completed and it wasn't completed before, adjust balance
+      if (status === "completed" && oldStatus !== "completed") {
+        const userDocSnapshot = await getDoc(userRef);
+        const userData = userDocSnapshot.data() as UserProfile;
+        const currentBalance = userData.balance || 0;
+        const newBalance = currentBalance - payment.amount;
+        
+        const newBillStatus = newBalance <= 0 ? "paid" : "due";
+        await updateDoc(userRef, {
+          balance: newBalance,
+          billStatus: newBillStatus,
+        });
+
+
+      } 
+      // If was completed and now changed to failed/pending, add back to user balance
+      else if (status !== "completed" && oldStatus === "completed") {
+        const userDocSnapshot = await getDoc(userRef);
+        const currentBalance = userDocSnapshot.data()?.balance || 0;
+        const newBalance = currentBalance + payment.amount;
+
+        await updateDoc(userRef, {
+          balance: newBalance,
+          billStatus: newBalance <= 0 ? "paid" : "due",
+        });
+      }
+    } catch (e) {
+      handleFirestoreError(
+        e,
+        OperationType.UPDATE,
+        `users/${payment.userId}/payments/${payment.id}`,
+      );
+    }
+  };
+
+  const deletePayment = (payment: PaymentRecord) => {
+    setPaymentToDelete(payment);
+  };
+
+  const confirmPaymentDeletion = async () => {
+    if (!paymentToDelete || !paymentToDelete.id) return;
+    try {
+      const paymentPath = `users/${paymentToDelete.userId}/payments/${paymentToDelete.id}`;
+      const paymentRef = doc(db, paymentPath);
+      await deleteDoc(paymentRef);
+      setPaymentToDelete(null);
+    } catch (e) {
+      console.error("Delete failure:", e);
+      handleFirestoreError(
+        e,
+        OperationType.DELETE,
+        `users/${paymentToDelete.userId}/payments/${paymentToDelete.id}`,
+      );
+    }
+  };
+
+  const deleteSubscriber = (client: UserProfile) => {
+    setClientToDelete(client);
+  };
+
+  const confirmSubscriberDeletion = async () => {
+    if (!clientToDelete || !clientToDelete.uid) return;
+    try {
+      await deleteDoc(doc(db, "users", clientToDelete.uid));
+      setClientToDelete(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `users/${clientToDelete.uid}`);
+    }
+  };
+
+  const deleteConversation = (chat: ChatSession) => {
+    setChatToDelete(chat);
+  };
+
+  const confirmConversationDeletion = async () => {
+    if (!chatToDelete || !chatToDelete.id) return;
+    const progressToast = toast.loading("Purging conversation history...");
+    try {
+      // 1. Delete all subcollection messages
+      const messagesRef = collection(db, "chats", chatToDelete.id, "messages");
+      const messagesSnap = await getDocs(messagesRef);
+      for (const msgDoc of messagesSnap.docs) {
+        await deleteDoc(msgDoc.ref);
+      }
+      
+      // 2. Delete main chat doc
+      await deleteDoc(doc(db, "chats", chatToDelete.id));
+      
+      // Update local state if the deleted chat was selected
+      if (selectedChat?.id === chatToDelete.id) {
+        setSelectedChat(null);
+      }
+      
+      setChatToDelete(null);
+      toast.dismiss(progressToast);
+      toast.success("Conversation history fully purged!");
+    } catch (e) {
+      toast.dismiss(progressToast);
+      console.error("Failed to delete conversation:", e);
+      handleFirestoreError(e, OperationType.DELETE, `chats/${chatToDelete.id}`);
+    }
+  };
+
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedChat || !reply.trim()) return;
+
+    const text = reply.trim();
+    setReply("");
+
+    try {
+      await addDoc(collection(db, `chats/${selectedChat.userId}/messages`), {
+        text,
+        senderId: user?.uid,
+        senderRole: "admin",
+        createdAt: serverTimestamp(),
+      });
+
+      await updateDoc(doc(db, "chats", selectedChat.userId), {
+        lastMessage: text,
+        lastMessageAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `chats/${selectedChat.userId}/messages`);
+    }
+  };
+
+  const handleUpdatePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlan) return;
+    try {
+      const planRef = doc(db, "plans", editingPlan.id);
+      await setDoc(planRef, { ...editingPlan, updatedAt: serverTimestamp() });
+      setEditingPlan(null);
+      toast.success("Infrastructure node configured successfully.");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `plans/${editingPlan.id}`);
+    }
+  };
+
+  const handleDeletePlan = (id: string) => {
+    setPlanToDelete(id);
+  };
+
+
+  const confirmDeletion = async () => {
+    if (!planToDelete) return;
+    try {
+      const planRef = doc(db, "plans", planToDelete);
+      await deleteDoc(planRef);
+      setPlanToDelete(null);
+      toast.success("Infrastructure node decommissioned.");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `plans/${planToDelete}`);
+    }
+  };
+
+  const updateClientProfile = async (
+    userId: string,
+    newUid: string,
+    dateStr: string,
+    clientId: string,
+    displayName: string,
+    email: string,
+    phone: string,
+    address: string,
+    accountNumber: string
+  ) => {
+    try {
+      const newDate = new Date(dateStr);
+      if (isNaN(newDate.getTime())) {
+        toast.error("Invalid date format. Please use the calendar picker.");
+        return;
+      }
+
+      const now = new Date();
+      const isPast = newDate < now;
+      const isPastGrace = newDate < new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
+      const updatedStatus = isPastGrace ? 'suspended' : 'active';
+      const updatedBillStatus = isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid');
+
+      if (newUid && newUid !== userId) {
+        // Validate if newUid already exists
+        const existsLocally = clients.some(c => c.uid === newUid);
+        if (existsLocally) {
+          toast.error(`A subscriber with UID/Account ID "${newUid}" already exists!`);
+          return;
+        }
+
+        setIsSyncing(true);
+        const progressToast = toast.loading("Migrating subscriber data and history...");
+
+        try {
+          // 1. Fetch old user document
+          const oldUserRef = doc(db, "users", userId);
+          const oldUserSnap = await getDoc(oldUserRef);
+          if (!oldUserSnap.exists()) {
+            toast.error("Original subscriber document not found.");
+            toast.dismiss(progressToast);
+            setIsSyncing(false);
+            return;
+          }
+
+          const userData = oldUserSnap.data();
+
+          // 2. Prepare new user document data
+          const newUserRef = doc(db, "users", newUid);
+          await setDoc(newUserRef, {
+            ...userData,
+            uid: newUid,
+            displayName: displayName || userData.displayName || "",
+            email: email || userData.email || "",
+            phone: phone || userData.phone || "",
+            address: address || userData.address || "",
+            accountNumber: accountNumber || userData.accountNumber || "",
+            dueDate: newDate,
+            clientId: clientId || "",
+            status: updatedStatus,
+            billStatus: updatedBillStatus
+          });
+
+          // 3. Migrate subcollection: users/{userId}/payments
+          const oldPaymentsRef = collection(db, "users", userId, "payments");
+          const oldPaymentsSnap = await getDocs(oldPaymentsRef);
+          for (const paymentDoc of oldPaymentsSnap.docs) {
+            const paymentData = paymentDoc.data();
+            const newPaymentRef = doc(db, "users", newUid, "payments", paymentDoc.id);
+            await setDoc(newPaymentRef, {
+              ...paymentData,
+              userId: newUid
+            });
+            // Delete old payment doc
+            await deleteDoc(paymentDoc.ref);
+          }
+
+          // 4. Migrate chats/{userId} document
+          const oldChatRef = doc(db, "chats", userId);
+          const oldChatSnap = await getDoc(oldChatRef);
+          if (oldChatSnap.exists()) {
+            const chatData = oldChatSnap.data();
+            const newChatRef = doc(db, "chats", newUid);
+            await setDoc(newChatRef, {
+              ...chatData,
+              userId: newUid
+            });
+
+            // Migrate subcollection: chats/{oldUid}/messages to chats/{newUid}/messages
+            const oldMessagesRef = collection(db, "chats", userId, "messages");
+            const oldMessagesSnap = await getDocs(oldMessagesRef);
+            for (const msgDoc of oldMessagesSnap.docs) {
+              const msgData = msgDoc.data();
+              const newMsgRef = doc(db, "chats", newUid, "messages", msgDoc.id);
+              await setDoc(newMsgRef, msgData);
+              await deleteDoc(msgDoc.ref);
+            }
+
+            // Delete old chat document
+            await deleteDoc(oldChatRef);
+          }
+
+          // 5. Delete old user document
+          await deleteDoc(oldUserRef);
+
+          toast.dismiss(progressToast);
+          toast.success("Subscriber Account ID (UID) and profile migrated successfully!");
+        } catch (migrationErr: any) {
+          console.error("Migration error:", migrationErr);
+          toast.dismiss(progressToast);
+          toast.error(`Migration failed: ${migrationErr.message}`);
+          setIsSyncing(false);
+          return;
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        const userRef = doc(db, "users", userId);
+        await updateDoc(userRef, { 
+          displayName: displayName || "",
+          email: email || "",
+          phone: phone || "",
+          address: address || "",
+          accountNumber: accountNumber || "",
+          dueDate: newDate,
+          clientId: clientId || "",
+          status: updatedStatus,
+          billStatus: updatedBillStatus
+        });
+        toast.success("Subscriber profile updated.");
+      }
+      setEditingScheduleUser(null);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  const triggerEditClient = (client: UserProfile) => {
+    const current = client.dueDate?.toDate 
+      ? client.dueDate.toDate()
+      : (client.dueDate ? new Date(client.dueDate) : new Date());
+    
+    // Format for datetime-local input: YYYY-MM-DDTHH:MM
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    const hours = String(current.getHours()).padStart(2, '0');
+    const mins = String(current.getMinutes()).padStart(2, '0');
+    
+    setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
+    setTempClientId(client.clientId || "");
+    setTempUid(client.uid);
+    setTempDisplayName(client.displayName || "");
+    setTempEmail(client.email || "");
+    setTempPhone(client.phone || "");
+    setTempAddress(client.address || "");
+    setTempAccountNumber(client.accountNumber || "");
+    setEditingScheduleUser(client);
+  };
+
+  const toggleUserSuspension = async (userId: string, currentStatus: string | undefined) => {
+    try {
+      const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { status: newStatus });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  const syncAllUsersBilling = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    let updatedCount = 0;
+    try {
+      const now = new Date();
+      for (const client of clients) {
+        if (!client.uid) continue;
+        
+        const dueDate = client.dueDate?.toDate ? client.dueDate.toDate() : (client.dueDate ? new Date(client.dueDate) : null);
+        if (!dueDate) continue;
+
+        const updates: any = {};
+
+        // Replication of logic from FirebaseProvider for consistency
+        if (now >= dueDate) {
+          // Scenario A: Deadline reached but user hasn't paid (balance exists)
+          if (client.balance && client.balance > 0) {
+            if (client.billStatus !== 'overdue') {
+              updates.billStatus = 'overdue';
+            }
+            
+            // Suspension check (2-day grace period)
+            const suspendThreshold = new Date(dueDate.getTime() + (2 * 24 * 60 * 60 * 1000));
+            if (now > suspendThreshold && client.status !== 'suspended') {
+              updates.status = 'suspended';
+            }
+          } 
+          // Scenario B: Deadline reached and user was 'paid' (cycle rollover)
+          else if (client.billStatus === 'paid') {
+            const plan = INTERNET_PLANS.find(p => p.id === client.currentPlanId) || INTERNET_PLANS[0];
+            const nextMonth = new Date(dueDate);
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            
+            updates.dueDate = nextMonth;
+            updates.balance = (client.balance || 0) + plan.price;
+            updates.billStatus = 'due';
+          }
+        }
+
+        // Auto-resume if status is suspended but they have paid (billStatus is paid and balance is 0)
+        if (client.status === 'suspended' && client.billStatus === 'paid' && (!client.balance || client.balance <= 0)) {
+          updates.status = 'active';
+        }
+
+        // Mark as "due" if balance exists but marked as "paid" (and not yet past due date)
+        if (now < dueDate && client.balance && client.balance > 0 && client.billStatus === 'paid') {
+          updates.billStatus = 'due';
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateDoc(doc(db, "users", client.uid), updates);
+          updatedCount++;
+        }
+      }
+      toast.success(`Synchronization complete! ${updatedCount} profiles were reconciled.`);
+    } catch (e) {
+      console.error("Sync Error:", e);
+      toast.error("An error occurred during global synchronization.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSendNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifyingUser) return;
+    try {
+      const notifRef = collection(
+        db,
+        `users/${notifyingUser.uid}/notifications`,
+      );
+      await addDoc(notifRef, {
+        ...notifForm,
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+      setNotifyingUser(null);
+      setNotifForm({ title: "", message: "", type: "info" });
+    } catch (e) {
+      handleFirestoreError(
+        e,
+        OperationType.CREATE,
+        `users/${notifyingUser.uid}/notifications`,
+      );
+    }
+  };
+
+  const handleSendBulkReminders = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targets = clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due');
+    if (targets.length === 0) {
+      toast.error("NO OUTSTANDING NODE BALANCES DETECTED. TRANSMISSION ABORTED.");
+      return;
+    }
+
+    const progressToast = toast.loading(`Dispatching reminder packets to ${targets.length} subscriber nodes...`);
+    try {
+      let count = 0;
+      for (const target of targets) {
+        const notifRef = collection(db, `users/${target.uid}/notifications`);
+        await addDoc(notifRef, {
+          title: bulkNotifForm.title,
+          message: bulkNotifForm.message,
+          type: bulkNotifForm.type,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+        count++;
+      }
+      toast.dismiss(progressToast);
+      toast.success(`Successfully dispatched ${count} settlement reminders!`);
+      setShowBulkReminderModal(false);
+    } catch (err) {
+      toast.dismiss(progressToast);
+      console.error("Bulk reminder routing failed:", err);
+      toast.error("Failed to fully package and dispatch bulk alerts.");
+    }
+  };
+
+  const updateClientStatus = async (
+    userId: string,
+    cycleStatus: "paid" | "due" | "overdue",
+  ) => {
+    try {
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { billStatus: cycleStatus });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  return (
+    <section className="py-24 px-6 max-w-7xl mx-auto">
+      <div className="mb-12 space-y-8">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-8">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-2">
+              Command Center
+            </h3>
+            <h2 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter leading-tight">
+              MANAGEMENT
+              <br />
+              <span className="text-primary not-italic">OVERRIDE</span>
+            </h2>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full xl:w-auto">
+            {/* Main Server Link Button */}
+            <a
+              id="admin-main-server-btn"
+              href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-red-700 via-primary to-primary hover:brightness-110 text-white text-[10px] font-black uppercase tracking-widest italic border border-primary shadow-lg shadow-primary/30 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap cursor-pointer group"
+              title="Open Main Server Admin Dashboard"
+            >
+              <Server size={15} className="animate-pulse text-white" />
+              <span>Main Server</span>
+              <ExternalLink size={12} className="opacity-80 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </a>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full xl:w-auto bg-bg-surface p-1 border border-border-subtle">
+              <div className="flex overflow-x-auto gap-1 no-scrollbar scroll-smooth">
+                {[
+                  { id: "payments", label: "Settlements", icon: CreditCard, count: null },
+                  { id: "plans", label: "Infrastructure", icon: Zap, count: null },
+                  { id: "clients", label: "Subscribers", icon: UsersIcon, count: null },
+                  { id: "cycles", label: "Cycles", icon: Calendar, count: null },
+                  { id: "tickets", label: "Tickets", icon: LifeBuoy, count: supportTickets.filter(t => t.status === "open").length },
+                  { id: "chats", label: "Live Chat", icon: MessageSquare, count: null },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setAdminTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-5 py-4 text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                      adminTab === tab.id 
+                      ? "bg-primary text-white italic" 
+                      : "text-text-muted hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    <tab.icon size={14} />
+                    <span>{tab.label}</span>
+                    {typeof tab.count === "number" && tab.count > 0 && (
+                      <span className="px-1.5 py-0.5 text-[8px] font-black bg-amber-400 text-black rounded-full leading-none">
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[
+            { label: "Aggregate Revenue", value: `₱ ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: "text-green-500" },
+            { label: "Accounts Due", value: clients.filter(c => c.billStatus === 'due' || c.billStatus === 'overdue').length, icon: Receipt, color: "text-amber-500" },
+            { label: "Active Nodes", value: activeSubs, icon: Zap, color: "text-primary" },
+            { label: "Suspended Nodes", value: suspendedSubs, icon: UserMinus, color: "text-red-600" },
+          ].map((metric, i) => (
+            <motion.div
+              key={`metric-${metric.label}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-bg-surface border border-border-subtle p-6 relative group overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                <metric.icon size={48} />
+              </div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-text-muted mb-2">{metric.label}</div>
+              <div className={`text-2xl font-black italic tracking-tighter ${metric.color}`}>
+                {metric.value}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-bg-surface/50 border border-border-subtle backdrop-blur-sm">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-green-500 italic">GATEWAY ONLINE</span>
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-tighter text-text-dim">
+              Node: <span className="text-white italic">ASIA-EAST1-PROD</span>
+              <span className="mx-2 opacity-30">|</span>
+              GMT+8
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              id="admin-status-main-server-btn"
+              href="https://piscivorous-unopportunistic-amia.ngrok-free.dev/admin?page=dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-5 py-2 bg-gradient-to-r from-red-600 to-primary hover:brightness-110 text-white flex items-center gap-2 transition-all uppercase text-[9px] font-black italic border border-primary shadow-md shadow-primary/20"
+            >
+              <Server size={12} className="animate-pulse" />
+              <span>Main Server</span>
+              <ExternalLink size={11} className="opacity-80" />
+            </a>
+            <button
+              onClick={syncAllUsersBilling}
+              disabled={isSyncing}
+              className="px-6 py-2 bg-white/5 border border-white/10 text-white hover:bg-primary hover:border-primary flex items-center gap-2 transition-all uppercase text-[9px] font-black italic"
+            >
+              <RefreshCw size={12} className={isSyncing ? "animate-spin" : ""} />
+              {isSyncing ? "Syncing..." : "Sync Billing"}
+            </button>
+            <button
+              onClick={onLogout}
+              className="px-6 py-2 bg-red-600/10 border border-red-600/20 text-red-600 hover:bg-red-600 hover:text-white flex items-center gap-2 transition-all uppercase text-[9px] font-black italic"
+            >
+              <LogOut size={12} />
+              Terminate
+            </button>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-4">
+          {adminTab === "plans" && (
+            <button
+              onClick={() =>
+                setEditingPlan({
+                  id: `node-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+                  name: "NEW INFRASTRUCTURE NODE",
+                  speed: 100,
+                  bandwidth: "UNLIMITED",
+                  price: 1500,
+                  features: ["ULTRA-LOW LATENCY", "FIBER OPTIC BASE"],
+                  isPopular: false,
+                })
+              }
+              className="px-8 py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_30px_rgba(220,38,38,0.3)] animate-pulse"
+            >
+              + DEPLOY NEW NODE
+            </button>
+          )}
+          {adminTab === "cycles" && (
+            <button
+              onClick={generateNextCycle}
+              className="px-8 py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] italic hover:bg-hot-black border border-primary transition-all shadow-[0_10px_30px_rgba(220,38,38,0.3)] animate-pulse"
+            >
+              {billingCycles.length > 0 ? "+ PROPAGATE NEXT CYCLE" : "+ NEW BILLING CYCLE"}
+            </button>
+          )}
+        </div>
+      </div>
+      <AnimatePresence>
+        {planToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10001] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-lg"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-md w-full border-t-8 border-red-600 bg-bg-base shadow-2xl"
+            >
+              <div className="flex items-center gap-4 text-red-600 mb-6 font-black uppercase italic tracking-tighter">
+                <AlertTriangle size={32} />
+                <h3 className="text-2xl">
+                  CRITICAL <span className="text-white not-italic">ACTION</span>
+                </h3>
+              </div>
+              
+              <p className="text-sm font-medium text-text-muted leading-relaxed mb-8">
+                Are you sure you want to delete this plan? This action cannot be undone. All associated node configurations for this tier will be scrubbed from the registry.
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmDeletion}
+                  className="w-full py-5 bg-red-600 text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-red-700 transition-all shadow-xl shadow-red-600/20"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setPlanToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all italic underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {!firebaseIsAdmin && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-12 p-8 border-2 border-dashed border-primary/30 bg-primary/5 text-center space-y-4"
+        >
+          <div className="flex justify-center">
+            <Lock className="text-primary" size={32} />
+          </div>
+          <h3 className="text-lg font-black uppercase italic tracking-tight">
+            Elevated Access <span className="text-primary not-italic">Identity Required</span>
+          </h3>
+          <p className="max-w-md mx-auto text-[11px] text-text-muted font-bold uppercase tracking-widest leading-relaxed">
+            You have authenticated with the system key, but your current Google
+            identity [#{user?.email}] is not recognized as a Database Admin in our records. 
+            Real-time data synchronization may be restricted until your identity is verified.
+          </p>
+          {!user && (
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                onClick={loginWithGoogle}
+                className="px-8 py-3 bg-primary text-white font-black uppercase text-[10px] tracking-[0.2em] italic hover:bg-primary-dark transition-all flex items-center gap-2 cursor-pointer shadow-md"
+              >
+                <LogIn size={14} /> Sign in with Google
+              </button>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {adminTab === "payments" ? (
+        <div className="space-y-4">
+          <div className="flex justify-start px-8 py-4 bg-bg-surface border border-border-subtle mb-4">
+            <div className="flex items-center gap-3">
+              <Filter size={14} className="text-text-muted" />
+              <div className="flex gap-4">
+                {(["all", "pending", "completed", "failed"] as const).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setStatusFilter(status)}
+                    className={`text-[10px] font-black uppercase tracking-widest transition-all ${
+                      statusFilter === status
+                        ? "text-primary underline underline-offset-8 decoration-2"
+                        : "text-text-muted hover:text-white"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="sharp-card bg-bg-base overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-bg-surface/50">
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-center">
+                      User
+                    </th>
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                      Date
+                    </th>
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                      Reference
+                    </th>
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                      Amount
+                    </th>
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                      Status
+                    </th>
+                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-8 py-20 text-center">
+                        <Loader2
+                          className="animate-spin mx-auto text-primary"
+                          size={32}
+                        />
+                      </td>
+                    </tr>
+                  ) : filteredPayments.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-8 py-20 text-center text-text-muted uppercase text-[10px] font-black tracking-widest italic"
+                      >
+                        {payments.length === 0 ? "Infrastructure records empty" : `No ${statusFilter} records found`}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPayments.map((p, idx) => (
+                      <tr
+                      key={`admin-payment-${p.id}`}
+                      className="group hover:bg-slate-900/50 transition-colors"
+                    >
+                      <td className="px-8 py-6 border-b border-border-subtle text-center">
+                        <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold">
+                          {p.userId?.substring(0, 2).toUpperCase() || "??"}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6 border-b border-border-subtle">
+                        <div className="text-[11px] font-bold uppercase">
+                          {p.createdAt?.toDate
+                            ? p.createdAt.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
+                            : "..."}
+                        </div>
+                        <div className="text-[9px] text-text-muted font-mono">
+                          {p.createdAt?.toDate
+                            ? p.createdAt.toDate().toLocaleTimeString('en-PH', { timeZone: ASIA_TIMEZONE })
+                            : ""}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6 border-b border-border-subtle font-mono text-xs text-primary">
+                        {p.referenceNumber}
+                      </td>
+                      <td className="px-8 py-6 border-b border-border-subtle font-mono font-bold text-sm italic">
+                        ₱ {p.amount.toLocaleString()}
+                      </td>
+                      <td className="px-8 py-6 border-b border-border-subtle">
+                        <span
+                          className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 border ${p.status === "completed" ? "text-green-500 border-green-500/20 bg-green-500/5" : p.status === "failed" ? "text-red-500 border-red-500/20 bg-red-500/5" : "text-yellow-500 border-yellow-500/20 bg-yellow-500/5"}`}
+                        >
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="px-8 py-6 border-b border-border-subtle text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedReceipt(p)}
+                            className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all"
+                            title="View Receipt"
+                          >
+                            <Receipt size={16} />
+                          </button>
+                          {p.status === "pending" && p.screenshotUrl && (
+                            <button
+                              onClick={() => setViewingScreenshot(p.screenshotUrl)}
+                              className="p-2 border border-primary/30 text-primary hover:bg-primary hover:text-white transition-all flex items-center gap-1"
+                              title="View Screenshot"
+                            >
+                              <Eye size={16} />
+                              <span className="text-[8px] font-black uppercase">View Screenshot</span>
+                            </button>
+                          )}
+                          {p.status === "pending" && (
+                            <>
+                              <button
+                                onClick={() => updateStatus(p, "completed")}
+                                className="p-2 border border-green-500/30 text-green-500 hover:bg-green-500 hover:text-white transition-all"
+                                title="Approve"
+                              >
+                                <CheckCircle2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => updateStatus(p, "failed")}
+                                className="p-2 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                title="Reject"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => deletePayment(p)}
+                            className="p-2 border border-red-500/10 text-text-muted hover:border-red-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                            title="Delete Record"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      ) : adminTab === "plans" ? (
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {plans.map((plan) => (
+            <div
+              key={plan.id}
+              className="sharp-card bg-bg-surface p-8 relative overflow-hidden group"
+            >
+              {plan.isPopular && (
+                <div className="absolute top-0 right-0 p-2 bg-primary text-white text-[8px] font-black uppercase tracking-widest italic transform rotate-12 translate-x-2 -translate-y-1 shadow-lg">
+                  Popular
+                </div>
+              )}
+              <div className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-2">
+                {plan.id}
+              </div>
+              <h4 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                {plan.name}
+              </h4>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex justify-between items-end border-b border-border-subtle pb-2">
+                  <span className="text-[9px] font-bold text-text-dim uppercase tracking-widest">
+                    Speed
+                  </span>
+                  <span className="text-xl font-mono font-bold text-primary">
+                    {plan.speed}{" "}
+                    <span className="text-[10px] font-sans uppercase not-italic text-text-muted">
+                      Mbps
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between items-end border-b border-border-subtle pb-2">
+                  <span className="text-[9px] font-bold text-text-dim uppercase tracking-widest">
+                    Bandwidth
+                  </span>
+                  <span className="text-sm font-bold text-white uppercase italic">
+                    {plan.bandwidth}
+                  </span>
+                </div>
+                <div className="flex justify-between items-end border-b border-border-subtle pb-2">
+                  <span className="text-[9px] font-bold text-text-dim uppercase tracking-widest">
+                    Price
+                  </span>
+                  <span className="text-xl font-mono font-bold italic">
+                    ₱ {plan.price.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingPlan(plan)}
+                  className="flex-1 py-3 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[10px] font-black uppercase tracking-widest italic transition-all"
+                >
+                  Modify
+                </button>
+                <button
+                  onClick={() => handleDeletePlan(plan.id)}
+                  className="p-3 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                  title="Delete Plan"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : adminTab === "cycles" ? (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {billingCycles.map((cycle) => (
+            <div
+              key={cycle.id}
+              className={`sharp-card p-8 bg-bg-surface border-l-8 ${cycle.status === "active" ? "border-primary" : "border-text-muted"}`}
+            >
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h4 className="text-xl font-black uppercase italic tracking-tighter">
+                    {cycle.name}
+                  </h4>
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 border ${cycle.status === "active" ? "text-primary border-primary/20" : "text-text-muted border-border-subtle"}`}
+                  >
+                    {cycle.status}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingCycle(cycle)}
+                    className="p-2 text-text-muted hover:text-white"
+                  >
+                    <Edit3 size={16} />
+                  </button>
+                  <button
+                    onClick={() => setCycleToDelete(cycle)}
+                    className="p-2 text-text-muted hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex justify-between text-[10px] uppercase font-black tracking-widest text-text-muted border-b border-border-subtle pb-2">
+                  <span>Start</span>
+                  <span className="text-white">
+                    {cycle.startDate?.toDate
+                      ? cycle.startDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
+                      : cycle.startDate}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px] uppercase font-black tracking-widest text-text-muted border-b border-border-subtle pb-2">
+                  <span>End</span>
+                  <span className="text-white">
+                    {cycle.endDate?.toDate
+                      ? cycle.endDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
+                      : cycle.endDate}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px] uppercase font-black tracking-widest text-primary border-b border-primary/20 pb-2 italic">
+                  <span>Payment Deadline</span>
+                  <span className="font-bold">
+                    {cycle.dueDate?.toDate
+                      ? cycle.dueDate.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
+                      : cycle.dueDate}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                disabled={processingCycle === cycle.id || cycle.status !== "active"}
+                onClick={() => triggerBillingRoutine(cycle)}
+                className="w-full py-4 bg-bg-base border border-border-subtle hover:border-primary text-primary hover:text-white text-[10px] font-black uppercase tracking-widest italic transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group"
+              >
+                {processingCycle === cycle.id ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : (
+                  <RefreshCw
+                    size={14}
+                    className="group-hover:rotate-180 transition-transform duration-700"
+                  />
+                )}
+                Run Billing Sync
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : adminTab === "chats" ? (
+        <div className="flex flex-col lg:flex-row gap-6 h-[600px]">
+          {/* Chat List */}
+          <div className="w-full lg:w-80 bg-bg-surface border border-border-subtle flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-border-subtle bg-bg-surface">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-text-muted">Active Conversations</h4>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {chatSessions.length === 0 ? (
+                <div className="p-8 text-center text-[10px] font-bold text-text-muted uppercase">No active chats</div>
+              ) : (
+                chatSessions.map((chat, idx) => (
+                  <div
+                    key={`chat-session-${chat.id || idx}`}
+                    onClick={() => setSelectedChat(chat)}
+                    className={`w-full p-4 border-b border-border-subtle text-left transition-all hover:bg-bg-base/50 cursor-pointer flex justify-between items-center group relative ${selectedChat?.id === chat.id ? "bg-bg-base border-r-4 border-r-primary" : ""}`}
+                  >
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-black uppercase italic text-xs mb-1 truncate">{chat.userName}</div>
+                      <div className="text-[10px] text-text-muted truncate">{chat.lastMessage || "No messages yet"}</div>
+                      <div className="text-[8px] text-primary mt-2 font-bold uppercase">
+                        {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE }) : "..."}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteConversation(chat);
+                      }}
+                      className="p-2 border border-red-500/20 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 hover:border-red-500/40 transition-all opacity-0 group-hover:opacity-100 flex items-center justify-center rounded"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Chat Window */}
+          <div className="flex-1 bg-bg-surface border border-border-subtle flex flex-col overflow-hidden relative">
+            {selectedChat ? (
+              <>
+                <div className="p-4 bg-bg-surface border-b border-border-subtle flex justify-between items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                      <UserIcon size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase italic tracking-widest">{selectedChat.userName}</h3>
+                      <p className="text-[9px] text-text-muted font-bold">UID: {selectedChat.userId}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteConversation(selectedChat)}
+                    className="p-3 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic"
+                    title="Purge Conversation History"
+                  >
+                    <Trash2 size={12} /> Purge Chat
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-bg-base/30">
+                  {chatMessages.map((msg, idx) => (
+                    <div key={`chat-msg-${msg.id || idx}`} className={`flex ${msg.senderRole === "admin" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[70%] p-4 text-xs ${msg.senderRole === "admin" ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl shadow-lg shadow-primary/10" : "bg-bg-surface border border-border-subtle text-white rounded-r-xl rounded-tl-xl"}`}>
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form onSubmit={handleSendReply} className="p-4 bg-bg-surface border-t border-border-subtle flex gap-4">
+                  <input
+                    type="text"
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="Type your response..."
+                    className="flex-1 bg-bg-base border border-border-subtle p-4 text-xs text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!reply.trim()}
+                    className="px-8 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white font-black uppercase text-[10px] tracking-widest italic transition-all flex items-center gap-2"
+                  >
+                    <Send size={14} /> Send Reply
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center opacity-30">
+                <MessageSquare size={64} className="mb-4" />
+                <p className="text-sm font-black uppercase tracking-[0.2em]">Select a conversation to begin</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : adminTab === "tickets" ? (
+        <AdminTicketsTab tickets={supportTickets} />
+      ) : (
+        <>
+          <div className="flex flex-col gap-6 mb-8">
+            <div className="flex flex-col md:flex-row gap-4 items-center w-full">
+              <div className="relative flex-1 group w-full">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, account number or client ID..."
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="w-full bg-bg-surface border border-border-subtle pl-12 pr-4 py-4 text-xs text-white focus:outline-none focus:border-primary transition-all italic placeholder:text-text-dim/50"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3 items-center justify-end w-full md:w-auto">
+                <div className="flex gap-2 p-1 bg-bg-surface border border-border-subtle">
+                  {(["all", "active", "suspended", "overdue"] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setClientFilter(f)}
+                      className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkReminderModal(true)}
+                  className={`px-5 py-3 text-[9px] font-black uppercase tracking-[0.15em] italic flex items-center gap-2 transition-all border ${
+                    clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length > 0
+                      ? "bg-red-600 border-red-500 hover:bg-red-700 text-white shadow-lg shadow-red-600/20"
+                      : "bg-bg-surface border-border-subtle text-text-muted hover:bg-bg-surface/80"
+                  }`}
+                >
+                  <Bell size={12} className={clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length > 0 ? "animate-bounce" : ""} />
+                  Send Reminder ({clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length})
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest italic pl-1">
+              Displaying {filteredClients.length} of {clients.length} Subscribers
+            </p>
+          </div>
+          
+          <div className="sharp-card bg-bg-base overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-bg-surface/50">
+                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                    Subscriber
+                  </th>
+                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                    Account ID
+                  </th>
+                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-center">
+                    Billing State
+                  </th>
+                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                    Operations
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredClients.map((client) => (
+                  <tr
+                    key={client.uid}
+                    className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
+                  >
+                    <td className="px-8 py-6">
+                      <div 
+                        onClick={() => triggerEditClient(client)}
+                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                        title="Click to Edit Profile & UID"
+                      >
+                        <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
+                          {client.displayName}
+                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                          {client.status === 'suspended' && (
+                            <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic normal-case">
+                              Suspended
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
+                          {client.email}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div 
+                        onClick={() => triggerEditClient(client)}
+                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                        title="Click to Edit Profile & UID"
+                      >
+                        <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1 flex items-center gap-1.5">
+                          #{client.accountNumber}
+                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        {client.clientId && (
+                          <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
+                            CID: {client.clientId}
+                          </div>
+                        )}
+                        <div className="text-[8px] text-text-dim/50 font-mono italic">
+                          UID: {client.uid}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="flex gap-2">
+                          {(["paid", "due", "overdue"] as const).map((status) => (
+                            <button
+                              key={status}
+                              onClick={() =>
+                                updateClientStatus(client.uid, status)
+                              }
+                              className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest border transition-all ${client.billStatus === status ? (status === "overdue" ? "bg-red-500 border-red-500 text-white" : status === "due" ? "bg-yellow-500 border-yellow-500 text-black" : "bg-green-500 border-green-500 text-white") : "border-border-subtle text-text-muted hover:border-white/30"}`}
+                            >
+                              {status.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex flex-col items-center">
+                          {client.dueDate && (
+                            <div className="text-[9px] font-bold uppercase tracking-tighter text-text-muted flex items-center gap-1">
+                              {client.billStatus === "paid" ? "Next Due: " : "Deadline: "}
+                              <span className="text-primary italic">
+                                {client.dueDate?.toDate
+                                  ? client.dueDate.toDate().toLocaleString('en-PH', {
+                                      timeZone: ASIA_TIMEZONE,
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })
+                                  : typeof client.dueDate === "string"
+                                    ? new Date(client.dueDate).toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
+                                    : "N/A"}
+                              </span>
+                            </div>
+                          )}
+                          <button
+                            onClick={() => triggerEditClient(client)}
+                            className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1 flex items-center gap-1"
+                          >
+                            <Edit3 size={8} /> Edit Profile & UID
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => triggerEditClient(client)}
+                          className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
+                        >
+                          <Edit3 size={10} /> Edit
+                        </button>
+                        <button
+                          onClick={() => toggleUserSuspension(client.uid, client.status)}
+                          className={`px-4 py-2 border ${client.status === 'suspended' ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white" : "border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-white"} text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2`}
+                        >
+                          {client.status === 'suspended' ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                          {client.status === 'suspended' ? "Activate" : "Suspend"}
+                        </button>
+                        <button
+                          onClick={() => setNotifyingUser(client)}
+                          className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
+                        >
+                          <Bell size={10} /> Dispatch Alert
+                        </button>
+                        <button
+                          onClick={() => deleteSubscriber(client)}
+                          className="p-2 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                          title="Delete Subscriber"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>
+    )}
+
+      <AnimatePresence>
+        {selectedReceipt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-6"
+            onClick={() => setSelectedReceipt(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-primary p-6 text-white flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Receipt size={20} />
+                  <span className="font-black uppercase tracking-widest italic">
+                    Verification View
+                  </span>
+                </div>
+                <button onClick={() => setSelectedReceipt(null)}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="flex justify-between border-b border-border-subtle pb-4">
+                  <span className="text-[10px] font-black uppercase text-text-muted">
+                    REFERENCE
+                  </span>
+                  <span className="font-mono text-xs font-bold text-primary">
+                    {selectedReceipt.referenceNumber}
+                  </span>
+                </div>
+
+                {selectedReceipt.screenshotUrl ? (
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-black uppercase text-text-muted flex items-center gap-2">
+                      <ImageIcon size={12} /> Reported Screenshot
+                    </span>
+                    <div className="aspect-[3/4] bg-slate-900 border border-border-subtle overflow-hidden relative group">
+                      <img
+                        src={selectedReceipt.screenshotUrl}
+                        alt="Receipt proof"
+                        className="w-full h-full object-contain"
+                      />
+                      <a
+                        href={selectedReceipt.screenshotUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest"
+                      >
+                        <ExternalLink size={14} /> Open Full Resolution
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-12 text-center border-2 border-dashed border-border-subtle text-text-dim uppercase text-[10px] font-black tracking-widest italic">
+                    No Screenshot Uploaded
+                  </div>
+                )}
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => {
+                      updateStatus(selectedReceipt, "completed");
+                      setSelectedReceipt(null);
+                    }}
+                    className="flex-1 py-4 bg-green-600 hover:bg-green-700 text-white font-black uppercase text-[11px] tracking-widest italic transition-all"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateStatus(selectedReceipt, "failed");
+                      setSelectedReceipt(null);
+                    }}
+                    className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[11px] tracking-widest italic transition-all"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {editingPlan && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setEditingPlan(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-md w-full border-t-8 border-primary bg-bg-base shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-10">
+                <div className="space-y-1">
+                  <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+                    NODE <span className="text-primary not-italic">CONFIGURATION</span>
+                  </h3>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-text-muted">
+                    ID: {editingPlan.id}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingPlan(null)}
+                  className="w-10 h-10 border border-border-subtle flex items-center justify-center text-text-muted hover:text-white hover:border-white transition-all shadow-xl"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdatePlan} className="space-y-8">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                    Infrastructure Signature (Name)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingPlan.name}
+                    onChange={(e) =>
+                      setEditingPlan({ ...editingPlan, name: e.target.value })
+                    }
+                    className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-bold uppercase text-white tracking-tight"
+                    placeholder="e.g. TITAN v2"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                    Peripheral Features (Comma Separated)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editingPlan.features.join(", ")}
+                    onChange={(e) =>
+                      setEditingPlan({
+                        ...editingPlan,
+                        features: e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter((s) => s !== ""),
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-medium text-white italic"
+                    placeholder="Unlimited Data, 24/7 Priority Support, Free Static IP"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                      Throughput (Mbps)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingPlan.speed || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, "");
+                        setEditingPlan({
+                          ...editingPlan,
+                          speed: val === "" ? 0 : Number(val),
+                        });
+                      }}
+                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-3xl font-mono font-bold text-primary tabular-nums"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                      Cap Protocol
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingPlan.bandwidth}
+                      onChange={(e) =>
+                        setEditingPlan({
+                          ...editingPlan,
+                          bandwidth: e.target.value,
+                        })
+                      }
+                      placeholder="UNLIMITED"
+                      className="w-full bg-slate-900 border border-border-subtle p-5 focus:outline-none focus:border-primary text-xl font-mono font-bold text-white uppercase italic"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                    Settlement Rate (PHP/mo)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-primary font-mono font-black italic">₱</div>
+                    <input
+                      type="text"
+                      required
+                      value={editingPlan.price || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, "");
+                        setEditingPlan({
+                          ...editingPlan,
+                          price: val === "" ? 0 : Number(val),
+                        });
+                      }}
+                      className="w-full bg-slate-900 border border-border-subtle p-6 pl-10 focus:outline-none focus:border-primary text-4xl font-mono font-bold text-white tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 p-5 bg-hot-black border border-border-subtle group hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setEditingPlan({ ...editingPlan, isPopular: !editingPlan.isPopular })}>
+                  <div className={`w-6 h-6 border flex items-center justify-center transition-all ${editingPlan.isPopular ? 'bg-primary border-primary shadow-[0_0_10px_rgba(220,38,38,0.4)]' : 'border-border-subtle'}`}>
+                    {editingPlan.isPopular && <CheckCircle2 size={14} className="text-white" />}
+                  </div>
+                  <label
+                    className="text-[10px] uppercase tracking-[0.2em] font-black text-text-muted cursor-pointer group-hover:text-white transition-colors"
+                  >
+                    MARKET FOCUS (PROMOTE AS POPULAR)
+                  </label>
+                </div>
+
+                <div className="pt-4 flex flex-col gap-3">
+                  <button
+                    type="submit"
+                    className="w-full py-6 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20"
+                  >
+                    COMMIT TO INFRASTRUCTURE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPlan(null)}
+                    className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all italic underline"
+                  >
+                    DISCARD CHANGES
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {paymentToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setPaymentToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-sm w-full border-t-8 border-primary bg-bg-base text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Trash2 className="mx-auto text-primary mb-6 animate-bounce" size={48} />
+              <h3 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                PURGE <span className="text-primary not-italic">RECORD</span>?
+              </h3>
+              <p className="text-xs text-text-muted font-bold uppercase tracking-widest leading-relaxed mb-10">
+                You are about to permanently delete the payment record for{" "}
+                <span className="text-white">#{paymentToDelete.referenceNumber}</span>.
+                This action is irreversible.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmPaymentDeletion}
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+                >
+                  CONFIRM PURGE
+                </button>
+                <button
+                  onClick={() => setPaymentToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all"
+                >
+                  ABORT OPERATION
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {clientToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setClientToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-sm w-full border-t-8 border-primary bg-bg-base text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <UserMinus className="mx-auto text-primary mb-6 animate-pulse" size={48} />
+              <h3 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                TERMINATE <span className="text-primary not-italic">SUBSCRIBER</span>?
+              </h3>
+              <p className="text-xs text-text-muted font-bold uppercase tracking-widest leading-relaxed mb-10">
+                Are you sure you want to delete <span className="text-white">{clientToDelete.displayName}</span>?
+                All profile data and historical records will be permanently purged.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmSubscriberDeletion}
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+                >
+                  CONFIRM TERMINATION
+                </button>
+                <button
+                  onClick={() => setClientToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all"
+                >
+                  KEEP SUBSCRIBER
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {cycleToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setCycleToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-sm w-full border-t-8 border-primary bg-bg-base text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Calendar className="mx-auto text-primary mb-6 animate-pulse" size={48} />
+              <h3 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                DELETE <span className="text-primary not-italic">CYCLE</span>?
+              </h3>
+              <p className="text-xs text-text-muted font-bold uppercase tracking-widest leading-relaxed mb-10">
+                Are you sure you want to delete <span className="text-white">{cycleToDelete.name}</span>?
+                This will remove the billing period definition.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmCycleDeletion}
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+                >
+                  CONFIRM DELETION
+                </button>
+                <button
+                  onClick={() => setCycleToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all"
+                >
+                  ABORT
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {chatToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-hot-black/95 flex items-center justify-center p-6 backdrop-blur-xl"
+            onClick={() => setChatToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="sharp-card p-10 max-w-sm w-full border-t-8 border-primary bg-bg-base text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Trash2 className="mx-auto text-primary mb-6 animate-bounce" size={48} />
+              <h3 className="text-xl font-black uppercase italic tracking-tighter mb-4">
+                PURGE <span className="text-primary not-italic">CHAT</span>?
+              </h3>
+              <p className="text-xs text-text-muted font-bold uppercase tracking-widest leading-relaxed mb-10">
+                Are you sure you want to delete conversation with <span className="text-white">{chatToDelete.userName}</span>?
+                All messages and chat history in this channel will be permanently scrubbed from the system.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={confirmConversationDeletion}
+                  className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+                >
+                  CONFIRM PURGE
+                </button>
+                <button
+                  onClick={() => setChatToDelete(null)}
+                  className="w-full py-3 text-[10px] font-black uppercase text-text-muted hover:text-white tracking-[0.4em] transition-all"
+                >
+                  ABORT OPERATION
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {viewingScreenshot && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10002] bg-hot-black/98 flex items-center justify-center p-4 backdrop-blur-2xl"
+            onClick={() => setViewingScreenshot(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-5xl w-full h-full flex flex-col items-center justify-center gap-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="absolute top-0 right-0 p-4">
+                <button
+                  onClick={() => setViewingScreenshot(null)}
+                  className="w-12 h-12 bg-white/10 hover:bg-primary text-white flex items-center justify-center transition-all group"
+                >
+                  <X size={24} className="group-hover:rotate-90 transition-transform" />
+                </button>
+              </div>
+              
+              <div className="w-full h-full p-8 flex items-center justify-center">
+                <img
+                  src={viewingScreenshot}
+                  alt="Proof of Payment"
+                  className="max-w-full max-h-full object-contain shadow-2xl border-4 border-white/5"
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <a
+                  href={viewingScreenshot}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-8 py-3 bg-primary text-white text-[10px] font-black uppercase tracking-widest italic hover:bg-primary-dark transition-all flex items-center gap-2"
+                >
+                  <ExternalLink size={14} /> Open Original
+                </a>
+                <button
+                  onClick={() => setViewingScreenshot(null)}
+                  className="px-8 py-3 border border-white/20 text-white text-[10px] font-black uppercase tracking-widest hover:border-white transition-all"
+                >
+                  Close Viewer
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {notifyingUser && (
+          <NotificationModal
+            key="notif-modal"
+            notifyingUser={notifyingUser}
+            setNotifyingUser={setNotifyingUser}
+            notifForm={notifForm}
+            setNotifForm={setNotifForm}
+            handleSendNotification={handleSendNotification}
+          />
+        )}
+
+        {showBulkReminderModal && (
+          <BulkReminderModal
+            key="bulk-notif-modal"
+            show={showBulkReminderModal}
+            onClose={() => setShowBulkReminderModal(false)}
+            bulkNotifForm={bulkNotifForm}
+            setBulkNotifForm={setBulkNotifForm}
+            handleSendBulkReminders={handleSendBulkReminders}
+            targets={clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due')}
+          />
+        )}
+
+        {editingScheduleUser && (
+          <ScheduleModal
+            key="sched-modal"
+            editingScheduleUser={editingScheduleUser}
+            setEditingScheduleUser={setEditingScheduleUser}
+            tempDueDate={tempDueDate}
+            setTempDueDate={setTempDueDate}
+            tempClientId={tempClientId}
+            setTempClientId={setTempClientId}
+            tempUid={tempUid}
+            setTempUid={setTempUid}
+            tempDisplayName={tempDisplayName}
+            setTempDisplayName={setTempDisplayName}
+            tempEmail={tempEmail}
+            setTempEmail={setTempEmail}
+            tempPhone={tempPhone}
+            setTempPhone={setTempPhone}
+            tempAddress={tempAddress}
+            setTempAddress={setTempAddress}
+            tempAccountNumber={tempAccountNumber}
+            setTempAccountNumber={setTempAccountNumber}
+            updateClientProfile={updateClientProfile}
+          />
+        )}
+
+        {editingCycle && (
+          <BillingCycleModal
+            key="cycle-modal"
+            editingCycle={editingCycle}
+            setEditingCycle={setEditingCycle}
+            handleSaveCycle={handleSaveCycle}
+          />
+        )}
+
+
+      </AnimatePresence>
+    </section>
+  );
+}
+
+function BillingCycleModal({
+  editingCycle,
+  setEditingCycle,
+  handleSaveCycle,
+}: {
+  editingCycle: BillingCycle | null;
+  setEditingCycle: (c: BillingCycle | null) => void;
+  handleSaveCycle: (e: React.FormEvent) => void;
+}) {
+  if (!editingCycle) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+      onClick={() => setEditingCycle(null)}
+    >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="sharp-card p-10 max-w-md w-full border-t-8 border-primary bg-bg-base shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-10">
+            <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+              CYCLE <span className="text-primary not-italic">PERIOD</span>
+            </h3>
+            <button
+              onClick={() => setEditingCycle(null)}
+              className="w-10 h-10 border border-border-subtle flex items-center justify-center text-text-muted hover:text-white"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveCycle} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase font-black text-text-muted tracking-widest">
+                Cycle Identifier
+              </label>
+              <input
+                type="text"
+                required
+                value={editingCycle.name}
+                onChange={(e) =>
+                  setEditingCycle({ ...editingCycle, name: e.target.value })
+                }
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:border-primary text-sm font-bold uppercase text-white"
+                placeholder="JANUARY 2026"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-black text-text-muted tracking-widest">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={
+                    editingCycle.startDate instanceof Date
+                      ? editingCycle.startDate.toISOString().split("T")[0]
+                      : typeof editingCycle.startDate === "string"
+                        ? editingCycle.startDate
+                        : editingCycle.startDate?.toDate
+                          ? editingCycle.startDate.toDate().toISOString().split("T")[0]
+                          : ""
+                  }
+                  onChange={(e) =>
+                    setEditingCycle({
+                      ...editingCycle,
+                      startDate: e.target.value,
+                    })
+                  }
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:border-primary text-xs font-bold text-white uppercase"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-black text-text-muted tracking-widest">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={
+                    editingCycle.endDate instanceof Date
+                      ? editingCycle.endDate.toISOString().split("T")[0]
+                      : typeof editingCycle.endDate === "string"
+                        ? editingCycle.endDate
+                        : editingCycle.endDate?.toDate
+                          ? editingCycle.endDate.toDate().toISOString().split("T")[0]
+                          : ""
+                  }
+                  onChange={(e) =>
+                    setEditingCycle({ ...editingCycle, endDate: e.target.value })
+                  }
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:border-primary text-xs font-bold text-white uppercase"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase font-black text-text-muted tracking-widest">
+                Payment Deadline
+              </label>
+              <input
+                type="date"
+                required
+                value={
+                  editingCycle.dueDate instanceof Date
+                    ? editingCycle.dueDate.toISOString().split("T")[0]
+                    : typeof editingCycle.dueDate === "string"
+                      ? editingCycle.dueDate
+                      : editingCycle.dueDate?.toDate
+                        ? editingCycle.dueDate.toDate().toISOString().split("T")[0]
+                        : ""
+                }
+                onChange={(e) =>
+                  setEditingCycle({ ...editingCycle, dueDate: e.target.value })
+                }
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:border-primary text-xs font-bold text-white uppercase"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-5 bg-primary text-white font-black uppercase text-[12px] tracking-[0.3em] italic hover:bg-primary-dark transition-all"
+            >
+              Commit Cycle Parameters
+            </button>
+          </form>
+        </motion.div>
+      </motion.div>
+  );
+}
+
+function ScheduleModal({
+  editingScheduleUser,
+  setEditingScheduleUser,
+  tempDueDate,
+  setTempDueDate,
+  tempClientId,
+  setTempClientId,
+  tempUid,
+  setTempUid,
+  tempDisplayName,
+  setTempDisplayName,
+  tempEmail,
+  setTempEmail,
+  tempPhone,
+  setTempPhone,
+  tempAddress,
+  setTempAddress,
+  tempAccountNumber,
+  setTempAccountNumber,
+  updateClientProfile,
+}: {
+  editingScheduleUser: UserProfile | null;
+  setEditingScheduleUser: (u: UserProfile | null) => void;
+  tempDueDate: string;
+  setTempDueDate: (s: string) => void;
+  tempClientId: string;
+  setTempClientId: (s: string) => void;
+  tempUid: string;
+  setTempUid: (s: string) => void;
+  tempDisplayName: string;
+  setTempDisplayName: (s: string) => void;
+  tempEmail: string;
+  setTempEmail: (s: string) => void;
+  tempPhone: string;
+  setTempPhone: (s: string) => void;
+  tempAddress: string;
+  setTempAddress: (s: string) => void;
+  tempAccountNumber: string;
+  setTempAccountNumber: (s: string) => void;
+  updateClientProfile: (
+    userId: string,
+    newUid: string,
+    date: string,
+    clientId: string,
+    displayName: string,
+    email: string,
+    phone: string,
+    address: string,
+    accountNumber: string
+  ) => void;
+}) {
+  if (!editingScheduleUser) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10001] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="sharp-card p-8 md:p-10 max-w-xl w-full border-t-8 border-primary space-y-6 bg-bg-base shadow-2xl max-h-[90vh] flex flex-col"
+      >
+        <div>
+          <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+            CALIBRATE <span className="text-primary not-italic">PROFILE & IDENTITY</span>
+          </h3>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+            Subscriber Node: <span className="text-white">{editingScheduleUser.displayName || "Unknown"}</span>
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-2 space-y-6 scrollbar-thin scrollbar-thumb-primary/20">
+          {/* Identity Fields */}
+          <div className="space-y-4 border-b border-border-subtle/40 pb-6">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part I: Identity Credentials
+            </h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={tempDisplayName}
+                  onChange={(e) => setTempDisplayName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold uppercase text-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Account Number
+                </label>
+                <input
+                  type="text"
+                  value={tempAccountNumber}
+                  onChange={(e) => setTempAccountNumber(e.target.value)}
+                  placeholder="e.g. HF-7MOSBV-7017"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={tempEmail}
+                  onChange={(e) => setTempEmail(e.target.value)}
+                  placeholder="e.g. user@domain.com"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Phone Number
+                </label>
+                <input
+                  type="text"
+                  value={tempPhone}
+                  onChange={(e) => setTempPhone(e.target.value)}
+                  placeholder="e.g. 09123456789"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Billing Address
+              </label>
+              <input
+                type="text"
+                value={tempAddress}
+                onChange={(e) => setTempAddress(e.target.value)}
+                placeholder="e.g. 123 Quezon Ave, Manila"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold text-white"
+              />
+            </div>
+          </div>
+
+          {/* Database System Core */}
+          <div className="space-y-4 border-b border-border-subtle/40 pb-6">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part II: Core Accounts & Routing Re-linking
+            </h4>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex justify-between">
+                <span>Account ID / UID (Database Reference Key)</span>
+                <span className="text-primary italic font-black">Editable & Migratable</span>
+              </label>
+              <input
+                type="text"
+                value={tempUid}
+                onChange={(e) => setTempUid(e.target.value)}
+                placeholder="e.g. t8mD2xFleddg8vZ8"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white select-all uppercase"
+              />
+              <p className="text-[9px] text-text-muted/60 uppercase tracking-widest leading-relaxed italic">
+                Modifying the database key triggers seamless migration of payment documents, Chat channels, and subscriber history.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Client ID (Assignment / Hotspot Account Mapping)
+              </label>
+              <input
+                type="text"
+                value={tempClientId}
+                onChange={(e) => setTempClientId(e.target.value)}
+                placeholder="e.g. PPPOE_USER_001"
+                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+              />
+            </div>
+          </div>
+
+          {/* Settlement / Billing Recurrence */}
+          <div className="space-y-4">
+            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+              Part III: Settlement Lifecycle
+            </h4>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                Settlement Due Timestamp (12-Hour Philippine Standard Time)
+              </label>
+              <div className="relative group">
+                <input
+                  type="datetime-local"
+                  value={tempDueDate}
+                  onChange={(e) => setTempDueDate(e.target.value)}
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white appearance-none"
+                  style={{ colorScheme: 'dark' }}
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-primary/50 group-hover:text-primary transition-colors">
+                  <Calendar size={16} />
+                </div>
+              </div>
+              {tempDueDate && (
+                <div className="p-3 bg-primary/5 border border-primary/20">
+                  <div className="text-[9px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format</div>
+                  <div className="text-xs font-mono font-bold text-white uppercase italic">
+                    {new Date(tempDueDate).toLocaleString('en-US', {
+                      timeZone: ASIA_TIMEZONE,
+                      month: 'short',
+                      day: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })}
+                  </div>
+                </div>
+              )}
+              <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed italic">
+                Note: Entering historical deadlines relative to node clock will lock current access loops and trigger suspend state.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-4 pt-4 border-t border-border-subtle/50">
+          <button
+            onClick={() => updateClientProfile(
+              editingScheduleUser.uid, 
+              tempUid, 
+              tempDueDate, 
+              tempClientId,
+              tempDisplayName,
+              tempEmail,
+              tempPhone,
+              tempAddress,
+              tempAccountNumber
+            )}
+            className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+          >
+            <CheckCircle2 size={14} />
+            Commit Configuration
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingScheduleUser(null)}
+            className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function NotificationModal({
+  notifyingUser,
+  setNotifyingUser,
+  notifForm,
+  setNotifForm,
+  handleSendNotification,
+}: {
+  notifyingUser: UserProfile | null;
+  setNotifyingUser: (u: UserProfile | null) => void;
+  notifForm: any;
+  setNotifForm: (f: any) => void;
+  handleSendNotification: (e: React.FormEvent) => void;
+}) {
+  if (!notifyingUser) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
+          <motion.form
+            onSubmit={handleSendNotification}
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="sharp-card p-10 max-w-lg w-full border-t-8 border-primary space-y-8 bg-bg-base"
+          >
+            <div>
+              <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+                DISPATCH <span className="text-primary not-italic">ALERT</span>
+              </h3>
+              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+                Target Subscriber: {notifyingUser.displayName} (
+                {notifyingUser.accountNumber})
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Classification
+                </label>
+                <div className="flex gap-2">
+                  {(["info", "warning", "alert"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setNotifForm({ ...notifForm, type })}
+                      className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest border transition-all ${
+                        notifForm.type === type
+                          ? "bg-primary border-primary text-white"
+                          : "border-border-subtle text-text-muted"
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Subject Line
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={notifForm.title}
+                  onChange={(e) =>
+                    setNotifForm({ ...notifForm, title: e.target.value })
+                  }
+                  placeholder="e.g. PAYMENT DUE ALERT"
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold uppercase text-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  Transmission Content
+                </label>
+                <textarea
+                  required
+                  value={notifForm.message}
+                  onChange={(e) =>
+                    setNotifForm({ ...notifForm, message: e.target.value })
+                  }
+                  rows={4}
+                  placeholder="Provide details regarding account status or payment requirements..."
+                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-medium text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                type="submit"
+                className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all"
+              >
+                Confirm Transmission
+              </button>
+              <button
+                type="button"
+                onClick={() => setNotifyingUser(null)}
+                className="px-6 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+              >
+                Abort
+              </button>
+            </div>
+          </motion.form>
+        </motion.div>
+  );
+}
+
+function BulkReminderModal({
+  show,
+  onClose,
+  bulkNotifForm,
+  setBulkNotifForm,
+  handleSendBulkReminders,
+  targets,
+}: {
+  show: boolean;
+  onClose: () => void;
+  bulkNotifForm: any;
+  setBulkNotifForm: (f: any) => void;
+  handleSendBulkReminders: (e: React.FormEvent) => void;
+  targets: UserProfile[];
+}) {
+  if (!show) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10000] bg-hot-black/90 flex items-center justify-center p-6 backdrop-blur-md"
+    >
+      <motion.form
+        onSubmit={handleSendBulkReminders}
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="sharp-card p-10 max-w-lg w-full border-t-8 border-primary space-y-8 bg-bg-base"
+      >
+        <div>
+          <h3 className="text-2xl font-black uppercase italic tracking-tighter text-red-500">
+            BULK <span className="text-white not-italic">REMINDERS</span>
+          </h3>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
+            Targeting <span className="text-red-500 font-black">{targets.length} subscriber nodes</span> currently marked DUE or OVERDUE.
+          </p>
+        </div>
+
+        {targets.length > 0 && (
+          <div className="bg-bg-surface border border-border-subtle p-4 max-h-[120px] overflow-y-auto space-y-1 rounded">
+            <span className="text-[9px] font-black uppercase tracking-widest text-text-muted block mb-1">Impacted Subscribers:</span>
+            <div className="flex flex-wrap gap-2">
+              {targets.map(t => (
+                <span key={t.uid} className="px-2 py-1 bg-red-950/40 border border-red-900/50 text-[9px] font-mono text-red-500 rounded">
+                  {t.displayName || t.email}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Classification
+            </label>
+            <div className="flex gap-2">
+              {(["info", "warning", "alert"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setBulkNotifForm({ ...bulkNotifForm, type })}
+                  className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    bulkNotifForm.type === type
+                      ? "bg-red-600 border-red-500 text-white shadow-md shadow-red-600/30"
+                      : "border-border-subtle text-text-muted"
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Subject Line
+            </label>
+            <input
+              type="text"
+              required
+              value={bulkNotifForm.title}
+              onChange={(e) =>
+                setBulkNotifForm({ ...bulkNotifForm, title: e.target.value })
+              }
+              placeholder="e.g. PAYMENT DUE ALERT"
+              className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-red-500 text-xs font-bold uppercase text-white"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+              Transmission Content
+            </label>
+            <textarea
+              required
+              value={bulkNotifForm.message}
+              onChange={(e) =>
+                setBulkNotifForm({ ...bulkNotifForm, message: e.target.value })
+              }
+              rows={4}
+              placeholder="Provide details regarding account status or payment requirements..."
+              className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-red-500 text-xs font-medium text-white"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={targets.length === 0}
+            className="flex-1 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all shadow-lg shadow-red-600/20"
+          >
+            DISPATCH PACKETS
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+          >
+            Abort
+          </button>
+        </div>
+      </motion.form>
+    </motion.div>
   );
 }
