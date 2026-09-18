@@ -8,13 +8,13 @@ import {
   Hash,
   Phone,
   Mail,
-  Lock,
   HelpCircle,
   CheckCircle2,
   AlertCircle,
   Loader2,
-  ShieldCheck,
-  Zap,
+  Headphones,
+  Check,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "./FirebaseProvider";
 import { db } from "../lib/firebase";
@@ -32,7 +32,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
   const [accountNumber, setAccountNumber] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [category, setCategory] = useState("Technical & Connectivity");
+  const [category, setCategory] = useState("Technical Support (No Internet / Slow Speed)");
   const [message, setMessage] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,7 +42,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Determine if subscriber details exist and lock them
+  // Determine if subscriber details exist
   const hasUser = Boolean(user);
   const userDisplayName = profile?.displayName || user?.displayName || "";
   const userAccountNumber = profile?.accountNumber || "";
@@ -53,7 +53,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
   React.useEffect(() => {
     if (isOpen) {
       if (hasUser) {
-        setName(userDisplayName || "Subscriber Client");
+        setName(userDisplayName || "Valued Subscriber");
         setAccountNumber(userAccountNumber || "HF-CLIENT");
         setEmail(userEmail || (user?.email ? user.email : ""));
       } else {
@@ -75,17 +75,18 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
     const clientPhone = phone.trim();
 
     if (!clientName || clientName.length < 2) {
-      setErrorMessage("Please enter your full name (at least 2 characters).");
+      setErrorMessage("Please enter your name so our support team knows how to address you.");
       return;
     }
 
-    if (!clientPhone || clientPhone.length < 7) {
-      setErrorMessage("Phone number is required. Please fill up a valid contact number (e.g. 0917-XXX-XXXX).");
+    const cleanDigits = clientPhone.replace(/\D/g, "");
+    if (!clientPhone || cleanDigits.length < 10) {
+      setErrorMessage("Please enter a valid mobile number starting with 09 (Sample: 09171234567).");
       return;
     }
 
     if (!message.trim() || message.trim().length < 5) {
-      setErrorMessage("Please describe your concern or message (at least 5 characters).");
+      setErrorMessage("Please share a brief description of your concern (at least 5 characters).");
       return;
     }
 
@@ -99,7 +100,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
     const generatedTicketId = `HF-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
-      // 1. Always store directly in Firestore 'support_tickets' so it arrives in the Admin Console instantly
+      // 1. Store in Firestore 'support_tickets' so it arrives in the Admin Console instantly
       await addDoc(collection(db, "support_tickets"), {
         ticketId: generatedTicketId,
         clientName,
@@ -127,19 +128,19 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
           message: message.trim(),
         }),
       }).catch((apiErr) => {
-        console.warn("Telegram dispatch notice:", apiErr);
+        console.warn("Support alert notification notice:", apiErr);
       });
 
       setSubmittedTicket({
         ticketId: generatedTicketId,
-        message: "Your support request has been registered and dispatched directly to the Hotfast Admin Console! Our team will review your ticket shortly.",
+        message: "Thank you for reaching out! Your support ticket has been received. Our team will contact you at your mobile number shortly.",
       });
 
-      // Clear input fields for safety
+      // Clear message field for safety
       setMessage("");
     } catch (err: any) {
       console.error("Support form submission error:", err);
-      // If direct Firestore failed (e.g. offline), try fallback to /api/support
+      // Fallback to /api/support if direct Firestore is offline
       try {
         const res = await fetch("/api/support", {
           method: "POST",
@@ -157,14 +158,14 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
         if (res.ok) {
           setSubmittedTicket({
             ticketId: data.ticketId || generatedTicketId,
-            message: "Your support request has been submitted to the administrator.",
+            message: "Thank you! Your support request has been submitted. Our team will reach out to you shortly.",
           });
           setMessage("");
           return;
         }
       } catch {}
 
-      setErrorMessage(err?.message || "Failed to submit support request. Please check your network connection and try again.");
+      setErrorMessage(err?.message || "Unable to send your message right now. Please check your internet connection and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -186,33 +187,31 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/85 backdrop-blur-md"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm"
           />
 
           {/* Modal Card */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            initial={{ opacity: 0, scale: 0.96, y: 14 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            className="relative w-full max-w-lg bg-bg-surface border border-primary/40 shadow-2xl rounded-lg overflow-hidden my-auto z-10"
+            exit={{ opacity: 0, scale: 0.96, y: 14 }}
+            transition={{ duration: 0.2 }}
+            className="relative w-full max-w-lg bg-slate-900 border border-slate-700/70 shadow-2xl rounded-2xl overflow-hidden my-auto z-10"
           >
-            {/* Top Banner */}
-            <div className="bg-gradient-to-r from-primary via-primary-dark to-slate-900 px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between border-b border-primary/30">
+            {/* Friendly Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between border-b border-slate-700/60">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-black/30 border border-white/20 flex items-center justify-center text-white shrink-0">
-                  <MessageSquare size={18} className="text-white" />
+                <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 shadow-inner">
+                  <Headphones size={20} className="text-primary" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-amber-300 bg-black/30 px-2 py-0.5 rounded border border-amber-400/30">
-                      NOC Dispatch
-                    </span>
-                    <span className="flex items-center gap-1 text-[9px] font-mono text-emerald-300">
+                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Active 24/7
+                      Online 24/7 Support
                     </span>
                   </div>
-                  <h3 className="text-base sm:text-lg font-black uppercase tracking-wide text-white mt-0.5">
+                  <h3 className="text-base sm:text-lg font-bold text-white mt-0.5">
                     Hotfast Customer Support
                   </h3>
                 </div>
@@ -220,7 +219,7 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-black/25 hover:bg-black/50 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 aria-label="Close modal"
               >
                 <X size={18} />
@@ -228,112 +227,109 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
             </div>
 
             {/* Content Body */}
-            <div className="p-5 sm:p-6 max-h-[80vh] overflow-y-auto">
+            <div className="p-5 sm:p-6 max-h-[82vh] overflow-y-auto">
               {submittedTicket ? (
-                /* Success State */
+                /* Friendly Success State */
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-center py-4 space-y-4"
+                  className="text-center py-5 space-y-4"
                 >
-                  <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/10">
-                    <CheckCircle2 size={32} />
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                    <CheckCircle2 size={34} />
                   </div>
 
                   <div>
-                    <span className="inline-block px-3 py-1 bg-primary/15 text-primary text-[10px] font-mono font-black uppercase tracking-wider rounded border border-primary/30 mb-2">
-                      Reference #{submittedTicket.ticketId}
+                    <span className="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-mono font-bold rounded-full border border-primary/20 mb-2">
+                      Ticket #{submittedTicket.ticketId}
                     </span>
-                    <h4 className="text-lg font-black uppercase tracking-tight text-white">
-                      Support Request Dispatched
+                    <h4 className="text-xl font-bold text-white">
+                      Message Received!
                     </h4>
-                    <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto leading-relaxed">
+                    <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-sm mx-auto leading-relaxed">
                       {submittedTicket.message}
                     </p>
                   </div>
 
-                  <div className="bg-bg-base border border-border-subtle p-3.5 rounded text-left space-y-2 text-xs">
-                    <div className="flex items-center justify-between text-text-dim text-[10px] font-mono uppercase tracking-wider">
-                      <span>Routing</span>
-                      <span className="text-emerald-400 font-bold">Admin Telegram NOC</span>
+                  <div className="bg-slate-800/80 border border-slate-700/60 p-4 rounded-xl text-left space-y-2.5 text-xs text-slate-300">
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Name:</span>
+                      <span className="font-medium text-white">{name}</span>
                     </div>
-                    <div className="flex items-center justify-between text-text-muted">
-                      <span>Client:</span>
-                      <span className="font-semibold text-white">{name}</span>
-                    </div>
-                    {accountNumber && (
-                      <div className="flex items-center justify-between text-text-muted">
-                        <span>Account:</span>
+                    {accountNumber && accountNumber !== "N/A" && (
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Account Number:</span>
                         <span className="font-mono text-white">{accountNumber}</span>
                       </div>
                     )}
                     {phone && (
-                      <div className="flex items-center justify-between text-text-muted">
-                        <span>Contact:</span>
-                        <span className="font-mono text-white">{phone}</span>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Contact Number:</span>
+                        <span className="font-mono text-emerald-400 font-semibold">{phone}</span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between text-text-muted">
-                      <span>Category:</span>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Inquiry Topic:</span>
                       <span className="text-primary font-medium">{category}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-center gap-3 pt-2">
+                  <div className="flex items-center justify-center gap-3 pt-3">
                     <button
                       type="button"
                       onClick={handleReset}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold uppercase tracking-wider transition-colors rounded cursor-pointer"
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors cursor-pointer"
                     >
-                      Send Another
+                      Send Another Inquiry
                     </button>
                     <button
                       type="button"
                       onClick={onClose}
-                      className="px-5 py-2 bg-primary hover:bg-primary-dark text-white text-xs font-black uppercase tracking-wider transition-colors rounded shadow-md shadow-primary/25 cursor-pointer"
+                      className="px-6 py-2 bg-primary hover:bg-primary-dark text-white text-xs font-bold rounded-lg transition-all shadow-md shadow-primary/20 cursor-pointer"
                     >
                       Done
                     </button>
                   </div>
                 </motion.div>
               ) : (
-                /* Form State */
+                /* Friendly Form State */
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="bg-bg-base/70 border border-border-subtle p-3 rounded flex items-start gap-2.5 text-xs text-text-muted">
-                    <Zap size={16} className="text-primary shrink-0 mt-0.5" />
+                  {/* Warm Intro Banner */}
+                  <div className="bg-slate-800/60 border border-slate-700/60 p-3 rounded-xl flex items-start gap-3 text-xs text-slate-300">
+                    <Sparkles size={16} className="text-primary shrink-0 mt-0.5" />
                     <span>
-                      Submitting this form immediately routes your inquiry to our Hotfast network support administrator on duty.
+                      How can we help you today? Fill out this quick form and our support team will reach out to resolve your concern promptly.
                     </span>
                   </div>
 
                   {errorMessage && (
-                    <div className="p-3 bg-red-500/15 border border-red-500/40 rounded flex items-start gap-2.5 text-xs text-red-300">
+                    <div className="p-3 bg-red-500/15 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-300">
                       <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
                       <span>{errorMessage}</span>
                     </div>
                   )}
 
-                  {/* Read-only Subscriber / Client Information Block */}
-                  <div className="bg-bg-base/90 border border-border-subtle rounded-md p-3 space-y-2.5">
-                    <div className="flex items-center justify-between border-b border-border-subtle/50 pb-2">
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-dim flex items-center gap-1.5">
-                        <Lock size={11} className="text-amber-400" />
-                        Verified Subscriber Information (Immutable)
+                  {/* Account Information Card */}
+                  <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl p-3.5 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-700/40 pb-2">
+                      <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                        <User size={13} className="text-primary" />
+                        Account Details
                       </span>
-                      <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                        {user ? "Authenticated" : "Active Session"}
+                      <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">
+                        {user ? "Signed In" : "Guest"}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
-                        <label className="block text-[9px] font-mono uppercase tracking-wider text-text-dim mb-0.5 flex items-center gap-1">
-                          <User size={10} className="text-primary" /> Client Name {!hasUser && <span className="text-primary">*</span>}
+                        <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                          Your Name {!hasUser && <span className="text-primary">*</span>}
                         </label>
                         {hasUser ? (
-                          <div className="px-2.5 py-1.5 bg-slate-900/90 border border-border-subtle/70 rounded text-xs font-semibold text-slate-100 flex items-center justify-between select-none">
-                            <span className="truncate">{userDisplayName || "Subscriber Client"}</span>
-                            <Lock size={11} className="text-text-dim shrink-0 ml-1" />
+                          <div className="px-3 py-2 bg-slate-900/80 border border-slate-700/60 rounded-lg text-xs font-medium text-slate-200 flex items-center justify-between">
+                            <span className="truncate">{userDisplayName || "Valued Subscriber"}</span>
+                            <Check size={13} className="text-emerald-400 shrink-0 ml-1" />
                           </div>
                         ) : (
                           <input
@@ -342,58 +338,57 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Your Full Name"
-                            className="w-full px-2.5 py-1.5 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none rounded-lg text-xs text-white placeholder:text-slate-500 transition-colors"
                           />
                         )}
                       </div>
 
                       <div>
-                        <label className="block text-[9px] font-mono uppercase tracking-wider text-text-dim mb-0.5 flex items-center gap-1">
-                          <Hash size={10} className="text-primary" /> Account Number
+                        <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                          Account Number
                         </label>
-                        <div className="px-2.5 py-1.5 bg-slate-900/90 border border-border-subtle/70 rounded text-xs font-mono font-bold text-slate-100 flex items-center justify-between select-none">
-                          <span className="truncate">{userAccountNumber || (hasUser ? "HF-CLIENT" : "N/A")}</span>
-                          <Lock size={11} className="text-text-dim shrink-0 ml-1" />
+                        <div className="px-3 py-2 bg-slate-900/80 border border-slate-700/60 rounded-lg text-xs font-mono font-medium text-slate-200 flex items-center justify-between">
+                          <span className="truncate">{userAccountNumber || (hasUser ? "HF-CLIENT" : "Optional / New Client")}</span>
                         </div>
                       </div>
                     </div>
 
                     {userEmail && (
-                      <div className="pt-1 border-t border-border-subtle/40 flex items-center justify-between text-[11px] text-text-muted">
-                        <span className="flex items-center gap-1 text-text-dim text-[10px] font-mono uppercase">
-                          <Mail size={11} className="text-primary" /> Registered Email:
+                      <div className="pt-1 border-t border-slate-700/40 flex items-center justify-between text-xs text-slate-400">
+                        <span className="flex items-center gap-1.5 text-[11px]">
+                          <Mail size={12} className="text-primary" /> Email Address:
                         </span>
-                        <span className="font-mono text-slate-300 truncate max-w-[240px]">{userEmail}</span>
+                        <span className="font-mono text-slate-200 truncate max-w-[220px] text-[11px]">{userEmail}</span>
                       </div>
                     )}
                   </div>
 
-                  {/* Category Selection */}
+                  {/* Topic / Category Selection */}
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5 flex items-center gap-1">
-                      <HelpCircle size={12} className="text-primary" /> Category
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                      <HelpCircle size={13} className="text-primary" /> How can we help? <span className="text-primary">*</span>
                     </label>
                     <select
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white transition-colors cursor-pointer"
+                      className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none rounded-lg text-xs text-white transition-colors cursor-pointer"
                     >
-                      <option value="Technical & Connectivity">Technical &amp; Connectivity (LOS / Slow Speed)</option>
-                      <option value="Billing & Payments">Billing, Due Date &amp; GCash Proofs</option>
-                      <option value="Account & Plan Upgrade">Account Modification &amp; Speed Upgrade</option>
-                      <option value="Relocation / Transfer">Relocation / Fiber Line Transfer</option>
-                      <option value="General Inquiry">General Inquiry / Feedback</option>
+                      <option value="Technical Support (No Internet / Slow Speed)">Technical Support (No Internet / Slow Speed / LOS)</option>
+                      <option value="Billing & Payments">Billing &amp; Payments (GCash confirmation, Invoices)</option>
+                      <option value="Plan Upgrade & Account Modification">Plan Upgrade &amp; Account Modification</option>
+                      <option value="Fiber Line Transfer & Relocation">Fiber Line Transfer &amp; Relocation</option>
+                      <option value="General Questions & Feedback">General Questions &amp; Feedback</option>
                     </select>
                   </div>
 
-                  {/* Fill up Phone Number - REQUIRED directly below Category */}
+                  {/* Mobile Phone Number - Only sample starting from 09, no e.g. */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-text-muted flex items-center gap-1">
-                        <Phone size={12} className="text-primary" /> Fill Up Phone Number <span className="text-primary">*</span>
+                      <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                        <Phone size={13} className="text-primary" /> Mobile Number <span className="text-primary">*</span>
                       </label>
-                      <span className="text-[9px] font-mono uppercase tracking-wider text-primary font-bold bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
-                        Required
+                      <span className="text-[11px] font-mono font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                        Sample: 09171234567
                       </span>
                     </div>
                     <div className="relative">
@@ -402,52 +397,51 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
                         required
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 0917-123-4567 or +63 912 345 6789"
-                        className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim font-mono transition-colors"
+                        placeholder="09123456789"
+                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none rounded-lg text-sm text-white placeholder:text-slate-500 font-mono transition-colors"
                       />
                     </div>
-                    <span className="text-[10px] text-text-dim mt-1 block">
-                      Our NOC technical team will contact this phone number regarding your concern.
+                    <span className="text-[11px] text-slate-400 mt-1 block">
+                      Sample: 09171234567 • We will text or call this number to assist you.
                     </span>
                   </div>
 
-                  {/* Message */}
+                  {/* Message / Concern */}
                   <div>
-                    <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted mb-1.5 flex items-center gap-1">
-                      <MessageSquare size={12} className="text-primary" /> Message / Concern <span className="text-primary">*</span>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                      <MessageSquare size={13} className="text-primary" /> Your Message / Concern <span className="text-primary">*</span>
                     </label>
                     <textarea
                       required
                       rows={4}
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Please describe your concern in detail..."
-                      className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim transition-colors resize-none leading-relaxed"
+                      placeholder="Please describe what you need help with in detail..."
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none rounded-lg text-xs text-white placeholder:text-slate-500 transition-colors resize-none leading-relaxed"
                     />
                   </div>
 
-                  {/* Security & Action */}
+                  {/* Friendly Action Button */}
                   <div className="pt-2">
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="w-full py-3 bg-gradient-to-r from-primary to-red-600 hover:from-primary-dark hover:to-red-700 disabled:opacity-60 text-white text-xs font-black uppercase tracking-widest rounded flex items-center justify-center gap-2 shadow-lg shadow-primary/25 transition-all cursor-pointer"
+                      className="w-full py-3 bg-gradient-to-r from-primary to-red-600 hover:from-primary-dark hover:to-red-700 disabled:opacity-60 text-white text-xs font-bold uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all cursor-pointer"
                     >
                       {isSubmitting ? (
                         <>
                           <Loader2 size={16} className="animate-spin" />
-                          <span>Dispatching to NOC...</span>
+                          <span>Sending your message...</span>
                         </>
                       ) : (
                         <>
                           <Send size={15} />
-                          <span>Send Support Request</span>
+                          <span>Send Support Message</span>
                         </>
                       )}
                     </button>
-                    <div className="flex items-center justify-center gap-2 text-[9px] text-text-dim font-mono mt-2.5">
-                      <ShieldCheck size={12} className="text-emerald-400" />
-                      <span>Protected by rate limiting &amp; server-side encryption</span>
+                    <div className="text-center text-[11px] text-slate-400 mt-2.5">
+                      Our friendly support team usually replies within minutes during service hours.
                     </div>
                   </div>
                 </form>
@@ -459,3 +453,4 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
     </AnimatePresence>
   );
 }
+

@@ -122,6 +122,10 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
                   <img
                     src="/personal/it-is-admin.jpg"
                     alt="IT Administrator"
+                    loading="lazy"
+                    decoding="async"
+                    width="72"
+                    height="72"
                     onError={(e) => {
                       // Fallback to alternate local directory paths
                       const target = e.target as HTMLImageElement;
@@ -162,6 +166,10 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
                   <img
                     src="/personal/reumel.jpg"
                     alt="Onsite Manager"
+                    loading="lazy"
+                    decoding="async"
+                    width="72"
+                    height="72"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
                       if (!target.src.includes('/personnels/reumel.jpg')) {

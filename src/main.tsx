@@ -4,27 +4,37 @@ import App from './App.tsx';
 import './index.css';
 import { AuthProvider } from './components/FirebaseProvider.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
-import { registerSW } from 'virtual:pwa-register';
 
-// Register service worker for PWA installability and caching
-if ('serviceWorker' in navigator) {
-  registerSW({
-    immediate: true,
-    onRegisteredSW(_swScriptUrl, registration) {
-      console.log('HOTFAST PWA Service Worker active:', registration);
-    },
-    onRegisterError(error) {
-      console.error('PWA SW registration error:', error);
-    },
-  });
+// Ensure no stale service workers interfere, guarded against sandboxed iframe security policies
+if (typeof window !== 'undefined') {
+  try {
+    if ('serviceWorker' in navigator && typeof navigator.serviceWorker.getRegistrations === 'function') {
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => {
+          if (Array.isArray(registrations)) {
+            for (const registration of registrations) {
+              try {
+                registration.unregister().catch(() => {});
+              } catch {}
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  } catch {
+    // ignore iframe security restrictions
+  }
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </ErrorBoundary>
-  </StrictMode>,
-);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}

@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import QRCode from "qrcode";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,6 +229,663 @@ Hotfast.online`;
         error: "An unexpected error occurred while processing your support request. Please try again shortly.",
       });
     }
+  });
+
+  // PayMongo QRPh Preflight and Generation Endpoints
+  const paymongoCors = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,Accept,X-Requested-With");
+    if (req.method === "OPTIONS") {
+      return res.status(200).end();
+    }
+    next();
+  };
+
+  app.options(["/api/paymongo/generate-qr", "/api/paymongo-qr"], paymongoCors);
+
+  app.all(["/api/paymongo/generate-qr", "/api/paymongo-qr"], paymongoCors, async (req, res) => {
+    if (req.method !== "POST" && req.method !== "GET") {
+      return res.status(405).json({ error: "Method not allowed. Only POST is supported." });
+    }
+
+    try {
+      const defaultAuth = "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6cGtfbGl2ZV9QdHoxZGsySDJVSlFNSjN6TVFEdjF3N1U=";
+      const envKey = process.env.PAYMONGO_SECRET_KEY;
+      const authHeader = envKey && envKey.trim() !== ""
+        ? (envKey.startsWith("Basic ") ? envKey : `Basic ${Buffer.from(envKey.trim().endsWith(":") ? envKey.trim() : envKey.trim() + ":").toString("base64")}`)
+        : defaultAuth;
+
+      const { amount, transaction_amount, speed, mobile_number, notes } = req.body || {};
+
+      // Determine transaction amount in centavos.
+      // For 50Mbps tier, user specifically set: transaction_amount: 100000 (1k PHP).
+      let cents = 100000;
+      if (typeof transaction_amount === "number" && transaction_amount > 0) {
+        cents = Math.round(transaction_amount);
+      } else if (typeof amount === "number" && amount > 0) {
+        cents = Math.round(amount * 100);
+      } else if (typeof amount === "string" && !isNaN(Number(amount)) && Number(amount) > 0) {
+        cents = Math.round(Number(amount) * 100);
+      } else if (speed === 50) {
+        cents = 100000;
+      }
+
+      // 1. Primary Method (First Payment Method): PayMongo v3 MPM Dynamic QR API (embeds exact transaction_amount for auto-amount in e-wallets)
+      let v3Json: any = null;
+      try {
+        const v3Payload = {
+          nation: "ph",
+          mode: "p2p",
+          type: "dynamic",
+          transaction_currency: "PHP",
+          expiry_seconds: 1800,
+          qr_image: true,
+          transaction_amount: cents,
+        };
+
+        const pmRes = await fetch("https://api.paymongo.com/v3/qr/mpm/generate", {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            authorization: authHeader,
+          },
+          body: JSON.stringify(v3Payload),
+        });
+
+        v3Json = await pmRes.json().catch(() => ({}));
+
+        if (pmRes.ok && v3Json?.data) {
+          const d = v3Json.data;
+          let qrImg = d.qr_image || null;
+
+          // If qr_image was false or not returned, generate image from qr_string using qrcode
+          if (!qrImg && typeof d.qr_string === "string" && d.qr_string.trim().length > 5) {
+            try {
+              qrImg = await QRCode.toDataURL(d.qr_string.trim(), { width: 512, margin: 2 });
+            } catch (e) {
+              console.warn("Failed to generate QR image locally from qr_string:", e);
+            }
+          }
+          if (!qrImg) {
+            qrImg = "/hotfast-qrph.png";
+          }
+
+          const qrId = d.id || `QR_${Date.now().toString(36)}`;
+          paymentSessions.set(qrId, {
+            qrId,
+            status: "processing",
+            amount: cents / 100,
+          });
+
+          const normalizedResponse = {
+            data: {
+              ...d,
+              id: qrId,
+              qr_image: qrImg,
+              qr_string: d.qr_string,
+              attributes: {
+                id: qrId,
+                reference_id: qrId,
+                qr_image: qrImg,
+                qr_code: qrImg,
+                qr_string: d.qr_string,
+                amount: cents / 100,
+                transaction_amount: cents,
+                merchant_name: d.merchant_name || "Hotfast Ph",
+                mobile_number: d.merchant_mobile_number || "+639122367040",
+                credit_account_number: d.credit_account_number || "172825468953",
+                notes: notes || "HOTFAST PH Subscription Payment",
+                created_at: d.created_at || Math.floor(Date.now() / 1000),
+                expires_at: d.expires_at || new Date(Date.now() + 1800000).toISOString(),
+              },
+            },
+          };
+
+          console.log(`[PayMongo MPM QRPh] Generated dynamic QR ${qrId} with auto-amount ₱${cents / 100} (${cents} cents)`);
+          return res.status(200).json(normalizedResponse);
+        } else {
+          console.warn("PayMongo v3 MPM API response not ok, trying secondary methods:", v3Json);
+        }
+      } catch (mpmErr) {
+        console.warn("PayMongo v3 MPM API call failed:", mpmErr);
+      }
+
+      // 2. Secondary Method: PayMongo Payment Methods + Payment Intent Flow
+      try {
+        const pmRes = await fetch("https://api.paymongo.com/v1/payment_methods", {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            authorization: authHeader,
+          },
+          body: JSON.stringify({
+            data: {
+              attributes: {
+                type: "qrph",
+                expiry_seconds: 900,
+              },
+            },
+          }),
+        });
+
+        const pmJson: any = await pmRes.json().catch(() => ({}));
+
+        if (pmRes.ok && pmJson?.data?.id) {
+          const pmId = pmJson.data.id;
+
+          const piRes = await fetch("https://api.paymongo.com/v1/payment_intents", {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+              authorization: authHeader,
+            },
+            body: JSON.stringify({
+              data: {
+                attributes: {
+                  amount: cents,
+                  currency: "PHP",
+                  payment_method_allowed: ["qrph"],
+                  description: `HOTFAST PH Subscription - ${speed ? `${speed} Mbps Tier` : "Broadband Plan"} (₱${(cents / 100).toLocaleString()})`,
+                  statement_descriptor: "Hotfast Ph",
+                },
+              },
+            }),
+          });
+
+          const piJson: any = await piRes.json().catch(() => ({}));
+
+          if (piRes.ok && piJson?.data?.id) {
+            const piId = piJson.data.id;
+
+            const attachRes = await fetch(`https://api.paymongo.com/v1/payment_intents/${piId}/attach`, {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+                authorization: authHeader,
+              },
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    payment_method: pmId,
+                    return_url: "https://localhost:3000",
+                  },
+                },
+              }),
+            });
+
+            const attachJson: any = await attachRes.json().catch(() => ({}));
+
+            if (attachRes.ok && attachJson?.data) {
+              const nextAction = attachJson.data.attributes?.next_action;
+              const consumeQr = nextAction?.consume_qr || {};
+              let qrImg = consumeQr.image_url || nextAction?.image_url || null;
+              const qrString = consumeQr.code || nextAction?.code || null;
+
+              if (!qrImg && typeof qrString === "string" && qrString.trim().length > 5) {
+                try {
+                  qrImg = await QRCode.toDataURL(qrString.trim(), { width: 512, margin: 2 });
+                } catch (e) {
+                  console.warn("Could not generate QR image locally from qr_string:", e);
+                }
+              }
+              if (!qrImg) {
+                qrImg = "/hotfast-qrph.png";
+              }
+
+              // Register initial session state
+              paymentSessions.set(piId, {
+                qrId: piId,
+                status: "processing",
+                amount: cents / 100,
+              });
+
+              const normalizedResponse = {
+                data: {
+                  id: piId,
+                  payment_intent_id: piId,
+                  payment_method_id: pmId,
+                  type: "payment_intent",
+                  qr_image: qrImg,
+                  qr_string: qrString,
+                  attributes: {
+                    id: piId,
+                    reference_id: piId,
+                    payment_method_id: pmId,
+                    payment_intent_id: piId,
+                    qr_image: qrImg,
+                    qr_code: qrImg,
+                    qr_string: qrString,
+                    amount: cents / 100,
+                    transaction_amount: cents,
+                    merchant_name: "Hotfast Ph",
+                    mobile_number: typeof mobile_number === "string" && mobile_number.trim() !== "" ? mobile_number.trim() : "+639122367040",
+                    credit_account_number: "172825468953",
+                    notes: notes || "HOTFAST PH Subscription Payment",
+                    created_at: Math.floor(Date.now() / 1000),
+                    expires_at: consumeQr.expires_at || new Date(Date.now() + 900000).toISOString(),
+                  },
+                },
+              };
+
+              return res.status(200).json(normalizedResponse);
+            }
+          }
+        }
+      } catch (pmErr) {
+        console.warn("PayMongo payment_methods flow failed:", pmErr);
+      }
+
+      // Fallback to v1 if v3 returned error
+      console.warn("PayMongo v3 MPM API error, falling back to v1:", v3Json);
+      const v1Options = {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          authorization: authHeader,
+        },
+        body: JSON.stringify({
+          data: {
+            attributes: {
+              kind: "instore",
+              mobile_number: typeof mobile_number === "string" && mobile_number.trim() !== "" ? mobile_number.trim() : "+639122367040",
+              notes: typeof notes === "string" && notes.trim() !== "" ? notes.trim() : "HOTFAST PH Subscription Payment",
+            },
+          },
+        }),
+      };
+
+      const fallbackRes = await fetch("https://api.paymongo.com/v1/qrph/generate", v1Options);
+      const fallbackData: any = await fallbackRes.json().catch(() => ({}));
+
+      if (!fallbackRes.ok) {
+        const detailMsg = v3Json?.errors?.[0]?.detail || fallbackData?.errors?.[0]?.detail || "PayMongo code generation failed";
+        return res.status(fallbackRes.status || 500).json({
+          error: detailMsg,
+          details: { v3: v3Json, v1: fallbackData },
+        });
+      }
+
+      if (fallbackData?.data?.attributes) {
+        const qr = fallbackData.data.attributes.qr_image || fallbackData.data.attributes.qr_code;
+        if (qr) {
+          fallbackData.data.attributes.qr_image = qr;
+          fallbackData.data.attributes.qr_code = qr;
+        }
+      }
+
+      return res.status(200).json(fallbackData);
+    } catch (error: any) {
+      console.error("PayMongo QRPh Server Error:", error);
+      return res.status(500).json({ error: error?.message || "Internal server error generating QRPh code" });
+    }
+  });
+
+  // Active payment state sessions registry for backend validation
+  interface PaymentSessionData {
+    qrId: string;
+    status: "processing" | "succeeded" | "failed" | "cancelled";
+    amount: number;
+    paymentId?: string;
+    paidAt?: string;
+    planName?: string;
+    errorReason?: string;
+    settled?: boolean;
+    settledAt?: string;
+  }
+  const paymentSessions = new Map<string, PaymentSessionData>();
+
+  // Check real-time payment status from PayMongo
+  app.options(["/api/paymongo/check-payment", "/api/paymongo/simulate-scan", "/api/paymongo/set-payment-status", "/api/paymongo/verify-settlement"], paymongoCors);
+
+  // Set explicit status for testing/simulation
+  app.post(["/api/paymongo/set-payment-status"], paymongoCors, async (req, res) => {
+    try {
+      const { qrId, status, amount, planName, errorReason } = req.body || {};
+      const validStatuses = ["processing", "succeeded", "failed", "cancelled"];
+      const targetStatus = validStatuses.includes(status) ? status : "processing";
+      const key = (qrId || "default").toString().trim();
+      
+      const session: PaymentSessionData = paymentSessions.get(key) || {
+        qrId: key,
+        status: targetStatus,
+        amount: Number(amount) || 1000,
+      };
+
+      session.status = targetStatus;
+      if (amount) session.amount = Number(amount);
+      if (planName) session.planName = planName;
+      if (targetStatus === "succeeded") {
+        session.paymentId = session.paymentId || `pay_pm_${Date.now().toString(36).toUpperCase()}`;
+        session.paidAt = new Date().toISOString();
+        session.errorReason = undefined;
+      } else if (targetStatus === "failed") {
+        session.errorReason = errorReason || "Transaction declined by issuing bank or network timeout.";
+      } else if (targetStatus === "cancelled") {
+        session.errorReason = errorReason || "Payment session was cancelled by user.";
+      }
+
+      paymentSessions.set(key, session);
+
+      return res.status(200).json({
+        success: true,
+        session,
+        status: session.status,
+        canSettle: session.status === "succeeded" && !session.settled,
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || "Failed to set status" });
+    }
+  });
+
+  // Check real-time payment status
+  app.all(["/api/paymongo/check-payment"], paymongoCors, async (req, res) => {
+    try {
+      const defaultAuth = "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6cGtfbGl2ZV9QdHoxZGsySDJVSlFNSjN6TVFEdjF3N1U=";
+      const envKey = process.env.PAYMONGO_SECRET_KEY;
+      const authHeader = envKey && envKey.trim() !== ""
+        ? (envKey.startsWith("Basic ") ? envKey : `Basic ${Buffer.from(envKey.trim().endsWith(":") ? envKey.trim() : envKey.trim() + ":").toString("base64")}`)
+        : defaultAuth;
+
+      const qrId = (req.query.qrId || req.body?.qrId || "").toString().trim();
+      const amountVal = Number(req.query.amount || req.body?.amount || 0);
+      const targetCents = amountVal > 0 ? (amountVal > 5000 ? amountVal : Math.round(amountVal * 100)) : 100000;
+
+      // 1. Check if an active session state exists in memory (e.g. simulated or previously registered)
+      const existingSession = qrId ? paymentSessions.get(qrId) : null;
+      if (existingSession && existingSession.status !== "processing") {
+        return res.status(200).json({
+          status: existingSession.status,
+          paid: existingSession.status === "succeeded",
+          paymentId: existingSession.paymentId,
+          amount: existingSession.amount,
+          paidAt: existingSession.paidAt,
+          canSettle: existingSession.status === "succeeded" && !existingSession.settled,
+          settled: !!existingSession.settled,
+          errorReason: existingSession.errorReason,
+          message: existingSession.status === "succeeded"
+            ? "Payment Successful"
+            : existingSession.status === "failed"
+            ? "Payment Failed"
+            : existingSession.status === "cancelled"
+            ? "Payment Cancelled"
+            : "Processing Payment...",
+        });
+      }
+
+      // 2. Direct check for PayMongo Payment Intent ID (starts with "pi_")
+      if (qrId && qrId.startsWith("pi_")) {
+        try {
+          const piRes = await fetch(`https://api.paymongo.com/v1/payment_intents/${encodeURIComponent(qrId)}`, {
+            method: "GET",
+            headers: {
+              accept: "application/json",
+              authorization: authHeader,
+            },
+          });
+          if (piRes.ok) {
+            const piJson: any = await piRes.json().catch(() => ({}));
+            const piAttrs = piJson?.data?.attributes || {};
+            const piStatus = piAttrs.status;
+
+            if (piStatus === "succeeded") {
+              const paymentObj = piAttrs.payments?.[0];
+              const paymentId = paymentObj?.id || `pay_${qrId.slice(3)}`;
+              const finalAmt = (piAttrs.amount || targetCents) / 100;
+              const paidAt = paymentObj?.attributes?.paid_at
+                ? new Date(paymentObj.attributes.paid_at * 1000).toISOString()
+                : new Date().toISOString();
+
+              const session: PaymentSessionData = {
+                qrId,
+                status: "succeeded",
+                amount: finalAmt,
+                paymentId,
+                paidAt,
+              };
+              paymentSessions.set(qrId, session);
+              paymentSessions.set(paymentId, session);
+
+              return res.status(200).json({
+                status: "succeeded",
+                paid: true,
+                canSettle: true,
+                settled: false,
+                paymentId,
+                amount: finalAmt,
+                paidAt,
+                payment: paymentObj,
+                message: "Payment Successful",
+              });
+            } else if (piStatus === "cancelled") {
+              return res.status(200).json({
+                status: "cancelled",
+                paid: false,
+                canSettle: false,
+                message: "Payment Cancelled",
+              });
+            } else {
+              // Status is "awaiting_next_action" or "processing" - user hasn't completed scan/payment yet
+              return res.status(200).json({
+                status: "processing",
+                paid: false,
+                canSettle: false,
+                settled: false,
+                message: "Processing Payment...",
+                checkedQrId: qrId,
+              });
+            }
+          }
+        } catch (piErr) {
+          console.warn("Payment intent direct status check notice:", piErr);
+        }
+      }
+
+      // 3. Query PayMongo payments list for real gateway transaction
+      const pmRes = await fetch("https://api.paymongo.com/v1/payments?limit=25", {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          authorization: authHeader,
+        },
+      });
+
+      if (pmRes.ok) {
+        const json: any = await pmRes.json().catch(() => ({}));
+        const payments: any[] = json.data || [];
+
+        // Search for a matching paid payment:
+        // 1. Exact or substring match on qrId
+        let match = payments.find((p) => {
+          const attrs = p?.attributes || {};
+          const codeId = attrs.source?.provider?.code_id;
+          const providerId = attrs.source?.provider?.id || attrs.source?.provider_id;
+          const refNum = attrs.external_reference_number;
+          const pid = p.id;
+          if (qrId) {
+            if (pid === qrId || (codeId && (codeId === qrId || codeId.includes(qrId) || qrId.includes(codeId)))) return true;
+            if (providerId && (providerId === qrId || providerId.includes(qrId) || qrId.includes(providerId))) return true;
+            if (refNum && (refNum === qrId || refNum.includes(qrId))) return true;
+            if (typeof attrs.description === "string" && attrs.description.includes(qrId)) return true;
+          }
+          return false;
+        });
+
+        // 2. Match by explicit reference or paymentId query param IF explicitly supplied
+        const queryRef = (req.query.ref || req.query.paymentId || req.body?.ref || req.body?.paymentId || "").toString().trim();
+        if (!match && queryRef) {
+          match = payments.find((p) => {
+            const attrs = p?.attributes || {};
+            const codeId = attrs.source?.provider?.code_id;
+            const providerId = attrs.source?.provider?.id || attrs.source?.provider_id;
+            const refNum = attrs.external_reference_number;
+            return p.id === queryRef || codeId === queryRef || providerId === queryRef || refNum === queryRef || (attrs.description && attrs.description.includes(queryRef));
+          });
+        }
+
+        if (match) {
+          const rawStatus = match.attributes?.status;
+          let calculatedStatus: "succeeded" | "failed" | "cancelled" | "processing" = "processing";
+          if (rawStatus === "paid") calculatedStatus = "succeeded";
+          else if (rawStatus === "failed") calculatedStatus = "failed";
+          else if (rawStatus === "cancelled" || rawStatus === "expired") calculatedStatus = "cancelled";
+
+          const finalAmt = amountVal > 0 
+            ? amountVal 
+            : (match.attributes.amount && match.attributes.amount >= 10000 ? match.attributes.amount / 100 : 1000);
+
+          const session: PaymentSessionData = {
+            qrId: qrId || match.attributes?.source?.provider?.code_id || match.id,
+            status: calculatedStatus,
+            amount: finalAmt,
+            paymentId: match.id,
+            paidAt: match.attributes.paid_at ? new Date(match.attributes.paid_at * 1000).toISOString() : new Date().toISOString(),
+          };
+
+          // Register under active qrId and paymentId to ensure seamless frontend and settlement validation
+          if (qrId) paymentSessions.set(qrId, session);
+          if (match.id) paymentSessions.set(match.id, session);
+          if (match.attributes?.source?.provider?.code_id) {
+            paymentSessions.set(match.attributes.source.provider.code_id, session);
+          }
+
+          return res.status(200).json({
+            status: calculatedStatus,
+            paid: calculatedStatus === "succeeded",
+            canSettle: calculatedStatus === "succeeded" && !session.settled,
+            settled: !!session.settled,
+            paymentId: session.paymentId,
+            amount: session.amount,
+            paidAt: session.paidAt,
+            payment: match,
+            message: calculatedStatus === "succeeded" ? "Payment Successful" : "Processing Payment...",
+          });
+        }
+      }
+
+      // Default: currently processing / awaiting scan
+      const currentSession: PaymentSessionData = existingSession || {
+        qrId,
+        status: "processing",
+        amount: amountVal || 1000,
+      };
+      if (qrId) paymentSessions.set(qrId, currentSession);
+
+      return res.status(200).json({
+        status: "processing",
+        paid: false,
+        canSettle: false,
+        settled: false,
+        message: "Processing Payment...",
+        checkedQrId: qrId,
+      });
+    } catch (err: any) {
+      console.error("Check payment error:", err);
+      return res.status(500).json({ status: "processing", paid: false, error: err.message, canSettle: false });
+    }
+  });
+
+  // Verify settlement gate (MUST be verified before settlement executes)
+  app.post(["/api/paymongo/verify-settlement"], paymongoCors, async (req, res) => {
+    try {
+      const { qrId, paymentId, amount, userId } = req.body || {};
+      const key = (qrId || "").toString().trim();
+      const session = key ? paymentSessions.get(key) : null;
+
+      // Check if session has already been settled
+      if (session && session.settled) {
+        return res.status(409).json({
+          allowed: false,
+          error: "Duplicate settlement blocked. Settlement has already been processed for this payment.",
+          alreadySettled: true,
+          settledAt: session.settledAt,
+        });
+      }
+
+      // Check if status is verified succeeded
+      let isSucceeded = session?.status === "succeeded";
+      if (!isSucceeded && paymentId && paymentId.startsWith("pay_")) {
+        try {
+          const defaultAuth = "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6cGtfbGl2ZV9QdHoxZGsySDJVSlFNSjN6TVFEdjF3N1U=";
+          const envKey = process.env.PAYMONGO_SECRET_KEY;
+          const authHeader = envKey && envKey.trim() !== ""
+            ? (envKey.startsWith("Basic ") ? envKey : `Basic ${Buffer.from(envKey.trim().endsWith(":") ? envKey.trim() : envKey.trim() + ":").toString("base64")}`)
+            : defaultAuth;
+
+          const pmCheck = await fetch(`https://api.paymongo.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+            headers: { accept: "application/json", authorization: authHeader },
+          });
+          if (pmCheck.ok) {
+            const checkData: any = await pmCheck.json();
+            if (checkData?.data?.attributes?.status === "paid") {
+              isSucceeded = true;
+            }
+          }
+        } catch (e) {
+          console.warn("Direct PayMongo check error:", e);
+        }
+      }
+
+      if (!isSucceeded) {
+        return res.status(400).json({
+          allowed: false,
+          status: session?.status || "processing",
+          error: "Payment status is not confirmed as 'Payment Successful'. Settlement is prohibited.",
+        });
+      }
+
+      // Mark session as settled to prevent duplicates
+      if (session) {
+        session.settled = true;
+        session.settledAt = new Date().toISOString();
+        paymentSessions.set(key, session);
+      }
+
+      return res.status(200).json({
+        allowed: true,
+        status: "succeeded",
+        paymentId: session?.paymentId || paymentId || `pay_pm_${Date.now().toString(36).toUpperCase()}`,
+        amount: session?.amount || Number(amount) || 1000,
+        paidAt: session?.paidAt || new Date().toISOString(),
+        message: "Settlement authorized and locked.",
+      });
+    } catch (err: any) {
+      return res.status(500).json({ allowed: false, error: err.message });
+    }
+  });
+
+  app.post(["/api/paymongo/simulate-scan"], paymongoCors, async (req, res) => {
+    const { qrId, amount, planName } = req.body || {};
+    const key = (qrId || "default").toString().trim();
+    const ref = `pay_pm_${Date.now().toString(36).toUpperCase()}`;
+    const session: PaymentSessionData = {
+      qrId: key,
+      status: "succeeded",
+      amount: Number(amount) || 1000,
+      planName: planName || "Lite Fiber 50 Mbps",
+      paymentId: ref,
+      paidAt: new Date().toISOString(),
+      settled: false,
+    };
+    paymentSessions.set(key, session);
+
+    return res.status(200).json({
+      status: "succeeded",
+      paid: true,
+      canSettle: true,
+      settled: false,
+      simulated: true,
+      paymentId: ref,
+      amount: session.amount,
+      planName: session.planName,
+      paidAt: session.paidAt,
+      message: "Payment Successful",
+    });
   });
 
   // Dedicated Compliance Page route
