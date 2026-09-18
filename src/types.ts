@@ -42,12 +42,16 @@ export interface PaymentRecord {
   id: string;
   userId: string;
   amount: number;
-  date: string;
-  method: 'GCash' | 'Maya' | 'Card' | 'Bank';
+  date?: string;
+  method: 'GCash' | 'Maya' | 'Card' | 'Bank' | 'PayMongo QRPh' | 'QRPh';
   status: 'completed' | 'pending' | 'failed';
   referenceNumber: string;
   screenshotUrl?: string;
+  planName?: string;
+  planSpeed?: number;
+  notes?: string;
   createdAt?: any;
+  paidAt?: any;
 }
 
 export interface BillingCycle {
