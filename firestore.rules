@@ -41,7 +41,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if (isOwner(userId) && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId', 'phone', 'balance', 'billStatus', 'status', 'dueDate', 'lastPaymentDate']) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId', 'phone']) &&
                       isValidUser(request.resource.data)) || isAdmin();
       allow delete: if isAdmin();
     }
@@ -58,7 +58,7 @@ service cloud.firestore {
 
       allow list: if isOwner(userId) || isAdmin();
       allow get: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin();
       allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isAdmin();
     }
@@ -68,7 +68,7 @@ service cloud.firestore {
       function isValidPayment(data) {
         return data.userId == userId &&
                data.amount is number && data.amount > 0 &&
-               data.method in ['GCash', 'Maya', 'Card', 'Bank', 'PayMongo QRPh', 'QRPh'] &&
+               data.method in ['GCash', 'Maya', 'Card', 'Bank'] &&
                data.status in ['completed', 'pending', 'failed'] &&
                data.keys().hasAll(['userId', 'amount', 'method', 'status', 'createdAt']) &&
                data.createdAt == request.time;
@@ -77,7 +77,7 @@ service cloud.firestore {
       allow list: if isOwner(userId) || isAdmin();
       allow get: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidPayment(request.resource.data);
-      allow update: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 

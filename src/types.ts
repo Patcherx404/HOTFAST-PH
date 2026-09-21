@@ -43,15 +43,17 @@ export interface PaymentRecord {
   userId: string;
   amount: number;
   date?: string;
-  method: 'GCash' | 'Maya' | 'Card' | 'Bank' | 'PayMongo QRPh' | 'QRPh';
+  method: 'QR Ph' | 'QR Ph (PayMongo)' | 'GCash' | 'Maya' | 'Card' | 'Bank';
   status: 'completed' | 'pending' | 'failed';
   referenceNumber: string;
   screenshotUrl?: string;
+  accountNumber?: string;
+  qrId?: string;
+  qrString?: string;
+  qrImage?: string;
   planName?: string;
-  planSpeed?: number;
-  notes?: string;
   createdAt?: any;
-  paidAt?: any;
+  updatedAt?: any;
 }
 
 export interface BillingCycle {
