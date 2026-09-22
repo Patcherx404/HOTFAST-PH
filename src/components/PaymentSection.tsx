@@ -130,7 +130,7 @@ export function PaymentSection({
       // Clear previous timer
       if (timerRef.current) clearInterval(timerRef.current);
 
-      const response = await fetch("/api/paymongo/qr/generate", {
+      let response = await fetch("/api/paymongo/qr/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -141,6 +141,21 @@ export function PaymentSection({
           qr_image: true,
         }),
       });
+
+      // Seamless fallback to /api/paymongo/generate if serverless route is not yet cached or returns 404
+      if (response.status === 404) {
+        response = await fetch("/api/paymongo/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: targetAmount,
+            expiry_seconds: 1800,
+            qr_image: true,
+          }),
+        });
+      }
 
       const result = await response.json().catch(() => null);
 

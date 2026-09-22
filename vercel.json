@@ -2,6 +2,14 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/paymongo/qr/generate",
+      "destination": "/api/paymongo/qr/generate"
+    },
+    {
+      "source": "/api/paymongo/generate",
+      "destination": "/api/paymongo/generate"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
