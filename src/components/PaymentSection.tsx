@@ -130,16 +130,19 @@ export function PaymentSection({
       // Clear previous timer
       if (timerRef.current) clearInterval(timerRef.current);
 
+      const payload = {
+        amount: targetAmount,
+        mobile_number: "+639122367040",
+        notes: `HOTFAST Payment for ${accountNumber || "Account"} - PHP ${targetAmount}`,
+        expiry_seconds: 1800,
+      };
+
       let response = await fetch("/api/paymongo/qr/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          amount: targetAmount,
-          expiry_seconds: 1800,
-          qr_image: true,
-        }),
+        body: JSON.stringify(payload),
       });
 
       // Seamless fallback to /api/paymongo/generate if serverless route is not yet cached or returns 404
@@ -149,11 +152,7 @@ export function PaymentSection({
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            amount: targetAmount,
-            expiry_seconds: 1800,
-            qr_image: true,
-          }),
+          body: JSON.stringify(payload),
         });
       }
 

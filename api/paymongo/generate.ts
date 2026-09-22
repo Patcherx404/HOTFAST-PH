@@ -71,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    const { amount, expiry_seconds, qr_image = true } = body || {};
+    const { amount, expiry_seconds, mobile_number, notes } = body || {};
 
     const parsedAmount = Number(amount);
     if (!parsedAmount || isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -81,20 +81,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // PayMongo amounts are represented in centavos (e.g., 1000 PHP = 100000 centavos)
     const transactionAmount = Math.round(parsedAmount * 100);
     const expirySeconds = Number(expiry_seconds) || 1800; // default 30 minutes
+    const customerMobile = mobile_number || "+639122367040";
+    const paymentNotes = notes || `HOTFAST Payment PHP ${parsedAmount}`;
 
     const payload = {
-      nation: "ph",
-      mode: "p2p",
-      type: "dynamic",
-      transaction_currency: "PHP",
-      expiry_seconds: expirySeconds,
-      qr_image: Boolean(qr_image),
-      transaction_amount: transactionAmount,
+      data: {
+        attributes: {
+          kind: "instore",
+          mobile_number: customerMobile,
+          amount: transactionAmount,
+          notes: paymentNotes,
+        },
+      },
     };
 
     const authHeader = getPayMongoAuthHeader();
 
-    const response = await fetch("https://api.paymongo.com/v3/qr/mpm/generate", {
+    const response = await fetch("https://api.paymongo.com/v1/qrph/generate", {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -118,9 +121,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const attributes = responseData.data.attributes || {};
+
+    // Normalize into unified PayMongo QR response expected by the client
+    const normalizedData = {
+      id: responseData.data.id || attributes.reference_id || `qr_${Date.now()}`,
+      nation: "ph",
+      type: responseData.data.type || "code",
+      mode: attributes.kind || "instore",
+      status: attributes.status || "active",
+      transaction_currency: "PHP",
+      transaction_amount: transactionAmount,
+      merchant_name: attributes.name || "HOTFAST PH",
+      merchant_mobile_number: attributes.mobile_number || customerMobile,
+      notes: attributes.notes || paymentNotes,
+      created_at: attributes.created_at || new Date().toISOString(),
+      expires_at: new Date(Date.now() + expirySeconds * 1000).toISOString(),
+      qr_string: attributes.reference_id || responseData.data.id,
+      qr_image: attributes.qr_image || "",
+    };
+
     return res.status(200).json({
       success: true,
-      data: responseData.data,
+      data: normalizedData,
     });
   } catch (err: any) {
     console.error("PayMongo QR server error in Vercel function:", err);
