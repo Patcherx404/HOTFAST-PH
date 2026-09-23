@@ -1,46 +1,50 @@
-import type { VercelRequest, VercelResponse } from "../support";
+// PayMongo v1/qrph/generate API Serverless Function for Vercel
+
+export interface VercelRequest {
+  method?: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: any;
+  socket: {
+    remoteAddress?: string;
+  };
+}
+
+export interface VercelResponse {
+  status: (code: number) => VercelResponse;
+  json: (data: any) => VercelResponse;
+  setHeader: (name: string, value: string) => VercelResponse;
+  end: (data?: any) => VercelResponse;
+}
 
 function getPayMongoAuthHeader(): string {
-  let raw = (process.env.PAYMONGO_AUTH_HEADER || process.env.PAYMONGO_SECRET_KEY || "").trim();
+  let raw = (
+    process.env.PAYMONGO_SECRET_KEY ||
+    process.env.PAYMONGO_AUTH_HEADER ||
+    "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+  ).trim();
 
-  // Strip wrapping double or single quotes if added in Vercel environment configuration
+  // Strip wrapping double or single quotes
   if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
     raw = raw.slice(1, -1).trim();
   }
 
-  // Default fallback using live credentials provided for HOTFAST PH
-  if (!raw) {
-    return "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6cGtfbGl2ZV9QdHoxZGsySDJVSlFNSjN6TVFEdjF3N1U=";
-  }
-
-  // If already prefixed with Basic, extract and ensure valid base64
+  // If Base64 encoded Basic header was passed, decode to extract the secret key
   if (raw.toLowerCase().startsWith("basic ")) {
-    const token = raw.slice(6).trim();
-    if (token.startsWith("sk_") || token.includes(":")) {
-      const colonStr = token.includes(":") ? token : `${token}:`;
-      return `Basic ${Buffer.from(colonStr).toString("base64")}`;
+    try {
+      const decoded = Buffer.from(raw.slice(6).trim(), "base64").toString("utf-8");
+      raw = decoded.split(":")[0];
+    } catch {
+      raw = "sk_live_DUN5bW3paRw54UjhXfCHddTk";
     }
-    return `Basic ${token}`;
   }
 
-  // If raw key starts with sk_ or contains a colon
-  if (raw.startsWith("sk_") || raw.includes(":")) {
-    const colonStr = raw.includes(":") ? raw : `${raw}:`;
-    return `Basic ${Buffer.from(colonStr).toString("base64")}`;
+  // If a composite key or colon was supplied (e.g. sk:pk), extract only the secret key portion
+  if (raw.includes(":")) {
+    raw = raw.split(":")[0].trim();
   }
 
-  // Check if raw is already a valid base64 encoded string
-  try {
-    const decoded = Buffer.from(raw, "base64").toString("utf-8");
-    if (decoded.startsWith("sk_") || decoded.includes(":")) {
-      return `Basic ${raw}`;
-    }
-  } catch {
-    // Proceed to fallback encoding below
-  }
-
-  // Default: treat as secret key and base64-encode with trailing colon
-  return `Basic ${Buffer.from(raw + ":").toString("base64")}`;
+  // PayMongo requires Basic authentication with username=secret_key and empty password
+  return `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -132,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       status: attributes.status || "active",
       transaction_currency: "PHP",
       transaction_amount: transactionAmount,
-      merchant_name: attributes.name || "HOTFAST PH",
+      merchant_name: attributes.name || "Hotfast Ph",
       merchant_mobile_number: attributes.mobile_number || customerMobile,
       notes: attributes.notes || paymentNotes,
       created_at: attributes.created_at || new Date().toISOString(),

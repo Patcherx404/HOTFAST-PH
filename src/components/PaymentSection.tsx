@@ -43,6 +43,7 @@ interface PayMongoQRData {
   merchant_city?: string;
   credit_account_number?: string;
   merchant_mobile_number?: string;
+  notes?: string;
   created_at: string;
   expires_at: string;
   qr_string: string;
@@ -137,36 +138,106 @@ export function PaymentSection({
         expiry_seconds: 1800,
       };
 
-      let response = await fetch("/api/paymongo/qr/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      let newQrData: PayMongoQRData | null = null;
+      let lastErrorMessage = "";
 
-      // Seamless fallback to /api/paymongo/generate if serverless route is not yet cached or returns 404
-      if (response.status === 404) {
-        response = await fetch("/api/paymongo/generate", {
+      // Tier 1: Try /api/paymongo/qr/generate
+      try {
+        const response1 = await fetch("/api/paymongo/qr/generate", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        const contentType1 = response1.headers.get("content-type") || "";
+        if (response1.ok && contentType1.includes("application/json")) {
+          const res1 = await response1.json().catch(() => null);
+          if (res1?.success && res1?.data) {
+            newQrData = res1.data;
+          } else {
+            lastErrorMessage = res1?.error || res1?.message || "";
+          }
+        }
+      } catch (err: any) {
+        lastErrorMessage = err?.message || "";
       }
 
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok || !result || !result.success || !result.data) {
-        throw new Error(
-          result?.error ||
-          result?.message ||
-          "Failed to generate dynamic QR Ph code from PayMongo."
-        );
+      // Tier 2: Try /api/paymongo/generate if Tier 1 did not return QR data
+      if (!newQrData) {
+        try {
+          const response2 = await fetch("/api/paymongo/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const contentType2 = response2.headers.get("content-type") || "";
+          if (response2.ok && contentType2.includes("application/json")) {
+            const res2 = await response2.json().catch(() => null);
+            if (res2?.success && res2?.data) {
+              newQrData = res2.data;
+            } else if (!lastErrorMessage) {
+              lastErrorMessage = res2?.error || res2?.message || "";
+            }
+          }
+        } catch (err: any) {
+          if (!lastErrorMessage) lastErrorMessage = err?.message || "";
+        }
       }
 
-      const newQrData: PayMongoQRData = result.data;
+      // Tier 3: Direct PayMongo API fallback (handles Vercel static deployments or serverless cold timeouts)
+      if (!newQrData) {
+        const directPaymongoRes = await fetch("https://api.paymongo.com/v1/qrph/generate", {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            authorization: "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            data: {
+              attributes: {
+                kind: "instore",
+                mobile_number: "+639122367040",
+                amount: Math.round(targetAmount * 100),
+                notes: `HOTFAST Payment for ${accountNumber || "Account"} - PHP ${targetAmount}`,
+              },
+            },
+          }),
+        });
+
+        const directJson: any = await directPaymongoRes.json().catch(() => null);
+
+        if (!directPaymongoRes.ok || !directJson || !directJson.data) {
+          const directError =
+            directJson?.errors?.[0]?.detail ||
+            directJson?.errors?.[0]?.code ||
+            lastErrorMessage ||
+            "Unable to generate PayMongo QR Ph code.";
+          throw new Error(directError);
+        }
+
+        const directAttrs = directJson.data.attributes || {};
+        newQrData = {
+          id: directJson.data.id || directAttrs.reference_id || `qr_${Date.now()}`,
+          nation: "ph",
+          type: directJson.data.type || "code",
+          mode: directAttrs.kind || "instore",
+          status: directAttrs.status || "active",
+          transaction_currency: "PHP",
+          transaction_amount: Math.round(targetAmount * 100),
+          merchant_name: directAttrs.name || "Hotfast Ph",
+          merchant_mobile_number: directAttrs.mobile_number || "+639122367040",
+          notes: directAttrs.notes || "",
+          created_at: directAttrs.created_at || new Date().toISOString(),
+          expires_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+          qr_string: directAttrs.reference_id || directJson.data.id,
+          qr_image: directAttrs.qr_image || "",
+        };
+      }
+
+      if (!newQrData || !newQrData.qr_image) {
+        throw new Error("PayMongo did not return a valid QR image.");
+      }
+
       setQrData(newQrData);
 
       // Compute expiry countdown from PayMongo expires_at or 1800s
@@ -534,14 +605,17 @@ export function PaymentSection({
                   </span>
                 </div>
               ) : generationError ? (
-                <div className="flex flex-col items-center justify-center text-red-600 space-y-3 p-4 text-center">
-                  <AlertTriangle size={36} />
+                <div className="flex flex-col items-center justify-center text-red-600 space-y-2 p-3 text-center">
+                  <AlertTriangle size={32} />
                   <span className="text-xs font-mono font-bold">Failed to load QR</span>
+                  <p className="text-[10px] text-red-500 max-w-[220px] line-clamp-2 font-mono">
+                    {generationError}
+                  </p>
                   <button
                     onClick={() => generateQRPh(amount)}
-                    className="px-3 py-1.5 bg-slate-900 text-white rounded text-[10px] font-mono font-bold uppercase"
+                    className="px-3 py-1.5 bg-slate-900 text-white rounded text-[10px] font-mono font-bold uppercase hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
                   >
-                    Retry
+                    <RefreshCw size={11} /> Retry Generation
                   </button>
                 </div>
               ) : isExpired ? (
