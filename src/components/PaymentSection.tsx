@@ -24,14 +24,11 @@ import {
   Info,
   Check,
   HelpCircle,
-  Eye,
-  ImageIcon,
-  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "./FirebaseProvider";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp, updateDoc, doc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { InternetPlan, PaymentRecord } from "../types";
 
 interface PayMongoQRData {
@@ -101,7 +98,6 @@ export function PaymentSection({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedRecord, setSubmittedRecord] = useState<PaymentRecord | null>(null);
-  const [viewingProof, setViewingProof] = useState<string | null>(null);
 
   // Quick App Guide Modal / Drawer state
   const [showAppGuide, setShowAppGuide] = useState(false);
@@ -187,8 +183,55 @@ export function PaymentSection({
         }
       }
 
+      // Tier 3: Direct PayMongo API fallback (handles Vercel static deployments or serverless cold timeouts)
       if (!newQrData) {
-        throw new Error(lastErrorMessage || "Unable to generate PayMongo QR Ph code. Please try again or check network connection.");
+        const directPaymongoRes = await fetch("https://api.paymongo.com/v1/qrph/generate", {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            authorization: "Basic c2tfbGl2ZV9EVU41YlczcGFSdzU0VWpoWGZDSGRkVGs6",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            data: {
+              attributes: {
+                kind: "instore",
+                mobile_number: "+639122367040",
+                amount: Math.round(targetAmount * 100),
+                notes: `HOTFAST Payment for ${accountNumber || "Account"} - PHP ${targetAmount}`,
+              },
+            },
+          }),
+        });
+
+        const directJson: any = await directPaymongoRes.json().catch(() => null);
+
+        if (!directPaymongoRes.ok || !directJson || !directJson.data) {
+          const directError =
+            directJson?.errors?.[0]?.detail ||
+            directJson?.errors?.[0]?.code ||
+            lastErrorMessage ||
+            "Unable to generate PayMongo QR Ph code.";
+          throw new Error(directError);
+        }
+
+        const directAttrs = directJson.data.attributes || {};
+        newQrData = {
+          id: directJson.data.id || directAttrs.reference_id || `qr_${Date.now()}`,
+          nation: "ph",
+          type: directJson.data.type || "code",
+          mode: directAttrs.kind || "instore",
+          status: directAttrs.status || "active",
+          transaction_currency: "PHP",
+          transaction_amount: Math.round(targetAmount * 100),
+          merchant_name: directAttrs.name || "Hotfast Ph",
+          merchant_mobile_number: directAttrs.mobile_number || "+639122367040",
+          notes: directAttrs.notes || "",
+          created_at: directAttrs.created_at || new Date().toISOString(),
+          expires_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+          qr_string: directAttrs.reference_id || directJson.data.id,
+          qr_image: directAttrs.qr_image || "",
+        };
       }
 
       if (!newQrData || !newQrData.qr_image) {
@@ -322,13 +365,6 @@ export function PaymentSection({
       return;
     }
 
-    if (!receiptPreview) {
-      toast.error("Payment screenshot proof required", {
-        description: "Please upload a screenshot of your payment confirmation before submitting.",
-      });
-      return;
-    }
-
     if (isExpired) {
       toast.error("This QR Ph code has expired. Please click 'Regenerate QR' to proceed.");
       return;
@@ -342,16 +378,12 @@ export function PaymentSection({
         customerRefNumber.trim() ||
         (qrData ? qrData.id : `QRPH-${Date.now().toString(36).toUpperCase()}`);
 
-      const customerName =
-        profile?.displayName || user.displayName || user.email?.split("@")[0] || "Subscriber";
-
       const paymentData = {
         userId: user.uid,
-        customerName,
         accountNumber,
         amount: Number(amount),
         method: "QR Ph (PayMongo)",
-        status: "pending", // Waiting for Admin Confirmation
+        status: "pending", // Manual or automated verification
         referenceNumber: refNumber,
         qrId: qrData?.id || "",
         qrString: qrData?.qr_string || "",
@@ -362,54 +394,9 @@ export function PaymentSection({
 
       const docRef = await addDoc(collection(db, paymentsPath), paymentData);
 
-      // Explicitly update user payment_status to 'processing' (Waiting for Admin Confirmation)
-      // Note: subscription_status, balance, and due date remain strictly unchanged!
-      try {
-        await updateDoc(doc(db, "users", user.uid), {
-          payment_status: "processing",
-        });
-      } catch (e) {
-        console.warn("Could not set user payment_status to processing:", e);
-      }
-
-      // Dispatch real-time Telegram Bot Notification to Admin
-      try {
-        fetch("/api/telegram/payment-settlement", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paymentId: docRef.id,
-            userId: user.uid,
-            customerName,
-            accountNumber,
-            clientId: profile?.clientId || undefined,
-            amount: Number(amount),
-            method: "QR Ph (PayMongo)",
-            referenceNumber: refNumber,
-            planName: activePlan?.name || "Fiber Internet Plan",
-            screenshotUrl: receiptPreview || undefined,
-            submittedAt: new Date().toISOString(),
-          }),
-        })
-          .then(async (res) => {
-            const resData = await res.json().catch(() => ({}));
-            if (res.ok && resData?.telegramNotified) {
-              console.log("✅ Telegram Bot notified of pending settlement.");
-            } else if (resData?.error) {
-              console.warn("Telegram notification response notice:", resData.error);
-            }
-          })
-          .catch((err) => {
-            console.warn("Telegram settlement notification dispatch error:", err);
-          });
-      } catch (tgError) {
-        console.warn("Could not dispatch Telegram alert:", tgError);
-      }
-
       const record: PaymentRecord = {
         id: docRef.id,
         userId: user.uid,
-        customerName,
         accountNumber,
         amount: Number(amount),
         method: "QR Ph (PayMongo)",
@@ -419,14 +406,18 @@ export function PaymentSection({
         qrString: qrData?.qr_string,
         screenshotUrl: receiptPreview || undefined,
         planName: activePlan?.name,
-        createdAt: new Date(),
       };
 
       setSubmittedRecord(record);
       setIsSubmitted(true);
-      toast.success("Pending Settlement request created!", {
-        description: "Waiting for Admin Confirmation. An alert has been forwarded to the Telegram bot.",
+      toast.success("Settlement submitted successfully!", {
+        description: "Our team will verify your transaction against the QR Ph network.",
       });
+
+      // Optional auto-redirect after 3.5 seconds
+      setTimeout(() => {
+        if (onSuccess) onSuccess();
+      }, 3500);
     } catch (err: any) {
       console.error("Settlement submission error:", err);
       handleFirestoreError(err, OperationType.CREATE, paymentsPath);
@@ -436,132 +427,74 @@ export function PaymentSection({
     }
   };
 
-  // If submitted, show Pending Settlement & Waiting for Admin Confirmation card
+  // If submitted, show success receipt card
   if (isSubmitted && submittedRecord) {
     return (
       <section className="py-12 sm:py-20 px-4 sm:px-6 max-w-2xl mx-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-slate-900/95 border border-amber-500/30 p-6 sm:p-10 rounded-2xl shadow-2xl relative overflow-hidden"
+          className="bg-slate-900/90 border border-border-subtle p-6 sm:p-10 rounded-2xl shadow-2xl relative overflow-hidden"
         >
-          <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-12 -right-12 w-40 h-40 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
 
           <div className="text-center space-y-4 mb-8">
-            <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/40 rounded-full flex items-center justify-center mx-auto text-amber-400 shadow-lg shadow-amber-500/10">
-              <Clock size={36} className="animate-pulse" />
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center mx-auto text-emerald-400">
+              <CheckCircle2 size={36} />
             </div>
             <div>
-              <span className="inline-block px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono uppercase tracking-[0.25em] text-amber-300 font-bold rounded-full mb-2">
-                Pending Settlement
+              <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-emerald-400 font-bold">
+                Transaction Received
               </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
-                Waiting for Admin Confirmation
+              <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight mt-1">
+                Settlement Queued
               </h2>
-              <p className="text-xs text-text-muted mt-2 max-w-lg mx-auto leading-relaxed">
-                Your payment screenshot and details have been submitted to the <strong className="text-white">Admin Console</strong>. The payment has <strong className="text-amber-300">not</strong> been finalized yet and your subscription has <strong className="text-amber-300">not</strong> been automatically renewed.
+              <p className="text-xs text-text-muted mt-1">
+                Your QR Ph payment has been successfully recorded in our ledger.
               </p>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px] font-mono rounded-full mt-3">
-                <Send size={11} /> Telegram Bot Alert Dispatched to Admin NOC
-              </div>
             </div>
           </div>
 
-          {/* Uploaded Screenshot Proof Preview */}
-          {submittedRecord.screenshotUrl && (
-            <div className="mb-6 bg-slate-950/90 border border-amber-500/20 p-4 rounded-xl space-y-2">
-              <div className="flex items-center justify-between text-[11px] font-mono uppercase text-amber-400 font-bold tracking-wider">
-                <span className="flex items-center gap-1.5">
-                  <ImageIcon size={14} /> Uploaded Proof of Payment
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
-                  className="text-[10px] text-text-muted hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Eye size={12} /> View Full Image
-                </button>
-              </div>
-              <div
-                onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
-                className="cursor-pointer group relative overflow-hidden rounded-lg border border-slate-800 bg-black/60 max-h-48 flex items-center justify-center"
-              >
-                <img
-                  src={submittedRecord.screenshotUrl}
-                  alt="Uploaded payment proof"
-                  className="max-h-48 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-mono font-bold uppercase">
-                  <Eye size={16} /> Click to Expand
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Payment & Settlement Details Box */}
-          <div className="bg-slate-950/80 border border-slate-800 p-5 sm:p-6 rounded-xl space-y-3.5 font-mono text-xs">
+          {/* Receipt Details Box */}
+          <div className="bg-slate-950/80 border border-slate-800 p-5 sm:p-6 rounded-xl space-y-4 font-mono text-xs">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Payment Status</span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-[10px] tracking-wider uppercase rounded">
-                <Clock size={11} className="animate-spin" /> Waiting for Admin Confirmation
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Customer Name</span>
-              <span className="text-white font-bold">{submittedRecord.customerName || profile?.displayName || "Subscriber"}</span>
-            </div>
-
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Account ID</span>
-              <span className="text-primary font-bold">{submittedRecord.accountNumber}</span>
-            </div>
-
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Payment Method</span>
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Channel</span>
               <span className="text-white font-bold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                {submittedRecord.method}
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                QR Ph (PayMongo)
               </span>
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Transaction / Ref ID</span>
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Subscriber ID</span>
+              <span className="text-white font-bold">{submittedRecord.accountNumber}</span>
+            </div>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Plan / Tier</span>
+              <span className="text-white font-bold">{submittedRecord.planName || "Fiber Internet"}</span>
+            </div>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Reference No.</span>
               <span className="text-primary font-bold break-all text-[11px] sm:text-xs">
                 {submittedRecord.referenceNumber}
               </span>
             </div>
 
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <span className="text-text-muted uppercase tracking-wider text-[11px]">Date &amp; Time Submitted</span>
-              <span className="text-text-dim text-[11px]">
-                {new Date().toLocaleString("en-PH", {
-                  timeZone: "Asia/Manila",
-                  month: "short",
-                  day: "2-digit",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            </div>
+            {submittedRecord.qrId && (
+              <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+                <span className="text-text-muted uppercase tracking-wider text-[11px]">PayMongo QR ID</span>
+                <span className="text-text-dim text-[10px] break-all">{submittedRecord.qrId}</span>
+              </div>
+            )}
 
             <div className="flex justify-between items-center pt-1">
-              <span className="text-text-muted uppercase tracking-wider text-xs">Payment Amount</span>
+              <span className="text-text-muted uppercase tracking-wider text-xs">Settlement Amount</span>
               <span className="text-lg sm:text-xl font-bold text-white">
                 ₱ {submittedRecord.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
               </span>
             </div>
-          </div>
-
-          {/* Compliance & Policy Advisory */}
-          <div className="mt-5 p-4 rounded-xl bg-amber-950/30 border border-amber-500/20 text-amber-200/90 text-[11px] leading-relaxed space-y-1">
-            <p className="font-bold flex items-center gap-1.5 text-amber-400">
-              <AlertTriangle size={13} /> Admin Confirmation Required:
-            </p>
-            <p className="text-text-muted text-[10px]">
-              This payment will be finalized only after an authorized administrator reviews your uploaded proof in the Admin Console and clicks <strong>Confirm Settlement</strong>. Subscription renewal or extension remains a separate manual admin action.
-            </p>
           </div>
 
           {/* Action Buttons */}
@@ -570,52 +503,22 @@ export function PaymentSection({
               onClick={() => {
                 setIsSubmitted(false);
                 setSubmittedRecord(null);
-                setReceiptPreview(null);
-                setReceiptFile(null);
-                setCustomerRefNumber("");
                 generateQRPh(amount);
               }}
-              className="flex-1 py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center cursor-pointer"
+              className="flex-1 py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center"
             >
-              Submit Another Settlement
+              New Payment
             </button>
             <button
               onClick={() => {
                 if (onSuccess) onSuccess();
               }}
-              className="flex-1 py-3.5 px-4 bg-primary hover:bg-primary-dark text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-primary/20"
+              className="flex-1 py-3.5 px-4 bg-primary hover:bg-primary-dark text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center flex items-center justify-center gap-2"
             >
               Go to Subscriber Portal <ArrowRight size={14} />
             </button>
           </div>
         </motion.div>
-
-        {/* Lightbox for Viewing Proof Screenshot */}
-        <AnimatePresence>
-          {viewingProof && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-              onClick={() => setViewingProof(null)}
-            >
-              <div className="relative max-w-3xl w-full max-h-[90vh] flex flex-col items-center">
-                <button
-                  onClick={() => setViewingProof(null)}
-                  className="absolute -top-10 right-0 text-white hover:text-primary transition-colors text-xs font-mono uppercase tracking-wider flex items-center gap-1 cursor-pointer"
-                >
-                  Close [ESC]
-                </button>
-                <img
-                  src={viewingProof}
-                  alt="Proof screenshot expanded"
-                  className="max-h-[85vh] w-auto max-w-full rounded-xl border border-slate-700 shadow-2xl object-contain"
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </section>
     );
   }
@@ -943,14 +846,14 @@ export function PaymentSection({
             className="bg-slate-900/80 border border-border-subtle rounded-2xl p-5 sm:p-7 shadow-xl space-y-5"
           >
             <div className="pb-3 border-b border-slate-800">
-              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400 font-bold block">
-                Settlement Verification
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted font-bold block">
+                Verification Ledger
               </span>
               <h3 className="text-base font-bold text-white mt-0.5">
                 Confirm Your Payment
               </h3>
               <p className="text-[11px] text-text-muted mt-0.5">
-                Upload your payment screenshot below to create a <strong>Pending Settlement</strong> request. An administrator will review your proof in the Admin Console.
+                After completing payment in your bank or e-wallet app, enter your reference number or upload your confirmation slip below.
               </p>
             </div>
 
@@ -971,18 +874,17 @@ export function PaymentSection({
               </p>
             </div>
 
-            {/* Screenshot Receipt Upload (Required Proof) */}
+            {/* Optional Screenshot Receipt Upload */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted flex items-center justify-between">
-                <span>Payment Screenshot / Proof (Required)</span>
-                <span className="text-amber-400 text-[9px] font-bold">Admin Verification</span>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
+                Receipt Attachment (Optional Proof)
               </label>
 
               <div
                 onClick={() => document.getElementById("qr-receipt-upload")?.click()}
                 className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${
                   receiptPreview
-                    ? "border-amber-500/80 bg-amber-500/5"
+                    ? "border-primary bg-primary/5"
                     : "border-slate-800 hover:border-slate-700 bg-slate-950/60"
                 }`}
               >
@@ -999,20 +901,20 @@ export function PaymentSection({
                     <img
                       src={receiptPreview}
                       alt="Receipt preview"
-                      className="max-h-36 mx-auto rounded-lg object-contain shadow-md border border-amber-500/30"
+                      className="max-h-36 mx-auto rounded-lg object-contain shadow-md"
                     />
-                    <div className="text-[10px] font-mono text-amber-400 font-bold uppercase">
+                    <div className="text-[10px] font-mono text-primary font-bold uppercase">
                       Tap to replace screenshot
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-1 py-2">
-                    <Upload size={22} className="text-amber-400 mx-auto mb-1" />
-                    <div className="text-xs font-mono font-bold text-slate-200">
-                      Upload Payment Proof Screenshot
+                    <Upload size={22} className="text-text-muted mx-auto mb-1" />
+                    <div className="text-xs font-mono font-bold text-slate-300">
+                      Upload Confirmation Screenshot
                     </div>
                     <div className="text-[10px] font-mono text-text-muted">
-                      PNG, JPG up to 5MB • Required for settlement confirmation
+                      PNG, JPG up to 5MB
                     </div>
                   </div>
                 )}
@@ -1023,23 +925,19 @@ export function PaymentSection({
             <button
               type="submit"
               disabled={isSubmitting || isGenerating || !user}
-              className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-mono font-black uppercase tracking-[0.18em] text-xs sm:text-sm rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 italic cursor-pointer min-h-[48px]"
+              className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-mono font-black uppercase tracking-[0.2em] text-xs sm:text-sm rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 italic cursor-pointer min-h-[48px]"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw size={16} className="animate-spin" />
-                  Creating Pending Settlement...
+                  Recording Settlement...
                 </>
               ) : (
                 <>
-                  Submit Proof for Settlement <ArrowRight size={16} />
+                  Confirm Settlement <ArrowRight size={16} />
                 </>
               )}
             </button>
-
-            <p className="text-[10px] font-mono text-center text-text-muted leading-relaxed">
-              Creates a <strong>Pending Settlement</strong> with status <em>“Waiting for Admin Confirmation”</em>. No automatic plan renewal or due date extension will occur until confirmed by an admin.
-            </p>
 
             {!user && (
               <p className="text-[10px] font-mono text-center text-primary font-bold uppercase tracking-wider">

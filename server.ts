@@ -3,17 +3,6 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import { initializeApp as initAdminApp, getApps as getAdminApps } from "firebase-admin/app";
-import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
-import {
-  evaluateSubscriberStatus,
-  parseSubscriberDueInstant,
-  formatToPHTDate,
-  formatToPHTTime,
-  formatPHTFriendly,
-  calculateNextRenewalCycle,
-  ASIA_TIMEZONE,
-} from "./src/lib/billingEngine.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,11 +107,11 @@ async function startServer() {
 
   // PayMongo QR Ph (Merchant-Presented Mode) Dynamic Generation Endpoint
   function getPayMongoAuthHeader(): string {
-    let raw = (process.env.PAYMONGO_SECRET_KEY || process.env.PAYMONGO_AUTH_HEADER || "").trim();
-
-    if (!raw) {
-      return "";
-    }
+    let raw = (
+      process.env.PAYMONGO_SECRET_KEY ||
+      process.env.PAYMONGO_AUTH_HEADER ||
+      "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+    ).trim();
 
     // Strip wrapping double or single quotes
     if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
@@ -135,7 +124,7 @@ async function startServer() {
         const decoded = Buffer.from(raw.slice(6).trim(), "base64").toString("utf-8");
         raw = decoded.split(":")[0];
       } catch {
-        return "";
+        raw = "sk_live_DUN5bW3paRw54UjhXfCHddTk";
       }
     }
 
@@ -144,20 +133,12 @@ async function startServer() {
       raw = raw.split(":")[0].trim();
     }
 
-    if (!raw) return "";
-
     // PayMongo requires Basic authentication with username=secret_key and empty password
     return `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
   }
 
   const handlePayMongoGenerate = async (req: express.Request, res: express.Response) => {
     try {
-      const authHeader = getPayMongoAuthHeader();
-      if (!authHeader) {
-        return res.status(500).json({
-          error: "PAYMONGO_SECRET_KEY is not configured. Please set PAYMONGO_SECRET_KEY in environment variables.",
-        });
-      }
       const { amount, expiry_seconds, mobile_number, notes } = req.body || {};
       const parsedAmount = Number(amount);
       if (!parsedAmount || isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -181,6 +162,8 @@ async function startServer() {
           },
         },
       };
+
+      const authHeader = getPayMongoAuthHeader();
 
       const response = await fetch("https://api.paymongo.com/v1/qrph/generate", {
         method: "POST",
@@ -317,341 +300,51 @@ ${timestamp}
 🌐 Source:
 Hotfast.online`;
 
-      const tgResult = await sendTelegramNotification({ text: telegramText });
+      // Server-side Telegram Bot API notification
+      // Note: TELEGRAM_BOT_TOKEN is strictly private and never leaked in client response
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      const chatId = process.env.TELEGRAM_CHAT_ID || "8732198426";
+      let telegramSent = false;
+
+      if (!botToken || botToken.trim() === "" || botToken === "YOUR_NEW_TELEGRAM_BOT_TOKEN") {
+        console.warn(
+          "⚠️ [Telegram Support] TELEGRAM_BOT_TOKEN is not configured in environment variables. Telegram notification was skipped. Ticket logged."
+        );
+      } else {
+        try {
+          const tgUrl = `https://api.telegram.org/bot${botToken.trim()}/sendMessage`;
+          const response = await fetch(tgUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: telegramText,
+            }),
+          });
+
+          const resData: any = await response.json().catch(() => ({}));
+          if (response.ok && resData?.ok) {
+            telegramSent = true;
+            console.log(`✅ [Telegram Support] Support ticket forwarded to Telegram Admin Chat ${chatId}`);
+          } else {
+            console.error("❌ [Telegram Support] Telegram API response error:", resData?.description || response.statusText);
+          }
+        } catch (tgError: any) {
+          // Graceful handling of Telegram network or API errors without crashing or exposing token
+          console.error("❌ [Telegram Support] Error contacting Telegram Bot API:", tgError?.message || tgError);
+        }
+      }
 
       return res.status(200).json({
         success: true,
         message: "Your support request has been successfully submitted! Our Hotfast support administrator has been notified.",
         ticketId,
-        telegramNotified: tgResult.success,
+        telegramNotified: telegramSent,
       });
     } catch (err: any) {
       console.error("Support submission server error:", err?.message || err);
       return res.status(500).json({
         error: "An unexpected error occurred while processing your support request. Please try again shortly.",
-      });
-    }
-  });
-
-  // =========================================================================
-  // TELEGRAM BOT NOTIFICATIONS ENGINE (Hotfast PH)
-  // For Real-Time Payment Proof Settlement & NOC System Alerts
-  // =========================================================================
-  interface TelegramConfig {
-    botToken: string;
-    chatId: string;
-    enabled: boolean;
-  }
-
-  const telegramConfigFile = path.join(process.cwd(), "telegram-config.json");
-
-  function getTelegramConfig(): TelegramConfig {
-    let token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
-    let chat = (process.env.TELEGRAM_CHAT_ID || "8732198426").trim();
-    let enabled = true;
-
-    try {
-      if (fs.existsSync(telegramConfigFile)) {
-        const parsed = JSON.parse(fs.readFileSync(telegramConfigFile, "utf-8"));
-        if (parsed.botToken && typeof parsed.botToken === "string") token = parsed.botToken.trim();
-        if (parsed.chatId && typeof parsed.chatId === "string") chat = parsed.chatId.trim();
-        if (typeof parsed.enabled === "boolean") enabled = parsed.enabled;
-      }
-    } catch (e) {
-      // ignore read error
-    }
-
-    return { botToken: token, chatId: chat, enabled };
-  }
-
-  function saveTelegramConfig(config: Partial<TelegramConfig>): TelegramConfig {
-    const current = getTelegramConfig();
-    const updated: TelegramConfig = {
-      botToken: typeof config.botToken === "string" ? config.botToken.trim() : current.botToken,
-      chatId: typeof config.chatId === "string" ? config.chatId.trim() : current.chatId,
-      enabled: typeof config.enabled === "boolean" ? config.enabled : current.enabled,
-    };
-    try {
-      fs.writeFileSync(telegramConfigFile, JSON.stringify(updated, null, 2), "utf-8");
-    } catch (e) {
-      console.warn("Could not persist telegram-config.json to disk:", e);
-    }
-    return updated;
-  }
-
-  async function sendTelegramNotification(options: {
-    text: string;
-    photoUrlOrBase64?: string;
-  }): Promise<{ success: boolean; error?: string }> {
-    const { botToken, chatId, enabled } = getTelegramConfig();
-
-    if (!enabled) {
-      console.log("ℹ️ [Telegram Bot] Telegram notifications are currently disabled in configuration.");
-      return { success: false, error: "Telegram notifications disabled in configuration." };
-    }
-
-    if (!botToken || botToken.trim() === "" || botToken === "YOUR_NEW_TELEGRAM_BOT_TOKEN") {
-      console.warn("⚠️ [Telegram Bot] TELEGRAM_BOT_TOKEN is not configured. Telegram notification was skipped.");
-      return { success: false, error: "TELEGRAM_BOT_TOKEN is not configured." };
-    }
-
-    const token = botToken.trim();
-    const chat = chatId || "8732198426";
-
-    // Attempt sending image photo if a screenshot/receipt proof was provided
-    if (options.photoUrlOrBase64 && options.photoUrlOrBase64.trim() !== "") {
-      const rawPhoto = options.photoUrlOrBase64.trim();
-
-      // 1. Data URI base64 image (e.g. data:image/png;base64,...)
-      if (rawPhoto.startsWith("data:image/")) {
-        try {
-          const matches = rawPhoto.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-            const mimeType = matches[1];
-            const base64Data = matches[2];
-            const buffer = Buffer.from(base64Data, "base64");
-            const extension = mimeType.split("/")[1] || "jpg";
-            const blob = new Blob([buffer], { type: mimeType });
-
-            const formData = new FormData();
-            formData.append("chat_id", chat);
-            formData.append("photo", blob, `payment_proof_${Date.now()}.${extension}`);
-            // Telegram caption limit is 1024 characters
-            const caption = options.text.length > 1020 ? options.text.slice(0, 1016) + "..." : options.text;
-            formData.append("caption", caption);
-
-            const photoResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-              method: "POST",
-              body: formData,
-            });
-            const photoData: any = await photoResp.json().catch(() => ({}));
-            if (photoResp.ok && photoData?.ok) {
-              console.log(`✅ [Telegram Bot] Settlement screenshot & caption forwarded to Telegram Chat ${chat}`);
-              return { success: true };
-            } else {
-              console.warn("⚠️ [Telegram Bot] sendPhoto returned error, attempting text fallback:", photoData?.description || photoResp.statusText);
-            }
-          }
-        } catch (photoErr: any) {
-          console.warn("⚠️ [Telegram Bot] Error uploading photo, attempting text fallback:", photoErr?.message || photoErr);
-        }
-      } else if (rawPhoto.startsWith("http://") || rawPhoto.startsWith("https://")) {
-        // 2. Direct public image URL
-        try {
-          const caption = options.text.length > 1020 ? options.text.slice(0, 1016) + "..." : options.text;
-          const photoResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: chat,
-              photo: rawPhoto,
-              caption,
-            }),
-          });
-          const photoData: any = await photoResp.json().catch(() => ({}));
-          if (photoResp.ok && photoData?.ok) {
-            console.log(`✅ [Telegram Bot] Settlement screenshot (URL) forwarded to Telegram Chat ${chat}`);
-            return { success: true };
-          }
-        } catch (photoErr: any) {
-          console.warn("⚠️ [Telegram Bot] Error sending photo URL, attempting text fallback:", photoErr?.message || photoErr);
-        }
-      }
-    }
-
-    // Text message sending (standard or fallback)
-    try {
-      const textResp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chat,
-          text: options.text,
-        }),
-      });
-      const textData: any = await textResp.json().catch(() => ({}));
-      if (textResp.ok && textData?.ok) {
-        console.log(`✅ [Telegram Bot] Notification text sent to Telegram Chat ${chat}`);
-        return { success: true };
-      } else {
-        console.error("❌ [Telegram Bot] Telegram sendMessage error:", textData?.description || textResp.statusText);
-        return { success: false, error: textData?.description || textResp.statusText };
-      }
-    } catch (err: any) {
-      console.error("❌ [Telegram Bot] Failed contacting Telegram API:", err?.message || err);
-      return { success: false, error: err?.message || String(err) };
-    }
-  }
-
-  // Client Settlement Proof Submission Telegram Alert
-  app.post("/api/telegram/payment-settlement", async (req, res) => {
-    try {
-      const {
-        customerName,
-        accountNumber,
-        clientId,
-        amount,
-        method,
-        referenceNumber,
-        planName,
-        screenshotUrl,
-        submittedAt,
-        paymentId,
-      } = req.body || {};
-
-      const cleanName = typeof customerName === "string" && customerName.trim() ? customerName.trim() : "Subscriber";
-      const cleanAccount = typeof accountNumber === "string" && accountNumber.trim() ? accountNumber.trim() : "N/A";
-      const cleanClientId = typeof clientId === "string" && clientId.trim() ? clientId.trim() : "";
-      const parsedAmount = Number(amount) || 0;
-      const cleanMethod = typeof method === "string" && method.trim() ? method.trim() : "QR Ph (PayMongo)";
-      const cleanRef = typeof referenceNumber === "string" && referenceNumber.trim() ? referenceNumber.trim() : "N/A";
-      const cleanPlan = typeof planName === "string" && planName.trim() ? planName.trim() : "Fiber Internet Plan";
-
-      // Formatted timestamp in Philippine Standard Time
-      const phtTimestamp = submittedAt
-        ? new Date(submittedAt).toLocaleString("en-PH", {
-            timeZone: "Asia/Manila",
-            dateStyle: "medium",
-            timeStyle: "short",
-          })
-        : new Date().toLocaleString("en-PH", {
-            timeZone: "Asia/Manila",
-            dateStyle: "medium",
-            timeStyle: "short",
-          });
-
-      const formattedAmount = `₱${parsedAmount.toLocaleString("en-PH", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`;
-
-      const telegramText = `⚡️ [HOTFAST PH] PENDING SETTLEMENT SUBMITTED ⚡️
-
-👤 Customer: ${cleanName}
-🆔 Account No: #${cleanAccount}${cleanClientId ? `\n🏷 Client ID: ${cleanClientId}` : ""}
-📦 Plan: ${cleanPlan}
-💰 Amount: ${formattedAmount}
-💳 Method: ${cleanMethod}
-🔖 Reference ID: ${cleanRef}
-${paymentId ? `🗂 Payment ID: ${paymentId}\n` : ""}🕐 Submitted (PHT): ${phtTimestamp}
-⏳ Status: Waiting for Admin Confirmation
-
-⚠️ ACTION REQUIRED:
-• Customer has submitted payment proof screenshot.
-• Review proof in Hotfast Admin Console -> Pending Settlement.
-• Click [Confirm Settlement] to finalize payment or [Reject Payment].
-• Note: Subscription renewal remains a separate manual admin action.
-
-🌐 Hotfast.online Core Billing`;
-
-      const notifyResult = await sendTelegramNotification({
-        text: telegramText,
-        photoUrlOrBase64: screenshotUrl,
-      });
-
-      return res.status(200).json({
-        success: true,
-        telegramNotified: notifyResult.success,
-        error: notifyResult.error,
-        message: notifyResult.success
-          ? "Telegram notification dispatched successfully to Admin Bot."
-          : "Settlement logged. Note: " + (notifyResult.error || "Telegram notification pending."),
-      });
-    } catch (err: any) {
-      console.error("Error processing settlement Telegram notification:", err?.message || err);
-      return res.status(500).json({
-        error: "Internal error processing Telegram settlement notification.",
-        message: err?.message || String(err),
-      });
-    }
-  });
-
-  // Get Telegram configuration status
-  app.get("/api/telegram/settings", (req, res) => {
-    const config = getTelegramConfig();
-    const token = config.botToken;
-    const masked =
-      token && token.length > 8
-        ? `${token.slice(0, 4)}...${token.slice(-4)}`
-        : token ? "••••••••" : "";
-
-    return res.json({
-      configured: Boolean(token && token !== "YOUR_NEW_TELEGRAM_BOT_TOKEN"),
-      chatId: config.chatId,
-      enabled: config.enabled,
-      maskedToken: masked,
-    });
-  });
-
-  // Update Telegram configuration
-  app.post("/api/telegram/settings", (req, res) => {
-    const { botToken, chatId, enabled } = req.body || {};
-    const updated = saveTelegramConfig({ botToken, chatId, enabled });
-    const masked =
-      updated.botToken && updated.botToken.length > 8
-        ? `${updated.botToken.slice(0, 4)}...${updated.botToken.slice(-4)}`
-        : updated.botToken ? "••••••••" : "";
-
-    return res.json({
-      success: true,
-      configured: Boolean(updated.botToken && updated.botToken !== "YOUR_NEW_TELEGRAM_BOT_TOKEN"),
-      chatId: updated.chatId,
-      enabled: updated.enabled,
-      maskedToken: masked,
-    });
-  });
-
-  // Send a test Telegram notification to verify bot setup
-  app.post("/api/telegram/test", async (req, res) => {
-    const { customToken, customChatId } = req.body || {};
-    const current = getTelegramConfig();
-    const token = customToken || current.botToken;
-    const chat = customChatId || current.chatId || "8732198426";
-
-    if (!token || token.trim() === "" || token === "YOUR_NEW_TELEGRAM_BOT_TOKEN") {
-      return res.status(400).json({
-        error: "TELEGRAM_BOT_TOKEN is not configured. Please provide a valid bot token from @BotFather.",
-      });
-    }
-
-    const testTime = new Date().toLocaleString("en-PH", {
-      timeZone: "Asia/Manila",
-      dateStyle: "full",
-      timeStyle: "medium",
-    });
-
-    const testMessage = `🤖 [HOTFAST PH] TELEGRAM BOT TEST NOTIFICATION
-
-✅ Connection successful!
-Your Telegram bot is operational and configured to receive real-time subscriber payment settlement alerts and NOC support tickets.
-
-🕐 Philippine Time: ${testTime}
-🌐 Source: Hotfast.online Core Network`;
-
-    try {
-      const resp = await fetch(`https://api.telegram.org/bot${token.trim()}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chat,
-          text: testMessage,
-        }),
-      });
-
-      const data: any = await resp.json().catch(() => ({}));
-      if (resp.ok && data?.ok) {
-        return res.json({
-          success: true,
-          message: `Test notification successfully delivered to Telegram Chat ${chat}!`,
-        });
-      } else {
-        return res.status(400).json({
-          error: data?.description || `Telegram API error (${resp.statusText})`,
-        });
-      }
-    } catch (err: any) {
-      return res.status(500).json({
-        error: "Failed contacting Telegram Bot API: " + (err?.message || String(err)),
       });
     }
   });
@@ -681,357 +374,6 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
   app.delete("/api/auth/session", (req, res) => {
     res.setHeader("Set-Cookie", `hf_admin_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
     return res.json({ ok: true, loggedOut: true });
-  });
-
-  // =========================================================================
-  // AUTOMATED SUBSCRIBER BILLING STATUS SYSTEM (Hotfast PH)
-  // Authoritative Server Time in Philippine Standard Time (Asia/Manila)
-  // =========================================================================
-  let adminDb: any = null;
-  try {
-    const adminApp =
-      getAdminApps().length > 0
-        ? getAdminApps()[0]
-        : initAdminApp({
-            projectId: firebaseConfig.projectId,
-          });
-    const dbId =
-      firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)"
-        ? firebaseConfig.firestoreDatabaseId
-        : "(default)";
-    adminDb = getAdminFirestore(adminApp, dbId);
-  } catch (e) {
-    console.warn("Could not initialize firebase-admin Firestore:", e);
-  }
-
-  interface SubscriberBillingRecord {
-    uid: string;
-    accountNumber?: string;
-    displayName?: string;
-    email?: string;
-    balance?: number;
-    dueDate?: any;
-    billStatus?: "paid" | "due" | "overdue";
-    status?: "active" | "suspended";
-    due_date?: string;
-    due_time?: string;
-    payment_status?: "unpaid" | "processing" | "paid" | "rejected";
-    subscription_status?: "ACTIVE" | "DUE" | "OVERDUE" | "PAID";
-    lastStatusCheck?: any;
-  }
-
-  let lastBillingCheckTime: Date | null = null;
-  let lastBillingCheckStats = {
-    totalChecked: 0,
-    active: 0,
-    due: 0,
-    overdue: 0,
-    paid: 0,
-    transitions: 0,
-  };
-
-  async function fetchSubscribersFromFirestore(): Promise<SubscriberBillingRecord[]> {
-    const subscribers: SubscriberBillingRecord[] = [];
-
-    // 1. Try firebase-admin SDK first
-    if (adminDb) {
-      try {
-        const snap = await adminDb.collection("users").get();
-        snap.forEach((d: any) => {
-          subscribers.push({ uid: d.id, ...d.data() });
-        });
-        if (subscribers.length > 0) return subscribers;
-      } catch (adminErr: any) {
-        console.warn("adminDb users query failed, trying REST API fallback:", adminErr?.message || adminErr);
-      }
-    }
-
-    // 2. Failsafe fallback: Firestore REST API with applet API key
-    if (firebaseConfig.projectId && firebaseConfig.apiKey) {
-      try {
-        const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
-        const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${dbId}/documents/users?key=${firebaseConfig.apiKey}&pageSize=300`;
-        const resp = await fetch(url);
-        if (resp.ok) {
-          const json: any = await resp.json();
-          const documents = json.documents || [];
-          for (const d of documents) {
-            const pathParts = d.name.split("/");
-            const uid = pathParts[pathParts.length - 1];
-            const fields = d.fields || {};
-            const sub: SubscriberBillingRecord = {
-              uid,
-              accountNumber: fields.accountNumber?.stringValue || "",
-              displayName: fields.displayName?.stringValue || "",
-              email: fields.email?.stringValue || "",
-              balance: Number(fields.balance?.integerValue || fields.balance?.doubleValue || 0),
-              billStatus: fields.billStatus?.stringValue,
-              status: fields.status?.stringValue,
-              due_date: fields.due_date?.stringValue,
-              due_time: fields.due_time?.stringValue,
-              payment_status: fields.payment_status?.stringValue,
-              subscription_status: fields.subscription_status?.stringValue,
-              dueDate: fields.dueDate?.timestampValue || fields.dueDate?.stringValue,
-            };
-            subscribers.push(sub);
-          }
-        }
-      } catch (restErr) {
-        console.error("Firestore REST fetch error:", restErr);
-      }
-    }
-
-    return subscribers;
-  }
-
-  async function updateSubscriberInFirestore(uid: string, updates: Record<string, any>): Promise<boolean> {
-    if (adminDb) {
-      try {
-        await adminDb.collection("users").doc(uid).set(updates, { merge: true });
-        return true;
-      } catch {
-        // Fall through to REST
-      }
-    }
-
-    if (firebaseConfig.projectId && firebaseConfig.apiKey) {
-      try {
-        const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
-        const fieldMasks = Object.keys(updates)
-          .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
-          .join("&");
-        const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${dbId}/documents/users/${uid}?${fieldMasks}&key=${firebaseConfig.apiKey}`;
-
-        const fields: Record<string, any> = {};
-        for (const [k, v] of Object.entries(updates)) {
-          if (typeof v === "string") fields[k] = { stringValue: v };
-          else if (typeof v === "number") fields[k] = { doubleValue: v };
-          else if (typeof v === "boolean") fields[k] = { booleanValue: v };
-          else if (v instanceof Date) fields[k] = { timestampValue: v.toISOString() };
-          else if (v === null) fields[k] = { nullValue: null };
-        }
-
-        const resp = await fetch(url, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fields }),
-        });
-        return resp.ok;
-      } catch (restErr) {
-        console.error("Firestore REST update error:", restErr);
-      }
-    }
-    return false;
-  }
-
-  async function runAutomatedBillingStatusCheck(): Promise<{
-    checkedAt: string;
-    authoritativeTimePHT: string;
-    totalSubscribers: number;
-    updatedCount: number;
-    stats: typeof lastBillingCheckStats;
-    evaluations: any[];
-  }> {
-    const serverNow = new Date();
-    const subscribers = await fetchSubscribersFromFirestore();
-
-    let updatedCount = 0;
-    const stats = {
-      totalChecked: subscribers.length,
-      active: 0,
-      due: 0,
-      overdue: 0,
-      paid: 0,
-      transitions: 0,
-    };
-
-    const evaluations: any[] = [];
-
-    for (const sub of subscribers) {
-      const evaluation = evaluateSubscriberStatus(sub, serverNow);
-      evaluations.push({
-        uid: sub.uid,
-        accountNumber: sub.accountNumber,
-        displayName: sub.displayName,
-        ...evaluation,
-      });
-
-      if (evaluation.subscription_status === "ACTIVE") stats.active++;
-      else if (evaluation.subscription_status === "DUE") stats.due++;
-      else if (evaluation.subscription_status === "OVERDUE") stats.overdue++;
-      else if (evaluation.subscription_status === "PAID") stats.paid++;
-
-      const needsUpdate =
-        sub.subscription_status !== evaluation.subscription_status ||
-        sub.payment_status !== evaluation.payment_status ||
-        !sub.due_date ||
-        !sub.due_time;
-
-      if (needsUpdate) {
-        stats.transitions++;
-        console.log(
-          `[Billing Engine] Transition for subscriber ${sub.accountNumber || sub.uid}: ` +
-          `status: ${sub.subscription_status || "NONE"} -> ${evaluation.subscription_status}, ` +
-          `payment: ${sub.payment_status || "NONE"} -> ${evaluation.payment_status} ` +
-          `(Due: ${evaluation.due_date} ${evaluation.due_time} PHT)`
-        );
-
-        const legacyBillStatus =
-          evaluation.subscription_status === "PAID"
-            ? "paid"
-            : evaluation.subscription_status === "OVERDUE"
-            ? "overdue"
-            : "due";
-
-        const ok = await updateSubscriberInFirestore(sub.uid, {
-          subscription_status: evaluation.subscription_status,
-          payment_status: evaluation.payment_status,
-          due_date: evaluation.due_date,
-          due_time: evaluation.due_time,
-          billStatus: legacyBillStatus,
-          lastStatusCheck: serverNow.toISOString(),
-        });
-
-        if (ok) updatedCount++;
-      }
-    }
-
-    lastBillingCheckTime = serverNow;
-    lastBillingCheckStats = stats;
-
-    return {
-      checkedAt: serverNow.toISOString(),
-      authoritativeTimePHT: formatPHTFriendly(serverNow),
-      totalSubscribers: subscribers.length,
-      updatedCount,
-      stats,
-      evaluations,
-    };
-  }
-
-  // Periodic automatic status checker (runs every 30 seconds)
-  setInterval(() => {
-    runAutomatedBillingStatusCheck().catch((err) => {
-      console.error("Automatic status checker tick error:", err);
-    });
-  }, 30000);
-
-  // Initial check on server launch (after 3 seconds)
-  setTimeout(() => {
-    runAutomatedBillingStatusCheck().catch(console.error);
-  }, 3000);
-
-  // API Route: Billing status status & summary
-  app.get("/api/billing/subscribers/status", async (req, res) => {
-    const serverNow = new Date();
-    res.json({
-      authoritativeServerTimeUTC: serverNow.toISOString(),
-      authoritativeServerTimePHT: formatPHTFriendly(serverNow),
-      timezone: ASIA_TIMEZONE,
-      lastCheckTime: lastBillingCheckTime ? lastBillingCheckTime.toISOString() : null,
-      stats: lastBillingCheckStats,
-    });
-  });
-
-  // API Route: Run authoritative check on-demand
-  app.post("/api/billing/subscribers/check", async (req, res) => {
-    try {
-      const result = await runAutomatedBillingStatusCheck();
-      res.json({ success: true, ...result });
-    } catch (err: any) {
-      console.error("Manual billing check error:", err);
-      res.status(500).json({ error: "Failed to run billing check", message: err?.message });
-    }
-  });
-
-  // API Route: Admin manual subscription renewal
-  // "Subscription renewal or extension must remain a separate manual/admin action. Only an authorized admin confirmation can trigger the subscription renewal process."
-  app.post("/api/billing/subscribers/renew", async (req, res) => {
-    if (!isAuthorizedAdminRequest(req)) {
-      return res.status(403).json({ error: "Unauthorized. Admin authorization required for subscription renewal." });
-    }
-
-    try {
-      const { uid, new_due_date, new_due_time } = req.body || {};
-      if (!uid) {
-        return res.status(400).json({ error: "Subscriber UID is required." });
-      }
-
-      const subscribers = await fetchSubscribersFromFirestore();
-      const target = subscribers.find((s) => s.uid === uid);
-      if (!target) {
-        return res.status(404).json({ error: "Subscriber not found." });
-      }
-
-      // Calculate next renewal cycle (+30 days)
-      const renewal = calculateNextRenewalCycle(target.due_date, target.due_time);
-      const dueDateFinal = new_due_date || renewal.due_date;
-      const dueTimeFinal = new_due_time || renewal.due_time;
-
-      const updates = {
-        due_date: dueDateFinal,
-        due_time: dueTimeFinal,
-        dueDate: renewal.dueDateObj.toISOString(),
-        payment_status: "unpaid",
-        subscription_status: "ACTIVE",
-        billStatus: "paid",
-        balance: 0,
-        lastStatusCheck: new Date().toISOString(),
-      };
-
-      const ok = await updateSubscriberInFirestore(uid, updates);
-      if (!ok) {
-        return res.status(500).json({ error: "Failed to write renewal to database." });
-      }
-
-      console.log(`[Admin Action] Subscription Renewed for subscriber ${target.accountNumber || uid} until ${dueDateFinal} ${dueTimeFinal} PHT`);
-
-      return res.json({
-        success: true,
-        message: `Subscription successfully renewed for ${target.displayName || uid}.`,
-        renewedUntil: `${dueDateFinal} at ${dueTimeFinal} PHT`,
-        updates,
-      });
-    } catch (err: any) {
-      console.error("Renewal endpoint error:", err);
-      return res.status(500).json({ error: "Renewal failed", message: err?.message });
-    }
-  });
-
-  // API Route: Admin update due date & time directly
-  app.post("/api/billing/subscribers/update-schedule", async (req, res) => {
-    if (!isAuthorizedAdminRequest(req)) {
-      return res.status(403).json({ error: "Unauthorized: Admin authorization required." });
-    }
-
-    try {
-      const { uid, due_date, due_time, payment_status, subscription_status } = req.body || {};
-      if (!uid) return res.status(400).json({ error: "UID required." });
-
-      const evaluation = evaluateSubscriberStatus(
-        {
-          due_date,
-          due_time,
-          payment_status,
-        },
-        new Date()
-      );
-
-      const finalStatus = subscription_status || evaluation.subscription_status;
-
-      const updates: Record<string, any> = {
-        due_date: due_date || evaluation.due_date,
-        due_time: due_time || evaluation.due_time,
-        payment_status: payment_status || evaluation.payment_status,
-        subscription_status: finalStatus,
-        lastStatusCheck: new Date().toISOString(),
-      };
-
-      const ok = await updateSubscriberInFirestore(uid, updates);
-      return res.json({ success: ok, updates, evaluation });
-    } catch (err: any) {
-      return res.status(500).json({ error: "Update failed", message: err?.message });
-    }
   });
 
   // Admin & System Access API routes authorization enforcement

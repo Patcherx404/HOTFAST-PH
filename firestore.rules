@@ -34,17 +34,14 @@ service cloud.firestore {
                data.email is string && data.email.size() <= 256 &&
                data.balance is number &&
                (!('status' in data) || data.status in ['active', 'suspended']) &&
-               (!('subscription_status' in data) || data.subscription_status in ['ACTIVE', 'DUE', 'OVERDUE', 'PAID']) &&
-               (!('payment_status' in data) || data.payment_status in ['unpaid', 'processing', 'paid', 'rejected']) &&
-               data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance']);
+               data.keys().hasAll(['uid', 'accountNumber', 'email', 'balance', 'billStatus']);
       }
 
       allow list: if isAdmin();
       allow get: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if (isOwner(userId) && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId', 'phone', 'payment_status']) &&
-                      (!('payment_status' in request.resource.data) || request.resource.data.payment_status in ['processing', 'unpaid']) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'address', 'currentPlanId', 'phone']) &&
                       isValidUser(request.resource.data)) || isAdmin();
       allow delete: if isAdmin();
     }
@@ -71,17 +68,15 @@ service cloud.firestore {
       function isValidPayment(data) {
         return data.userId == userId &&
                data.amount is number && data.amount > 0 &&
-               data.method is string && data.method.size() <= 64 &&
-               data.status in ['pending', 'confirmed', 'rejected', 'completed', 'failed'] &&
+               data.method in ['GCash', 'Maya', 'Card', 'Bank'] &&
+               data.status in ['completed', 'pending', 'failed'] &&
                data.keys().hasAll(['userId', 'amount', 'method', 'status', 'createdAt']) &&
                data.createdAt == request.time;
       }
 
       allow list: if isOwner(userId) || isAdmin();
       allow get: if isOwner(userId) || isAdmin();
-      // User can only create a Pending Settlement (cannot confirm their own payment)
-      allow create: if isOwner(userId) && isValidPayment(request.resource.data) && request.resource.data.status == 'pending';
-      // Only authorized administrator can confirm, reject, or update settlement status
+      allow create: if isOwner(userId) && isValidPayment(request.resource.data);
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -95,7 +90,6 @@ service cloud.firestore {
     // Collection Group for Admin to see all payments
     match /{path=**}/payments/{paymentId} {
       allow list: if isAdmin();
-      allow get: if isAdmin();
     }
 
     // Plans collection

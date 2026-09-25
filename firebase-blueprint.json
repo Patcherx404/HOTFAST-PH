@@ -16,11 +16,6 @@
         "balance": { "type": "number" },
         "dueDate": { "type": "string", "format": "date-time" },
         "billStatus": { "type": "string", "enum": ["paid", "due", "overdue"] },
-        "due_date": { "type": "string" },
-        "due_time": { "type": "string" },
-        "payment_status": { "type": "string", "enum": ["unpaid", "processing", "paid", "rejected"] },
-        "subscription_status": { "type": "string", "enum": ["ACTIVE", "DUE", "OVERDUE", "PAID"] },
-        "lastStatusCheck": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "accountNumber", "email", "balance"]
@@ -41,22 +36,17 @@
     },
     "payments": {
       "title": "Payment Records",
-      "description": "Historical logs of customer payments and pending settlement requests.",
+      "description": "Historical logs of all customer payments.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "userId": { "type": "string" },
-        "customerName": { "type": "string" },
         "accountNumber": { "type": "string" },
         "amount": { "type": "number" },
-        "method": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "confirmed", "rejected", "completed", "failed"] },
+        "method": { "type": "string", "enum": ["GCash", "Maya", "Card", "Bank"] },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] },
         "referenceNumber": { "type": "string" },
-        "screenshotUrl": { "type": "string" },
-        "rejectionReason": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" },
-        "audit": { "type": "object" }
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "amount", "method", "status", "createdAt"]
     },
