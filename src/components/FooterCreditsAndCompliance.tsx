@@ -120,8 +120,15 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
               <div className="p-4 rounded-xl bg-slate-900/80 border border-border-subtle/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center text-center group/card hover:shadow-md hover:shadow-primary/10">
                 <div className="relative mb-3">
                   <img
-                    src="/personnels/it-admin.jpg"
+                    src="/personal/it-is-admin.jpg"
                     alt="IT Administrator"
+                    onError={(e) => {
+                      // Fallback to alternate local directory paths
+                      const target = e.target as HTMLImageElement;
+                      if (!target.src.includes('it-admin.jpg')) {
+                        target.src = '/personnels/it-admin.jpg';
+                      }
+                    }}
                     className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border-2 border-primary/40 group-hover/card:border-primary transition-all duration-300 shadow-md shadow-black/50"
                   />
                   <span 
@@ -153,8 +160,14 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
               <div className="p-4 rounded-xl bg-slate-900/80 border border-border-subtle/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center text-center group/card hover:shadow-md hover:shadow-primary/10">
                 <div className="relative mb-3">
                   <img
-                    src="/personnels/reumel.jpg"
+                    src="/personal/reumel.jpg"
                     alt="Onsite Manager"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (!target.src.includes('/personnels/reumel.jpg')) {
+                        target.src = '/personnels/reumel.jpg';
+                      }
+                    }}
                     className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border-2 border-primary/40 group-hover/card:border-primary transition-all duration-300 shadow-md shadow-black/50"
                   />
                   <span 

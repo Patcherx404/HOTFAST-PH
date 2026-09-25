@@ -50,7 +50,8 @@ export default defineConfig(({mode}) => {
           maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
+          type: 'module',
         },
       }),
     ],
@@ -74,7 +75,7 @@ export default defineConfig(({mode}) => {
       rollupOptions: {
         output: {
           manualChunks: {
-            vendor: ['react', 'react-dom', 'motion', 'lucide-react'],
+            vendor: ['react', 'react-dom', 'framer-motion', 'lucide-react'],
           },
         },
       },
