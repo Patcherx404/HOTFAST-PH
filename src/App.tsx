@@ -58,6 +58,7 @@ import {
   Save,
   Code2,
   LifeBuoy,
+  Bot,
 } from "lucide-react";
 import { INTERNET_PLANS, ADMIN_EMAIL, isSuperAdminEmail } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
@@ -73,7 +74,17 @@ import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndComplia
 import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { PaymentSection } from "./components/PaymentSection";
 import { toast, Toaster } from "sonner";
-import { ASIA_TIMEZONE } from "./lib/dateUtils";
+import {
+  evaluateSubscriberStatus,
+  parseSubscriberDueInstant,
+  formatToPHTDate,
+  formatToPHTTime,
+  formatPHTFriendly,
+  calculateNextRenewalCycle,
+  ASIA_TIMEZONE,
+  GRACE_PERIOD_HOURS,
+  SubscriberStatusEvaluation,
+} from "./lib/billingEngine";
 import {
   loginWithGoogle,
   logout,
@@ -1592,6 +1603,8 @@ function CustomerPortal({
     .filter((p) => p.status === "pending")
     .reduce((acc, p) => acc + p.amount, 0);
 
+  const billingEval = evaluateSubscriberStatus(profile);
+
   return (
     <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
       {onOpenInstallModal && !isInstalled && (
@@ -1651,61 +1664,65 @@ function CustomerPortal({
                 <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
 
                 <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Next Settlement</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest flex items-center gap-1.5 italic">
-                      <Calendar size={10} className="text-primary shrink-0" /> 
-                      {profile?.dueDate?.toDate 
-                        ? profile.dueDate.toDate().toLocaleString('en-PH', { 
-                            timeZone: ASIA_TIMEZONE,
-                            month: '2-digit', 
-                            day: '2-digit', 
-                            year: 'numeric'
-                          }) 
-                        : "N/A"}
-                    </span>
-                    {daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0 && profile?.billStatus !== 'paid' && (
-                      <span className="text-[7px] font-black bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm animate-pulse tracking-tighter">
-                        -{daysRemaining}D
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Exact Due Date &amp; Time</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                        <Calendar size={10} className="text-primary shrink-0" /> 
+                        {billingEval.due_date} • {billingEval.due_time}
                       </span>
-                    )}
+                    </div>
+                    <span className="text-[8px] font-mono text-slate-400">
+                      Philippine Time (Asia/Manila)
+                    </span>
                   </div>
                 </div>
 
                 <div className="w-px h-8 bg-border-subtle hidden sm:block mx-1 self-center" />
 
                 <div className="flex flex-col bg-slate-900/40 p-2.5 sm:p-0 sm:bg-transparent border sm:border-0 border-border-subtle/60">
-                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Billing State</span>
+                  <span className="text-[8px] font-black uppercase text-text-muted tracking-widest mb-1 underline decoration-primary/30">Billing Status</span>
                   <div className="flex items-center gap-1.5">
                     {profile?.status === 'suspended' ? (
                       <>
                         <span className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
-                        <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1">
+                        <span className="text-[10px] font-black uppercase text-red-600 tracking-widest italic flex items-center gap-1 font-mono">
                           <AlertTriangle size={10} /> SUSPENDED
                         </span>
                       </>
-                    ) : profile?.billStatus === 'overdue' ? (
+                    ) : billingEval.subscription_status === 'OVERDUE' ? (
                       <>
                         <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic flex items-center gap-1">
+                        <span className="text-[10px] font-black uppercase text-red-400 tracking-widest italic font-mono">
                           OVERDUE
                         </span>
                       </>
-                    ) : (profile?.billStatus === 'due' || (profile?.balance && profile.balance > 0)) ? (
+                    ) : billingEval.subscription_status === 'DUE' ? (
                       <>
-                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase text-red-500 tracking-widest italic">
-                          DUE
+                        <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black uppercase text-amber-300 tracking-widest italic font-mono">
+                          DUE (72h Grace: {billingEval.remainingGraceHours}h {billingEval.remainingGraceMinutes}m)
+                        </span>
+                      </>
+                    ) : billingEval.subscription_status === 'PAID' ? (
+                      <>
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full" />
+                        <span className="text-[10px] font-black uppercase text-emerald-400 tracking-widest italic font-mono">
+                          PAID
                         </span>
                       </>
                     ) : (
                       <>
-                        <span className="w-2 h-2 bg-green-500 rounded-full" />
-                        <span className="text-[10px] font-black uppercase text-green-500 tracking-widest italic">
-                          PAID
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full" />
+                        <span className="text-[10px] font-black uppercase text-emerald-400 tracking-widest italic font-mono">
+                          ACTIVE
                         </span>
                       </>
                     )}
+                  </div>
+                  {/* Payment status badge */}
+                  <div className="text-[8px] font-mono text-text-muted mt-0.5">
+                    Payment: <span className="uppercase font-bold text-white">{billingEval.payment_status}</span>
                   </div>
                 </div>
               </div>
@@ -1714,8 +1731,10 @@ function CustomerPortal({
         </div>
 
         <div className={`md:col-span-4 ${
-          (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+          billingEval.subscription_status === 'OVERDUE'
             ? "bg-red-600"
+            : billingEval.subscription_status === 'DUE'
+            ? "bg-amber-600"
             : "bg-emerald-600"
         } p-6 sm:p-8 md:p-12 text-white flex flex-col justify-between group overflow-hidden relative transition-all duration-300`}>
           <div className="absolute top-0 right-0 p-8 opacity-10 -mr-4 -mt-4 group-hover:scale-110 transition-transform">
@@ -1727,19 +1746,17 @@ function CustomerPortal({
               Billing Center
             </div>
             <div className="text-3xl sm:text-4xl md:text-5xl font-mono font-bold italic tracking-tighter uppercase whitespace-pre-wrap leading-none">
-              {profile?.billStatus === 'overdue' 
-                ? 'OVERDUE' 
-                : profile?.billStatus === 'due' 
-                  ? 'DUE' 
-                  : 'ACTIVE'}
+              {billingEval.subscription_status}
             </div>
             
-            {profile?.billStatus !== 'paid' ? (
+            {billingEval.subscription_status !== 'PAID' ? (
               <button
                 onClick={onPay}
                 className={`mt-6 sm:mt-8 flex items-center justify-center gap-3 w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 bg-white font-black uppercase text-xs tracking-widest italic hover:bg-slate-100 transition-all shadow-xl shadow-black/20 group/btn active:scale-[0.98] cursor-pointer min-h-[44px] ${
-                  (profile?.billStatus === 'due' || profile?.billStatus === 'overdue' || (profile?.balance && profile.balance > 0))
+                  billingEval.subscription_status === 'OVERDUE'
                     ? "text-red-600"
+                    : billingEval.subscription_status === 'DUE'
+                    ? "text-amber-700"
                     : "text-emerald-600"
                 }`}
               >
@@ -1753,18 +1770,20 @@ function CustomerPortal({
             
             {totalPending > 0 && (
               <div className="mt-4 sm:mt-6 inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 text-[9px] font-black uppercase tracking-widest italic">
-                <Loader2 size={12} className="animate-spin" /> Verification Pending
+                <Loader2 size={12} className="animate-spin" /> Waiting for Admin Confirmation
               </div>
             )}
           </div>
 
           <div className="mt-8 sm:mt-12 flex justify-between items-center border-t border-white/20 pt-4 sm:pt-6 relative z-10">
             <div className="text-[10px] font-black uppercase tracking-widest italic">
-              {profile?.billStatus === 'overdue' 
-                ? 'Action Required' 
-                : profile?.billStatus === 'due' 
-                  ? 'Invoice Pending' 
-                  : 'System Online'}
+              {billingEval.subscription_status === 'OVERDUE' 
+                ? 'Action Required • 72h Grace Expired' 
+                : billingEval.subscription_status === 'DUE' 
+                ? `72-Hour Grace Period Active (~${billingEval.remainingGraceHours}h left)` 
+                : billingEval.subscription_status === 'PAID'
+                ? 'Settlement Confirmed by Admin'
+                : 'System Online • Before Due Date'}
             </div>
             <Zap size={16} />
           </div>
@@ -1813,9 +1832,24 @@ function CustomerPortal({
                         })
                       : "Processing"}
                   </span>
-                  <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 bg-slate-900 border border-border-subtle text-primary">
-                    {p.method}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-slate-900 border border-border-subtle text-primary rounded">
+                      {p.method}
+                    </span>
+                    {p.status === "pending" ? (
+                      <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase bg-amber-500/10 border border-amber-500/30 text-amber-400 inline-flex items-center gap-1 rounded">
+                        <Clock size={10} className="animate-spin" /> Under Review
+                      </span>
+                    ) : p.status === "confirmed" || p.status === "completed" ? (
+                      <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 inline-flex items-center gap-1 rounded">
+                        <CheckCircle2 size={10} /> Confirmed
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 inline-flex items-center gap-1 rounded">
+                        <X size={10} /> Rejected
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-mono text-white/80">
@@ -1827,9 +1861,9 @@ function CustomerPortal({
                 </div>
                 <button
                   onClick={() => setSelectedReceipt(p)}
-                  className="w-full py-2.5 px-3 bg-slate-900/80 border border-border-subtle hover:border-primary text-text-dim hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
+                  className="w-full py-2.5 px-3 bg-slate-900/80 border border-border-subtle hover:border-primary text-text-dim hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99] rounded"
                 >
-                  <Receipt size={14} className="text-primary" /> View Digital Receipt
+                  <Receipt size={14} className="text-primary" /> View Settlement Details
                 </button>
               </div>
             ))
@@ -1841,19 +1875,22 @@ function CustomerPortal({
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-900/50">
-                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
                   Timestamp
                 </th>
-                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
                   Reference ID
                 </th>
-                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
                   Channel
                 </th>
-                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-right">
                   Amount
                 </th>
-                <th className="px-6 md:px-10 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-center">
+                  Status
+                </th>
+                <th className="px-6 md:px-8 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-right">
                   Receipt
                 </th>
               </tr>
@@ -1862,7 +1899,7 @@ function CustomerPortal({
               {payments.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-6 md:px-10 py-20 text-center text-text-muted italic font-medium uppercase tracking-[0.2em] text-xs"
                   >
                     No transaction history detected
@@ -1874,7 +1911,7 @@ function CustomerPortal({
                     key={`portal-payment-${p.id}`}
                     className="border-b border-border-subtle hover:bg-slate-900/30 transition-colors group"
                   >
-                    <td className="px-6 md:px-10 py-6 md:py-8 text-[10px] md:text-xs font-bold uppercase tracking-tight text-text-dim whitespace-nowrap">
+                    <td className="px-6 md:px-8 py-5 text-[10px] md:text-xs font-bold uppercase tracking-tight text-text-dim whitespace-nowrap">
                       {p.createdAt?.toDate
                         ? p.createdAt
                             .toDate()
@@ -1886,22 +1923,37 @@ function CustomerPortal({
                             })
                         : "Processing"}
                     </td>
-                    <td className="px-6 md:px-10 py-6 md:py-8 text-xs font-mono text-primary group-hover:text-white transition-colors whitespace-nowrap">
+                    <td className="px-6 md:px-8 py-5 text-xs font-mono text-primary group-hover:text-white transition-colors whitespace-nowrap">
                       {p.referenceNumber}
                     </td>
-                    <td className="px-6 md:px-10 py-6 md:py-8">
-                      <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 bg-slate-900 border border-border-subtle">
+                    <td className="px-6 md:px-8 py-5">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 bg-slate-900 border border-border-subtle rounded">
                         {p.method}
                       </span>
                     </td>
-                    <td className="px-6 md:px-10 py-6 md:py-8 text-right font-mono font-bold text-lg md:text-xl italic tabular-nums whitespace-nowrap">
+                    <td className="px-6 md:px-8 py-5 text-right font-mono font-bold text-base md:text-lg italic tabular-nums whitespace-nowrap">
                       ₱ {p.amount.toLocaleString()}
                     </td>
-                    <td className="px-6 md:px-10 py-6 md:py-8 text-right">
+                    <td className="px-6 md:px-8 py-5 text-center">
+                      {p.status === "pending" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded">
+                          <Clock size={10} className="animate-spin" /> Waiting for Admin Confirmation
+                        </span>
+                      ) : p.status === "confirmed" || p.status === "completed" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded">
+                          <CheckCircle2 size={10} /> Confirmed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded">
+                          <X size={10} /> Rejected
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 md:px-8 py-5 text-right">
                       <button
                         onClick={() => setSelectedReceipt(p)}
-                        className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all cursor-pointer"
-                        title="View Receipt"
+                        className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all cursor-pointer rounded"
+                        title="View Settlement Details"
                       >
                         <Receipt size={16} />
                       </button>
@@ -1934,7 +1986,7 @@ function CustomerPortal({
                   <div className="flex items-center gap-2">
                     <Receipt size={20} />
                     <span className="font-black uppercase tracking-widest italic text-sm sm:text-base">
-                      Digital Receipt
+                      Digital Settlement Receipt
                     </span>
                   </div>
                   <button 
@@ -1946,8 +1998,48 @@ function CustomerPortal({
                   </button>
                 </div>
 
-                <div className="p-5 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto">
-                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                <div className="p-5 sm:p-8 space-y-4 overflow-y-auto">
+                  {/* Status Banner in Modal */}
+                  {selectedReceipt.status === "pending" ? (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5">
+                      <Clock size={16} className="text-amber-400 shrink-0 mt-0.5 animate-spin" />
+                      <div className="space-y-0.5 text-left">
+                        <div className="text-[10px] font-mono uppercase font-bold text-amber-300">
+                          Waiting for Admin Confirmation
+                        </div>
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Your proof screenshot has been received and routed to the Admin Console. Subscription renewal or extension will remain inactive until confirmed by an administrator.
+                        </p>
+                      </div>
+                    </div>
+                  ) : selectedReceipt.status === "confirmed" || selectedReceipt.status === "completed" ? (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-2.5">
+                      <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5 text-left">
+                        <div className="text-[10px] font-mono uppercase font-bold text-emerald-300">
+                          Payment Confirmed
+                        </div>
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Settlement verified and credited by network administrator.
+                          {selectedReceipt.audit?.actionBy && ` (Admin: ${selectedReceipt.audit.actionBy})`}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-2.5">
+                      <X size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5 text-left">
+                        <div className="text-[10px] font-mono uppercase font-bold text-rose-300">
+                          Payment Rejected
+                        </div>
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Reason: {selectedReceipt.rejectionReason || "Verification was not successful. Please re-submit valid proof."}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between border-b border-border-subtle pb-3">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       REFERENCE
                     </span>
@@ -1955,7 +2047,7 @@ function CustomerPortal({
                       {selectedReceipt.referenceNumber}
                     </span>
                   </div>
-                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                  <div className="flex justify-between border-b border-border-subtle pb-3">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       DATE
                     </span>
@@ -1965,7 +2057,7 @@ function CustomerPortal({
                         : "Processing"}
                     </span>
                   </div>
-                  <div className="flex justify-between border-b border-border-subtle pb-3 sm:pb-4">
+                  <div className="flex justify-between border-b border-border-subtle pb-3">
                     <span className="text-[10px] font-black uppercase text-text-muted">
                       AMOUNT PAID
                     </span>
@@ -1975,11 +2067,11 @@ function CustomerPortal({
                   </div>
 
                   {selectedReceipt.screenshotUrl && (
-                    <div className="space-y-2 sm:space-y-3">
+                    <div className="space-y-2">
                       <span className="text-[10px] font-black uppercase text-text-muted flex items-center gap-2">
-                        <ImageIcon size={12} /> Verification Snapshot
+                        <ImageIcon size={12} /> Uploaded Proof Screenshot
                       </span>
-                      <div className="aspect-video bg-slate-900 border border-border-subtle overflow-hidden relative group">
+                      <div className="aspect-video bg-slate-900 border border-border-subtle overflow-hidden relative group rounded-lg">
                         <img
                           src={selectedReceipt.screenshotUrl}
                           alt="Receipt proof"
@@ -1997,10 +2089,9 @@ function CustomerPortal({
                     </div>
                   )}
 
-                  <div className="pt-2 sm:pt-4 text-center">
+                  <div className="pt-2 text-center">
                     <p className="text-[9px] text-text-muted uppercase font-bold tracking-widest italic leading-tight">
-                      Electronically recorded ledger item • Verification pending
-                      manual review
+                      Electronically recorded ledger item • Subject to administrator confirmation
                     </p>
                   </div>
                 </div>
@@ -2183,7 +2274,11 @@ function AdminPanel({
   const [editingCycle, setEditingCycle] = useState<BillingCycle | null>(null);
   const [processingCycle, setProcessingCycle] = useState<string | null>(null);
   const [cycleToDelete, setCycleToDelete] = useState<BillingCycle | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "pending" | "failed">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "confirmed" | "rejected">("pending");
+  const [confirmingSettlement, setConfirmingSettlement] = useState<PaymentRecord | null>(null);
+  const [rejectingPayment, setRejectingPayment] = useState<PaymentRecord | null>(null);
+  const [rejectionNotes, setRejectionNotes] = useState("");
+  const [isProcessingSettlement, setIsProcessingSettlement] = useState(false);
   const [editingPlan, setEditingPlan] = useState<InternetPlan | null>(null);
   const [planToDelete, setPlanToDelete] = useState<string | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<PaymentRecord | null>(null);
@@ -2193,6 +2288,11 @@ function AdminPanel({
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
   const [editingScheduleUser, setEditingScheduleUser] = useState<UserProfile | null>(null);
   const [tempDueDate, setTempDueDate] = useState("");
+  const [tempDueTime, setTempDueTime] = useState("12:00 PM");
+  const [tempPaymentStatus, setTempPaymentStatus] = useState<"unpaid" | "processing" | "paid" | "rejected">("unpaid");
+  const [tempSubscriptionStatus, setTempSubscriptionStatus] = useState<"ACTIVE" | "DUE" | "OVERDUE" | "PAID">("ACTIVE");
+  const [isCheckingBilling, setIsCheckingBilling] = useState(false);
+  const [lastCheckerSyncTime, setLastCheckerSyncTime] = useState<Date | null>(null);
   const [tempClientId, setTempClientId] = useState("");
   const [tempUid, setTempUid] = useState("");
   const [tempDisplayName, setTempDisplayName] = useState("");
@@ -2202,13 +2302,104 @@ function AdminPanel({
   const [tempAccountNumber, setTempAccountNumber] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
-  const [clientFilter, setClientFilter] = useState<"all" | "active" | "suspended" | "overdue">("all");
+  const [clientFilter, setClientFilter] = useState<"all" | "active" | "due" | "overdue" | "paid" | "suspended">("all");
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [bulkNotifForm, setBulkNotifForm] = useState({
     title: "SETTLEMENT REQ: BALANCE DUE",
     message: "Network core warning: An outstanding balance has been detected on your subscriber node. Please complete your settlement immediately in the Billing Center to maintain active high-bandwidth uplink.",
     type: "alert" as "info" | "warning" | "alert",
   });
+
+  // Telegram Bot Notifications Engine State
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
+  const [telegramConfig, setTelegramConfig] = useState<{
+    configured: boolean;
+    chatId: string;
+    enabled: boolean;
+    maskedToken: string;
+  } | null>(null);
+  const [telegramFormToken, setTelegramFormToken] = useState("");
+  const [telegramFormChatId, setTelegramFormChatId] = useState("8732198426");
+  const [telegramFormEnabled, setTelegramFormEnabled] = useState(true);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isSavingTelegram, setIsSavingTelegram] = useState(false);
+
+  const fetchTelegramConfig = async () => {
+    try {
+      const res = await fetch("/api/telegram/settings");
+      if (res.ok) {
+        const data = await res.json();
+        setTelegramConfig(data);
+        if (data.chatId) setTelegramFormChatId(data.chatId);
+        if (typeof data.enabled === "boolean") setTelegramFormEnabled(data.enabled);
+      }
+    } catch (e) {
+      console.warn("Could not load Telegram settings:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchTelegramConfig();
+  }, []);
+
+  const handleSaveTelegram = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingTelegram(true);
+    try {
+      const res = await fetch("/api/telegram/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          botToken: telegramFormToken.trim() || undefined,
+          chatId: telegramFormChatId.trim(),
+          enabled: telegramFormEnabled,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTelegramConfig(data);
+        setTelegramFormToken("");
+        toast.success("Telegram Bot configuration saved successfully!");
+      } else {
+        toast.error(data.error || "Failed to save Telegram configuration.");
+      }
+    } catch (err: any) {
+      toast.error("Error saving Telegram configuration: " + (err?.message || err));
+    } finally {
+      setIsSavingTelegram(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    setIsTestingTelegram(true);
+    const toastId = toast.loading("Dispatching test alert to Telegram Bot...");
+    try {
+      const res = await fetch("/api/telegram/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customToken: telegramFormToken.trim() || undefined,
+          customChatId: telegramFormChatId.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      toast.dismiss(toastId);
+      if (res.ok && data.success) {
+        toast.success("Telegram test message sent successfully!", {
+          description: data.message,
+        });
+      } else {
+        toast.error(data.error || "Telegram test failed.", {
+          description: "Please check your Bot Token and Chat ID.",
+        });
+      }
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error("Failed to contact Telegram API: " + (err?.message || err));
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
 
   const toISODate = (date: Date) => {
     const year = date.getFullYear();
@@ -2272,9 +2463,13 @@ function AdminPanel({
     
     if (!matchesSearch) return false;
     if (clientFilter === "all") return true;
-    if (clientFilter === "active") return client.status !== "suspended";
+
+    const evaluation = evaluateSubscriberStatus(client);
     if (clientFilter === "suspended") return client.status === "suspended";
-    if (clientFilter === "overdue") return client.billStatus === "overdue";
+    if (clientFilter === "active") return evaluation.subscription_status === "ACTIVE" && client.status !== "suspended";
+    if (clientFilter === "due") return evaluation.subscription_status === "DUE";
+    if (clientFilter === "overdue") return evaluation.subscription_status === "OVERDUE";
+    if (clientFilter === "paid") return evaluation.subscription_status === "PAID";
     return true;
   });
 
@@ -2500,56 +2695,145 @@ function AdminPanel({
 
   const filteredPayments = payments.filter((p) => {
     if (statusFilter === "all") return true;
+    if (statusFilter === "pending") return p.status === "pending";
+    if (statusFilter === "confirmed") return p.status === "confirmed" || p.status === "completed";
+    if (statusFilter === "rejected") return p.status === "rejected" || p.status === "failed";
     return p.status === statusFilter;
   });
+
+  // Admin Confirm Settlement: Changes status to Confirmed, adjusts user balance, NO plan renewal/extension, logs audit
+  const handleConfirmSettlement = async () => {
+    if (!confirmingSettlement || !confirmingSettlement.id) return;
+    setIsProcessingSettlement(true);
+    const paymentPath = `users/${confirmingSettlement.userId}/payments/${confirmingSettlement.id}`;
+
+    try {
+      const paymentRef = doc(db, paymentPath);
+      const adminEmail = user?.email || "Admin";
+      const audit = {
+        actionBy: adminEmail,
+        actionByUid: user?.uid || "",
+        actionAt: serverTimestamp(),
+        decision: "confirmed" as const,
+        notes: "Settlement confirmed by administrator after proof verification.",
+      };
+
+      await updateDoc(paymentRef, {
+        status: "confirmed",
+        updatedAt: serverTimestamp(),
+        audit,
+      });
+
+      // Finalize payment: adjust subscriber balance only (NO renewal, NO due date change!)
+      const userRef = doc(db, "users", confirmingSettlement.userId);
+      const userDocSnapshot = await getDoc(userRef);
+      if (userDocSnapshot.exists()) {
+        const userData = userDocSnapshot.data() as UserProfile;
+        const currentBalance = userData.balance || 0;
+        const newBalance = Math.max(0, currentBalance - confirmingSettlement.amount);
+        const newBillStatus = newBalance <= 0 ? "paid" : "due";
+        await updateDoc(userRef, {
+          balance: newBalance,
+          billStatus: newBillStatus,
+          payment_status: "paid",
+          subscription_status: "PAID",
+          lastStatusCheck: serverTimestamp(),
+        });
+      }
+
+      // Add subscriber notification
+      try {
+        await addDoc(collection(db, `users/${confirmingSettlement.userId}/notifications`), {
+          title: "Settlement Confirmed",
+          message: `Your payment of ₱${confirmingSettlement.amount.toLocaleString()} (Ref: ${confirmingSettlement.referenceNumber}) has been verified and confirmed.`,
+          type: "info",
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      } catch (_) {}
+
+      toast.success("Settlement confirmed successfully!", {
+        description: `Payment status set to Confirmed. Subscriber balance updated.`,
+      });
+      setConfirmingSettlement(null);
+    } catch (e) {
+      console.error("Confirm settlement error:", e);
+      handleFirestoreError(e, OperationType.UPDATE, paymentPath);
+      toast.error("Failed to confirm settlement.");
+    } finally {
+      setIsProcessingSettlement(false);
+    }
+  };
+
+  // Admin Reject Payment: Changes status to Rejected, balance & subscription untouched, logs audit
+  const handleRejectPayment = async () => {
+    if (!rejectingPayment || !rejectingPayment.id) return;
+    setIsProcessingSettlement(true);
+    const paymentPath = `users/${rejectingPayment.userId}/payments/${rejectingPayment.id}`;
+    const reason = rejectionNotes.trim() || "Verification could not be confirmed by administrator.";
+
+    try {
+      const paymentRef = doc(db, paymentPath);
+      const adminEmail = user?.email || "Admin";
+      const audit = {
+        actionBy: adminEmail,
+        actionByUid: user?.uid || "",
+        actionAt: serverTimestamp(),
+        decision: "rejected" as const,
+        notes: reason,
+      };
+
+      await updateDoc(paymentRef, {
+        status: "rejected",
+        rejectionReason: reason,
+        updatedAt: serverTimestamp(),
+        audit,
+      });
+
+      // Update subscriber payment_status to 'rejected'. Subscription status and due date remain strictly unchanged!
+      try {
+        const userRef = doc(db, "users", rejectingPayment.userId);
+        await updateDoc(userRef, {
+          payment_status: "rejected",
+          lastStatusCheck: serverTimestamp(),
+        });
+      } catch (err) {
+        console.warn("Could not update subscriber payment_status on reject:", err);
+      }
+
+      // Notify subscriber of rejection
+      try {
+        await addDoc(collection(db, `users/${rejectingPayment.userId}/notifications`), {
+          title: "Settlement Rejected",
+          message: `Your payment submission of ₱${rejectingPayment.amount.toLocaleString()} (Ref: ${rejectingPayment.referenceNumber}) was rejected: ${reason}. Please verify details and re-submit valid proof.`,
+          type: "alert",
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      } catch (_) {}
+
+      toast.info("Payment rejected", {
+        description: `Payment status set to Rejected. Audit record saved.`,
+      });
+      setRejectingPayment(null);
+      setRejectionNotes("");
+    } catch (e) {
+      console.error("Reject payment error:", e);
+      handleFirestoreError(e, OperationType.UPDATE, paymentPath);
+      toast.error("Failed to reject payment.");
+    } finally {
+      setIsProcessingSettlement(false);
+    }
+  };
 
   const updateStatus = async (
     payment: PaymentRecord,
     status: "completed" | "failed",
   ) => {
-    if (!payment.id) return;
-    const oldStatus = payment.status;
-    try {
-      const paymentRef = doc(
-        db,
-        `users/${payment.userId}/payments/${payment.id}`,
-      );
-      await updateDoc(paymentRef, { status, updatedAt: serverTimestamp() });
-
-      const userRef = doc(db, "users", payment.userId);
-      
-      // If marked as completed and it wasn't completed before, adjust balance
-      if (status === "completed" && oldStatus !== "completed") {
-        const userDocSnapshot = await getDoc(userRef);
-        const userData = userDocSnapshot.data() as UserProfile;
-        const currentBalance = userData.balance || 0;
-        const newBalance = currentBalance - payment.amount;
-        
-        const newBillStatus = newBalance <= 0 ? "paid" : "due";
-        await updateDoc(userRef, {
-          balance: newBalance,
-          billStatus: newBillStatus,
-        });
-
-
-      } 
-      // If was completed and now changed to failed/pending, add back to user balance
-      else if (status !== "completed" && oldStatus === "completed") {
-        const userDocSnapshot = await getDoc(userRef);
-        const currentBalance = userDocSnapshot.data()?.balance || 0;
-        const newBalance = currentBalance + payment.amount;
-
-        await updateDoc(userRef, {
-          balance: newBalance,
-          billStatus: newBalance <= 0 ? "paid" : "due",
-        });
-      }
-    } catch (e) {
-      handleFirestoreError(
-        e,
-        OperationType.UPDATE,
-        `users/${payment.userId}/payments/${payment.id}`,
-      );
+    if (status === "completed") {
+      setConfirmingSettlement(payment);
+    } else {
+      setRejectingPayment(payment);
     }
   };
 
@@ -2676,10 +2960,109 @@ function AdminPanel({
     }
   };
 
+  const handleTriggerBillingCheck = async () => {
+    setIsCheckingBilling(true);
+    const toastId = toast.loading("Executing authoritative billing status verification in Asia/Manila...");
+    try {
+      // 1. Call server-side background checker endpoint
+      try {
+        await fetch("/api/billing/subscribers/check", { method: "POST" });
+      } catch (_) {}
+
+      // 2. Client-side evaluation & sync to Firestore
+      const now = new Date();
+      let updatedCount = 0;
+      for (const c of clients) {
+        const evaluation = evaluateSubscriberStatus(c, now);
+        if (
+          evaluation.subscription_status !== c.subscription_status ||
+          evaluation.payment_status !== c.payment_status ||
+          !c.due_date ||
+          !c.due_time
+        ) {
+          const legacyBillStatus =
+            evaluation.subscription_status === "PAID"
+              ? "paid"
+              : evaluation.subscription_status === "OVERDUE"
+              ? "overdue"
+              : "due";
+
+          await updateDoc(doc(db, "users", c.uid), {
+            subscription_status: evaluation.subscription_status,
+            payment_status: evaluation.payment_status,
+            due_date: evaluation.due_date,
+            due_time: evaluation.due_time,
+            billStatus: legacyBillStatus,
+            lastStatusCheck: serverTimestamp(),
+          });
+          updatedCount++;
+        }
+      }
+
+      setLastCheckerSyncTime(new Date());
+      toast.dismiss(toastId);
+      toast.success("Billing status verification completed!", {
+        description: `Checked ${clients.length} subscribers. Evaluated authoritative Philippine Standard Time.`,
+      });
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      console.error("Billing check error:", err);
+      toast.error("Failed to run status check.");
+    } finally {
+      setIsCheckingBilling(false);
+    }
+  };
+
+  const handleAdminRenewSubscription = async (client: UserProfile) => {
+    const renewal = calculateNextRenewalCycle(client.due_date, client.due_time);
+    const confirmRenewal = window.confirm(
+      `Renew subscription for ${client.displayName || client.accountNumber}?\n\n` +
+      `Current Due: ${client.due_date || "N/A"} ${client.due_time || ""}\n` +
+      `New Due: ${renewal.due_date} at ${renewal.due_time} PHT\n` +
+      `New Status: ACTIVE\nPayment Status: UNPAID\n\n` +
+      `Proceed with subscription renewal?`
+    );
+    if (!confirmRenewal) return;
+
+    try {
+      await updateDoc(doc(db, "users", client.uid), {
+        due_date: renewal.due_date,
+        due_time: renewal.due_time,
+        dueDate: renewal.dueDateObj,
+        subscription_status: "ACTIVE",
+        payment_status: "unpaid",
+        billStatus: "paid",
+        balance: 0,
+        lastStatusCheck: serverTimestamp(),
+      });
+
+      // Dispatch notification
+      try {
+        await addDoc(collection(db, `users/${client.uid}/notifications`), {
+          title: "Subscription Renewed",
+          message: `Your internet subscription has been renewed by the administrator. Your next due date is ${renewal.due_date} at ${renewal.due_time} PHT.`,
+          type: "info",
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      } catch (_) {}
+
+      toast.success(`Subscription renewed!`, {
+        description: `New deadline: ${renewal.due_date} at ${renewal.due_time} PHT. Status set to ACTIVE.`,
+      });
+    } catch (err) {
+      console.error("Renewal error:", err);
+      toast.error("Failed to renew subscription.");
+    }
+  };
+
   const updateClientProfile = async (
     userId: string,
     newUid: string,
-    dateStr: string,
+    dueDateStr: string,
+    dueTimeStr: string,
+    paymentStatus: string,
+    subscriptionStatus: string,
     clientId: string,
     displayName: string,
     email: string,
@@ -2688,17 +3071,24 @@ function AdminPanel({
     accountNumber: string
   ) => {
     try {
-      const newDate = new Date(dateStr);
-      if (isNaN(newDate.getTime())) {
-        toast.error("Invalid date format. Please use the calendar picker.");
-        return;
-      }
+      const dueInstant = parseSubscriberDueInstant(dueDateStr, dueTimeStr);
+      const evalResult = evaluateSubscriberStatus({
+        due_date: dueDateStr,
+        due_time: dueTimeStr,
+        payment_status: paymentStatus as any,
+        subscription_status: subscriptionStatus as any,
+      });
 
-      const now = new Date();
-      const isPast = newDate < now;
-      const isPastGrace = newDate < new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
-      const updatedStatus = isPastGrace ? 'suspended' : 'active';
-      const updatedBillStatus = isPast ? 'overdue' : (editingScheduleUser?.balance && editingScheduleUser.balance > 0 ? 'due' : 'paid');
+      const finalSubscriptionStatus = subscriptionStatus || evalResult.subscription_status;
+      const finalPaymentStatus = paymentStatus || evalResult.payment_status;
+      const legacyBillStatus =
+        finalSubscriptionStatus === "PAID"
+          ? "paid"
+          : finalSubscriptionStatus === "OVERDUE"
+          ? "overdue"
+          : "due";
+
+      const updatedStatus = finalSubscriptionStatus === "OVERDUE" ? "active" : "active";
 
       if (newUid && newUid !== userId) {
         // Validate if newUid already exists
@@ -2734,10 +3124,15 @@ function AdminPanel({
             phone: phone || userData.phone || "",
             address: address || userData.address || "",
             accountNumber: accountNumber || userData.accountNumber || "",
-            dueDate: newDate,
+            due_date: dueDateStr,
+            due_time: dueTimeStr,
+            payment_status: finalPaymentStatus,
+            subscription_status: finalSubscriptionStatus,
+            dueDate: dueInstant,
             clientId: clientId || "",
             status: updatedStatus,
-            billStatus: updatedBillStatus
+            billStatus: legacyBillStatus,
+            lastStatusCheck: serverTimestamp(),
           });
 
           // 3. Migrate subcollection: users/{userId}/payments
@@ -2801,10 +3196,15 @@ function AdminPanel({
           phone: phone || "",
           address: address || "",
           accountNumber: accountNumber || "",
-          dueDate: newDate,
+          due_date: dueDateStr,
+          due_time: dueTimeStr,
+          payment_status: finalPaymentStatus,
+          subscription_status: finalSubscriptionStatus,
+          dueDate: dueInstant,
           clientId: clientId || "",
           status: updatedStatus,
-          billStatus: updatedBillStatus
+          billStatus: legacyBillStatus,
+          lastStatusCheck: serverTimestamp(),
         });
         toast.success("Subscriber profile updated.");
       }
@@ -2815,18 +3215,11 @@ function AdminPanel({
   };
 
   const triggerEditClient = (client: UserProfile) => {
-    const current = client.dueDate?.toDate 
-      ? client.dueDate.toDate()
-      : (client.dueDate ? new Date(client.dueDate) : new Date());
-    
-    // Format for datetime-local input: YYYY-MM-DDTHH:MM
-    const year = current.getFullYear();
-    const month = String(current.getMonth() + 1).padStart(2, '0');
-    const day = String(current.getDate()).padStart(2, '0');
-    const hours = String(current.getHours()).padStart(2, '0');
-    const mins = String(current.getMinutes()).padStart(2, '0');
-    
-    setTempDueDate(`${year}-${month}-${day}T${hours}:${mins}`);
+    const evalResult = evaluateSubscriberStatus(client);
+    setTempDueDate(client.due_date || evalResult.due_date);
+    setTempDueTime(client.due_time || evalResult.due_time);
+    setTempPaymentStatus(client.payment_status || evalResult.payment_status);
+    setTempSubscriptionStatus(client.subscription_status || evalResult.subscription_status);
     setTempClientId(client.clientId || "");
     setTempUid(client.uid);
     setTempDisplayName(client.displayName || "");
@@ -3093,6 +3486,17 @@ function AdminPanel({
               <ExternalLink size={11} className="opacity-80" />
             </a>
             <button
+              onClick={() => setShowTelegramModal(true)}
+              className="px-5 py-2 bg-sky-500/10 border border-sky-500/30 text-sky-400 hover:bg-sky-500/20 hover:text-white flex items-center gap-2 transition-all uppercase text-[9px] font-black italic rounded cursor-pointer"
+              title="Configure Telegram Bot for Payment Settlement Notifications"
+            >
+              <Bot size={13} />
+              <span>Telegram Bot</span>
+              {telegramConfig?.configured && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              )}
+            </button>
+            <button
               onClick={syncAllUsersBilling}
               disabled={isSyncing}
               className="px-6 py-2 bg-white/5 border border-white/10 text-white hover:bg-primary hover:border-primary flex items-center gap-2 transition-all uppercase text-[9px] font-black italic"
@@ -3215,24 +3619,86 @@ function AdminPanel({
 
       {adminTab === "payments" ? (
         <div className="space-y-4">
-          <div className="flex justify-start px-8 py-4 bg-bg-surface border border-border-subtle mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-bg-surface border border-border-subtle mb-4">
             <div className="flex items-center gap-3">
               <Filter size={14} className="text-text-muted" />
-              <div className="flex gap-4">
-                {(["all", "pending", "completed", "failed"] as const).map((status) => (
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                {(
+                  [
+                    {
+                      id: "pending",
+                      label: "Pending Settlements",
+                      badge: payments.filter((p) => p.status === "pending").length,
+                    },
+                    {
+                      id: "confirmed",
+                      label: "Confirmed",
+                      badge: payments.filter(
+                        (p) => p.status === "confirmed" || p.status === "completed"
+                      ).length,
+                    },
+                    {
+                      id: "rejected",
+                      label: "Rejected",
+                      badge: payments.filter(
+                        (p) => p.status === "rejected" || p.status === "failed"
+                      ).length,
+                    },
+                    {
+                      id: "all",
+                      label: "All Records",
+                      badge: payments.length,
+                    },
+                  ] as const
+                ).map((tab) => (
                   <button
-                    key={status}
-                    onClick={() => setStatusFilter(status)}
-                    className={`text-[10px] font-black uppercase tracking-widest transition-all ${
-                      statusFilter === status
-                        ? "text-primary underline underline-offset-8 decoration-2"
-                        : "text-text-muted hover:text-white"
+                    key={tab.id}
+                    onClick={() => setStatusFilter(tab.id as any)}
+                    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded transition-all flex items-center gap-2 cursor-pointer ${
+                      statusFilter === tab.id
+                        ? "bg-primary text-white shadow-sm"
+                        : "text-text-muted hover:text-white bg-slate-900/60 border border-border-subtle"
                     }`}
                   >
-                    {status}
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold ${
+                        statusFilter === tab.id
+                          ? "bg-black/30 text-white"
+                          : tab.id === "pending" && tab.badge > 0
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                          : "bg-slate-800 text-slate-400"
+                      }`}
+                    >
+                      {tab.badge}
+                    </span>
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowTelegramModal(true)}
+                className="px-3.5 py-1.5 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 text-sky-400 text-[9px] font-mono font-bold uppercase rounded flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Configure Telegram Bot for Pending Settlement alerts"
+              >
+                <Bot size={12} />
+                <span>Telegram Bot: {telegramConfig?.configured ? "Connected" : "Setup"}</span>
+                {telegramConfig?.configured && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                )}
+              </button>
+
+              {payments.some((p) => p.status === "pending") && (
+                <div className="text-[10px] font-mono text-amber-400 flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded">
+                  <Clock size={12} className="animate-spin" />
+                  <span>
+                    <strong>{payments.filter((p) => p.status === "pending").length}</strong> settlement request(s) awaiting admin review
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -3241,30 +3707,33 @@ function AdminPanel({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-bg-surface/50">
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-center">
-                      User
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Customer &amp; Account
                     </th>
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                      Date
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Payment Amount
                     </th>
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                      Reference
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Method &amp; Ref ID
                     </th>
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                      Amount
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Uploaded Screenshot
                     </th>
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                      Status
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Date &amp; Time Submitted
                     </th>
-                    <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
-                      Actions
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                      Payment Status
+                    </th>
+                    <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-right">
+                      Admin Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-8 py-20 text-center">
+                      <td colSpan={7} className="px-8 py-20 text-center">
                         <Loader2
                           className="animate-spin mx-auto text-primary"
                           size={32}
@@ -3274,102 +3743,212 @@ function AdminPanel({
                   ) : filteredPayments.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-8 py-20 text-center text-text-muted uppercase text-[10px] font-black tracking-widest italic"
                       >
-                        {payments.length === 0 ? "Infrastructure records empty" : `No ${statusFilter} records found`}
+                        {payments.length === 0 ? "No settlement records in ledger" : `No ${statusFilter} records found`}
                       </td>
                     </tr>
                   ) : (
-                    filteredPayments.map((p, idx) => (
-                      <tr
-                      key={`admin-payment-${p.id}`}
-                      className="group hover:bg-slate-900/50 transition-colors"
-                    >
-                      <td className="px-8 py-6 border-b border-border-subtle text-center">
-                        <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center mx-auto text-[10px] font-bold">
-                          {p.userId?.substring(0, 2).toUpperCase() || "??"}
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 border-b border-border-subtle">
-                        <div className="text-[11px] font-bold uppercase">
-                          {p.createdAt?.toDate
-                            ? p.createdAt.toDate().toLocaleDateString('en-PH', { timeZone: ASIA_TIMEZONE })
-                            : "..."}
-                        </div>
-                        <div className="text-[9px] text-text-muted font-mono">
-                          {p.createdAt?.toDate
-                            ? p.createdAt.toDate().toLocaleTimeString('en-PH', { timeZone: ASIA_TIMEZONE })
-                            : ""}
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 border-b border-border-subtle font-mono text-xs text-primary">
-                        {p.referenceNumber}
-                      </td>
-                      <td className="px-8 py-6 border-b border-border-subtle font-mono font-bold text-sm italic">
-                        ₱ {p.amount.toLocaleString()}
-                      </td>
-                      <td className="px-8 py-6 border-b border-border-subtle">
-                        <span
-                          className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 border ${p.status === "completed" ? "text-green-500 border-green-500/20 bg-green-500/5" : p.status === "failed" ? "text-red-500 border-red-500/20 bg-red-500/5" : "text-yellow-500 border-yellow-500/20 bg-yellow-500/5"}`}
+                    filteredPayments.map((p) => {
+                      const clientInfo = clients.find((c) => c.uid === p.userId);
+                      const customerName = p.customerName || clientInfo?.displayName || "Subscriber";
+                      const accountId = p.accountNumber || clientInfo?.accountNumber || "N/A";
+                      const isPending = p.status === "pending";
+                      const isConfirmed = p.status === "confirmed" || p.status === "completed";
+                      const isRejected = p.status === "rejected" || p.status === "failed";
+                      const isOwnPayment = Boolean(user && p.userId === user.uid);
+
+                      return (
+                        <tr
+                          key={`admin-payment-${p.id}`}
+                          className="group hover:bg-slate-900/50 transition-colors border-b border-border-subtle"
                         >
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="px-8 py-6 border-b border-border-subtle text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setSelectedReceipt(p)}
-                            className="p-2 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all"
-                            title="View Receipt"
-                          >
-                            <Receipt size={16} />
-                          </button>
-                          {p.status === "pending" && p.screenshotUrl && (
-                            <button
-                              onClick={() => setViewingScreenshot(p.screenshotUrl)}
-                              className="p-2 border border-primary/30 text-primary hover:bg-primary hover:text-white transition-all flex items-center gap-1"
-                              title="View Screenshot"
-                            >
-                              <Eye size={16} />
-                              <span className="text-[8px] font-black uppercase">View Screenshot</span>
-                            </button>
-                          )}
-                          {p.status === "pending" && (
-                            <>
+                          {/* Customer Name & Account ID */}
+                          <td className="px-6 py-5">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-white uppercase tracking-tight">
+                                {customerName}
+                              </span>
+                              <span className="text-[10px] font-mono text-primary font-bold">
+                                #{accountId}
+                              </span>
+                              {clientInfo?.email && (
+                                <span className="text-[9px] text-text-dim truncate max-w-[140px]">
+                                  {clientInfo.email}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Payment Amount */}
+                          <td className="px-6 py-5">
+                            <span className="font-mono font-bold text-sm text-white italic">
+                              ₱ {p.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+                            </span>
+                          </td>
+
+                          {/* Payment Method & Transaction/Reference ID */}
+                          <td className="px-6 py-5">
+                            <div className="space-y-1">
+                              <span className="inline-block text-[9px] font-mono uppercase font-bold tracking-wider px-2 py-0.5 bg-slate-900 border border-border-subtle text-slate-300 rounded">
+                                {p.method || "QR Ph"}
+                              </span>
+                              <div className="font-mono text-xs text-primary font-bold break-all max-w-[170px]">
+                                {p.referenceNumber}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Uploaded Screenshot Proof */}
+                          <td className="px-6 py-5">
+                            {p.screenshotUrl ? (
                               <button
-                                onClick={() => updateStatus(p, "completed")}
-                                className="p-2 border border-green-500/30 text-green-500 hover:bg-green-500 hover:text-white transition-all"
-                                title="Approve"
+                                type="button"
+                                onClick={() => setViewingScreenshot(p.screenshotUrl || null)}
+                                className="group/proof flex items-center gap-2 p-1.5 rounded-lg border border-slate-800 hover:border-primary bg-slate-950/80 transition-all cursor-pointer"
+                                title="Click to inspect proof screenshot"
                               >
-                                <CheckCircle2 size={16} />
+                                <img
+                                  src={p.screenshotUrl}
+                                  alt="Proof screenshot"
+                                  className="w-10 h-10 object-cover rounded bg-black"
+                                />
+                                <div className="flex flex-col text-left">
+                                  <span className="text-[9px] font-mono font-bold uppercase text-primary flex items-center gap-1 group-hover/proof:underline">
+                                    <Eye size={10} /> View Proof
+                                  </span>
+                                  <span className="text-[8px] font-mono text-text-muted">
+                                    Click to zoom
+                                  </span>
+                                </div>
                               </button>
+                            ) : (
+                              <span className="text-[10px] font-mono text-text-muted italic">
+                                No screenshot
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Date & Time Submitted */}
+                          <td className="px-6 py-5">
+                            <div className="text-[11px] font-bold text-slate-200">
+                              {p.createdAt?.toDate
+                                ? p.createdAt.toDate().toLocaleDateString("en-PH", {
+                                    timeZone: ASIA_TIMEZONE,
+                                    month: "short",
+                                    day: "2-digit",
+                                    year: "numeric",
+                                  })
+                                : "..."}
+                            </div>
+                            <div className="text-[9px] text-text-muted font-mono">
+                              {p.createdAt?.toDate
+                                ? p.createdAt.toDate().toLocaleTimeString("en-PH", {
+                                    timeZone: ASIA_TIMEZONE,
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : ""}
+                            </div>
+                          </td>
+
+                          {/* Payment Status */}
+                          <td className="px-6 py-5">
+                            {isPending ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-black uppercase tracking-wider bg-amber-500/10 border border-amber-500/40 text-amber-400 rounded-md">
+                                <Clock size={11} className="animate-spin" /> Pending Confirmation
+                              </span>
+                            ) : isConfirmed ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 rounded-md">
+                                <CheckCircle2 size={11} /> Payment Confirmed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-mono font-black uppercase tracking-wider bg-rose-500/10 border border-rose-500/40 text-rose-400 rounded-md">
+                                <X size={11} /> Payment Rejected
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Admin Actions */}
+                          <td className="px-6 py-5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {isPending ? (
+                                isOwnPayment ? (
+                                  <span
+                                    className="text-[9px] font-mono text-amber-400/90 italic bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20"
+                                    title="Security Rule: User cannot confirm their own payment"
+                                  >
+                                    Cannot confirm own payment
+                                  </span>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => setConfirmingSettlement(p)}
+                                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-bold uppercase tracking-wider rounded flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                                      title="Confirm Settlement (Finalizes payment and updates balance)"
+                                    >
+                                      <CheckCircle2 size={12} /> Confirm Settlement
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setRejectingPayment(p);
+                                        setRejectionNotes("");
+                                      }}
+                                      className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-mono text-[10px] font-bold uppercase tracking-wider rounded flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                                      title="Reject Payment"
+                                    >
+                                      <X size={12} /> Reject Payment
+                                    </button>
+                                  </div>
+                                )
+                              ) : (
+                                <div className="text-right">
+                                  {p.audit && (
+                                    <div className="text-[9px] font-mono text-text-muted">
+                                      <span className="font-bold text-slate-300 capitalize">
+                                        {p.audit.decision}
+                                      </span>{" "}
+                                      by {p.audit.actionBy?.split("@")[0]}
+                                    </div>
+                                  )}
+                                  {p.rejectionReason && (
+                                    <div
+                                      className="text-[8px] font-mono text-rose-400 truncate max-w-[120px]"
+                                      title={p.rejectionReason}
+                                    >
+                                      {p.rejectionReason}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
                               <button
-                                onClick={() => updateStatus(p, "failed")}
-                                className="p-2 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                                title="Reject"
+                                onClick={() => setSelectedReceipt(p)}
+                                className="p-1.5 border border-border-subtle hover:border-primary text-text-muted hover:text-primary transition-all rounded cursor-pointer"
+                                title="View Receipt / Settlement Details"
                               >
-                                <X size={16} />
+                                <Receipt size={14} />
                               </button>
-                            </>
-                          )}
-                          <button
-                            onClick={() => deletePayment(p)}
-                            className="p-2 border border-red-500/10 text-text-muted hover:border-red-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-                            title="Delete Record"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+
+                              <button
+                                onClick={() => deletePayment(p)}
+                                className="p-1.5 border border-red-500/20 text-text-muted hover:border-red-500 hover:text-red-500 transition-all rounded opacity-0 group-hover:opacity-100 cursor-pointer"
+                                title="Delete Record"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
       ) : adminTab === "plans" ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {plans.map((plan) => (
@@ -3619,6 +4198,40 @@ function AdminPanel({
       ) : (
         <>
           <div className="flex flex-col gap-6 mb-8">
+            {/* Automated Billing Status System Banner */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-border-subtle rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shrink-0">
+                  <Clock size={20} className="animate-spin" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-widest text-white">
+                      Automated Billing Status System
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[8px] font-mono font-bold uppercase">
+                      PHT (Asia/Manila)
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    Exact Due Instant • 72-Hour Grace Period Engine • Admin Review &amp; Manual Renewal Gate
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                <button
+                  type="button"
+                  onClick={handleTriggerBillingCheck}
+                  disabled={isCheckingBilling}
+                  className="px-4 py-2.5 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest italic rounded flex items-center gap-2 shadow-md transition-all cursor-pointer"
+                >
+                  <RefreshCw size={12} className={isCheckingBilling ? "animate-spin" : ""} />
+                  <span>{isCheckingBilling ? "Verifying Subscribers..." : "Run Billing Status Check"}</span>
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-col md:flex-row gap-4 items-center w-full">
               <div className="relative flex-1 group w-full">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
@@ -3630,13 +4243,13 @@ function AdminPanel({
                   className="w-full bg-bg-surface border border-border-subtle pl-12 pr-4 py-4 text-xs text-white focus:outline-none focus:border-primary transition-all italic placeholder:text-text-dim/50"
                 />
               </div>
-              <div className="flex flex-wrap gap-3 items-center justify-end w-full md:w-auto">
-                <div className="flex gap-2 p-1 bg-bg-surface border border-border-subtle">
-                  {(["all", "active", "suspended", "overdue"] as const).map((f) => (
+              <div className="flex flex-wrap gap-2 items-center justify-end w-full md:w-auto">
+                <div className="flex flex-wrap gap-1 p-1 bg-bg-surface border border-border-subtle">
+                  {(["all", "active", "due", "overdue", "paid", "suspended"] as const).map((f) => (
                     <button
                       key={f}
                       onClick={() => setClientFilter(f)}
-                      className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
+                      className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${clientFilter === f ? "bg-primary text-white italic" : "text-text-muted hover:text-white"}`}
                     >
                       {f}
                     </button>
@@ -3645,7 +4258,7 @@ function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setShowBulkReminderModal(true)}
-                  className={`px-5 py-3 text-[9px] font-black uppercase tracking-[0.15em] italic flex items-center gap-2 transition-all border ${
+                  className={`px-4 py-2 text-[9px] font-black uppercase tracking-[0.15em] italic flex items-center gap-2 transition-all border ${
                     clients.filter(c => c.billStatus === 'overdue' || c.billStatus === 'due').length > 0
                       ? "bg-red-600 border-red-500 hover:bg-red-700 text-white shadow-lg shadow-red-600/20"
                       : "bg-bg-surface border-border-subtle text-text-muted hover:bg-bg-surface/80"
@@ -3656,8 +4269,9 @@ function AdminPanel({
                 </button>
               </div>
             </div>
-            <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest italic pl-1">
-              Displaying {filteredClients.length} of {clients.length} Subscribers
+            <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest italic pl-1 flex items-center justify-between">
+              <span>Displaying {filteredClients.length} of {clients.length} Subscribers</span>
+              <span className="text-[9px] font-mono text-slate-400">Timezone: Asia/Manila (UTC+8)</span>
             </p>
           </div>
           
@@ -3666,143 +4280,178 @@ function AdminPanel({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-bg-surface/50">
-                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
-                    Subscriber
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                    Subscriber &amp; Node
                   </th>
-                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle">
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
                     Account ID
                   </th>
-                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-center">
-                    Billing State
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle">
+                    Exact Due Date &amp; Time (PHT)
                   </th>
-                  <th className="px-8 py-6 text-[10px] uppercase tracking-[0.3em] font-black text-text-muted border-b border-border-subtle text-right">
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-center">
+                    Subscription Status
+                  </th>
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-center">
+                    Payment Status
+                  </th>
+                  <th className="px-6 py-5 text-[10px] uppercase tracking-[0.25em] font-black text-text-muted border-b border-border-subtle text-right">
                     Operations
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredClients.map((client) => (
-                  <tr
-                    key={client.uid}
-                    className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
-                  >
-                    <td className="px-8 py-6">
-                      <div 
-                        onClick={() => triggerEditClient(client)}
-                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
-                        title="Click to Edit Profile & UID"
-                      >
-                        <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
-                          {client.displayName}
-                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                          {client.status === 'suspended' && (
-                            <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic normal-case">
-                              Suspended
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[9px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
-                          {client.email}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div 
-                        onClick={() => triggerEditClient(client)}
-                        className="group cursor-pointer hover:text-primary transition-colors inline-block"
-                        title="Click to Edit Profile & UID"
-                      >
-                        <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1 flex items-center gap-1.5">
-                          #{client.accountNumber}
-                          <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                        {client.clientId && (
-                          <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
-                            CID: {client.clientId}
-                          </div>
-                        )}
-                        <div className="text-[8px] text-text-dim/50 font-mono italic">
-                          UID: {client.uid}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="flex gap-2">
-                          {(["paid", "due", "overdue"] as const).map((status) => (
-                            <button
-                              key={status}
-                              onClick={() =>
-                                updateClientStatus(client.uid, status)
-                              }
-                              className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest border transition-all ${client.billStatus === status ? (status === "overdue" ? "bg-red-500 border-red-500 text-white" : status === "due" ? "bg-yellow-500 border-yellow-500 text-black" : "bg-green-500 border-green-500 text-white") : "border-border-subtle text-text-muted hover:border-white/30"}`}
-                            >
-                              {status.toUpperCase()}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex flex-col items-center">
-                          {client.dueDate && (
-                            <div className="text-[9px] font-bold uppercase tracking-tighter text-text-muted flex items-center gap-1">
-                              {client.billStatus === "paid" ? "Next Due: " : "Deadline: "}
-                              <span className="text-primary italic">
-                                {client.dueDate?.toDate
-                                  ? client.dueDate.toDate().toLocaleString('en-PH', {
-                                      timeZone: ASIA_TIMEZONE,
-                                      month: '2-digit',
-                                      day: '2-digit',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      hour12: true
-                                    })
-                                  : typeof client.dueDate === "string"
-                                    ? new Date(client.dueDate).toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
-                                    : "N/A"}
+                {filteredClients.map((client) => {
+                  const evaluation = evaluateSubscriberStatus(client);
+                  return (
+                    <tr
+                      key={client.uid}
+                      className="border-b border-border-subtle/50 hover:bg-white/5 transition-colors"
+                    >
+                      <td className="px-6 py-5">
+                        <div 
+                          onClick={() => triggerEditClient(client)}
+                          className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                          title="Click to Edit Profile & UID"
+                        >
+                          <div className="font-bold text-white uppercase text-xs tracking-tight flex items-center gap-2">
+                            {client.displayName}
+                            <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                            {client.status === 'suspended' && (
+                              <span className="px-2 py-0.5 bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black uppercase tracking-widest italic normal-case">
+                                Suspended
                               </span>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
+                            {client.email}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div 
+                          onClick={() => triggerEditClient(client)}
+                          className="group cursor-pointer hover:text-primary transition-colors inline-block"
+                          title="Click to Edit Profile & UID"
+                        >
+                          <div className="text-[10px] font-black text-primary tracking-widest uppercase mb-1 flex items-center gap-1.5">
+                            #{client.accountNumber}
+                            <Edit3 size={10} className="text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          {client.clientId && (
+                            <div className="text-[9px] font-black text-white/70 tracking-widest uppercase mb-1">
+                              CID: {client.clientId}
                             </div>
                           )}
+                          <div className="text-[8px] text-text-dim/50 font-mono italic">
+                            UID: {client.uid}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="space-y-1">
+                          <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
+                            <Clock size={12} className="text-primary" />
+                            <span>{evaluation.due_date} • {evaluation.due_time}</span>
+                          </div>
+                          <div className="text-[9px] font-mono">
+                            {evaluation.subscription_status === "PAID" ? (
+                              <span className="text-emerald-400 font-bold">Settlement Confirmed</span>
+                            ) : evaluation.subscription_status === "OVERDUE" ? (
+                              <span className="text-red-400 font-bold">Overdue (72h Grace Expired)</span>
+                            ) : evaluation.subscription_status === "DUE" ? (
+                              <span className="text-amber-400 font-bold bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                                72h Grace: ~{evaluation.remainingGraceHours}h {evaluation.remainingGraceMinutes}m left
+                              </span>
+                            ) : (
+                              <span className="text-emerald-300 font-medium">Before Due Date</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <span
+                          className={`inline-block px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded border font-mono ${
+                            evaluation.subscription_status === "ACTIVE"
+                              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                              : evaluation.subscription_status === "DUE"
+                              ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                              : evaluation.subscription_status === "OVERDUE"
+                              ? "bg-red-500/20 border-red-500/50 text-red-400 animate-pulse"
+                              : "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
+                          }`}
+                        >
+                          {evaluation.subscription_status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <span
+                          className={`inline-block px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded border font-mono ${
+                            evaluation.payment_status === "paid"
+                              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                              : evaluation.payment_status === "processing"
+                              ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                              : evaluation.payment_status === "rejected"
+                              ? "bg-rose-500/20 border-rose-500/50 text-rose-400"
+                              : "bg-slate-800 border-slate-700 text-slate-400"
+                          }`}
+                        >
+                          {evaluation.payment_status === "processing"
+                            ? "Processing"
+                            : evaluation.payment_status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Dedicated Manual Subscription Renewal Button */}
+                          <button
+                            onClick={() => handleAdminRenewSubscription(client)}
+                            className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-1.5 rounded cursor-pointer border ${
+                              evaluation.subscription_status === "PAID"
+                                ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 shadow-md shadow-emerald-600/30"
+                                : "bg-slate-900 hover:bg-slate-800 text-emerald-400 hover:text-white border-emerald-500/40"
+                            }`}
+                            title="Renew subscription billing cycle by 30 days"
+                          >
+                            <RefreshCw size={10} />
+                            <span>Renew Cycle</span>
+                          </button>
+
                           <button
                             onClick={() => triggerEditClient(client)}
-                            className="text-[8px] font-black uppercase text-primary hover:underline italic tracking-widest mt-1 flex items-center gap-1"
+                            className="px-3 py-1.5 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-1 rounded"
                           >
-                            <Edit3 size={8} /> Edit Profile & UID
+                            <Edit3 size={10} /> Edit
+                          </button>
+
+                          <button
+                            onClick={() => toggleUserSuspension(client.uid, client.status)}
+                            className={`px-3 py-1.5 border ${client.status === 'suspended' ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white" : "border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-white"} text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-1 rounded`}
+                          >
+                            {client.status === 'suspended' ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                            {client.status === 'suspended' ? "Activate" : "Suspend"}
+                          </button>
+
+                          <button
+                            onClick={() => setNotifyingUser(client)}
+                            className="px-2.5 py-1.5 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-1 rounded"
+                            title="Dispatch Alert"
+                          >
+                            <Bell size={10} />
+                          </button>
+
+                          <button
+                            onClick={() => deleteSubscriber(client)}
+                            className="p-1.5 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all rounded"
+                            title="Delete Subscriber"
+                          >
+                            <Trash2 size={11} />
                           </button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => triggerEditClient(client)}
-                          className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
-                        >
-                          <Edit3 size={10} /> Edit
-                        </button>
-                        <button
-                          onClick={() => toggleUserSuspension(client.uid, client.status)}
-                          className={`px-4 py-2 border ${client.status === 'suspended' ? "border-green-500 text-green-500 hover:bg-green-500 hover:text-white" : "border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-white"} text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2`}
-                        >
-                          {client.status === 'suspended' ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
-                          {client.status === 'suspended' ? "Activate" : "Suspend"}
-                        </button>
-                        <button
-                          onClick={() => setNotifyingUser(client)}
-                          className="px-4 py-2 border border-primary/30 text-primary hover:bg-primary hover:text-white text-[9px] font-black uppercase tracking-widest italic transition-all flex items-center gap-2"
-                        >
-                          <Bell size={10} /> Dispatch Alert
-                        </button>
-                        <button
-                          onClick={() => deleteSubscriber(client)}
-                          className="p-2 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                          title="Delete Subscriber"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3816,85 +4465,186 @@ function AdminPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-6"
+            className="fixed inset-0 z-[60] bg-bg-base/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
             onClick={() => setSelectedReceipt(null)}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden"
+              className="sharp-card bg-bg-base max-w-lg w-full overflow-hidden my-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="bg-primary p-6 text-white flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <Receipt size={20} />
                   <span className="font-black uppercase tracking-widest italic">
-                    Verification View
+                    Settlement Verification View
                   </span>
                 </div>
-                <button onClick={() => setSelectedReceipt(null)}>
+                <button
+                  onClick={() => setSelectedReceipt(null)}
+                  className="hover:opacity-80 cursor-pointer"
+                >
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="p-8 space-y-6">
-                <div className="flex justify-between border-b border-border-subtle pb-4">
-                  <span className="text-[10px] font-black uppercase text-text-muted">
-                    REFERENCE
-                  </span>
-                  <span className="font-mono text-xs font-bold text-primary">
-                    {selectedReceipt.referenceNumber}
-                  </span>
+              <div className="p-6 sm:p-8 space-y-4">
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 font-mono text-xs">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Customer Name</span>
+                    <span className="text-white font-bold">
+                      {selectedReceipt.customerName ||
+                        clients.find((c) => c.uid === selectedReceipt.userId)?.displayName ||
+                        "Subscriber"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Account ID</span>
+                    <span className="text-primary font-bold">
+                      #{selectedReceipt.accountNumber ||
+                        clients.find((c) => c.uid === selectedReceipt.userId)?.accountNumber ||
+                        "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Payment Amount</span>
+                    <span className="text-emerald-400 font-bold text-base">
+                      ₱ {selectedReceipt.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Payment Method</span>
+                    <span className="text-white">{selectedReceipt.method || "QR Ph"}</span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Reference / Trace ID</span>
+                    <span className="text-primary font-bold break-all">
+                      {selectedReceipt.referenceNumber}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <span className="text-text-muted uppercase text-[10px]">Date &amp; Time Submitted</span>
+                    <span className="text-text-dim text-[11px]">
+                      {selectedReceipt.createdAt?.toDate
+                        ? selectedReceipt.createdAt
+                            .toDate()
+                            .toLocaleString("en-PH", { timeZone: ASIA_TIMEZONE })
+                        : "Processing"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-text-muted uppercase text-[10px]">Payment Status</span>
+                    <div>
+                      {selectedReceipt.status === "pending" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-black uppercase tracking-wider bg-amber-500/10 border border-amber-500/40 text-amber-400 rounded">
+                          <Clock size={10} className="animate-spin" /> Pending Confirmation
+                        </span>
+                      ) : selectedReceipt.status === "confirmed" || selectedReceipt.status === "completed" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 rounded">
+                          <CheckCircle2 size={10} /> Confirmed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-black uppercase tracking-wider bg-rose-500/10 border border-rose-500/40 text-rose-400 rounded">
+                          <X size={10} /> Rejected
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
+                {/* Audit Details if available */}
+                {selectedReceipt.audit && (
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1 font-mono text-[10px]">
+                    <div className="text-text-muted uppercase font-bold flex items-center gap-1">
+                      <span>Audit Record ({selectedReceipt.audit.decision})</span>
+                    </div>
+                    <div className="text-slate-300">
+                      Action by: <strong>{selectedReceipt.audit.actionBy}</strong>
+                    </div>
+                    {selectedReceipt.audit.notes && (
+                      <div className="text-slate-400 italic">
+                        Notes: {selectedReceipt.audit.notes}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Screenshot Display */}
                 {selectedReceipt.screenshotUrl ? (
-                  <div className="space-y-3">
-                    <span className="text-[10px] font-black uppercase text-text-muted flex items-center gap-2">
-                      <ImageIcon size={12} /> Reported Screenshot
-                    </span>
-                    <div className="aspect-[3/4] bg-slate-900 border border-border-subtle overflow-hidden relative group">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono uppercase text-text-muted flex items-center gap-1">
+                        <ImageIcon size={12} /> Uploaded Proof Screenshot
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setViewingScreenshot(selectedReceipt.screenshotUrl || null)}
+                        className="text-primary hover:underline text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye size={11} /> Open Fullscreen
+                      </button>
+                    </div>
+                    <div
+                      onClick={() => setViewingScreenshot(selectedReceipt.screenshotUrl || null)}
+                      className="aspect-video bg-slate-950 border border-border-subtle overflow-hidden relative group cursor-pointer rounded-lg"
+                    >
                       <img
                         src={selectedReceipt.screenshotUrl}
                         alt="Receipt proof"
                         className="w-full h-full object-contain"
                       />
-                      <a
-                        href={selectedReceipt.screenshotUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest"
-                      >
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest">
                         <ExternalLink size={14} /> Open Full Resolution
-                      </a>
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="p-12 text-center border-2 border-dashed border-border-subtle text-text-dim uppercase text-[10px] font-black tracking-widest italic">
+                  <div className="p-8 text-center border-2 border-dashed border-border-subtle text-text-dim uppercase text-[10px] font-black tracking-widest italic rounded-lg">
                     No Screenshot Uploaded
                   </div>
                 )}
 
-                <div className="flex gap-4">
+                {/* Actions */}
+                {selectedReceipt.status === "pending" ? (
+                  user && selectedReceipt.userId === user.uid ? (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono text-center rounded-xl">
+                      Security Policy: User cannot confirm their own payment.
+                    </div>
+                  ) : (
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={() => {
+                          const r = selectedReceipt;
+                          setSelectedReceipt(null);
+                          setConfirmingSettlement(r);
+                        }}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold uppercase text-xs tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-600/20"
+                      >
+                        <CheckCircle2 size={14} /> Confirm Settlement
+                      </button>
+                      <button
+                        onClick={() => {
+                          const r = selectedReceipt;
+                          setSelectedReceipt(null);
+                          setRejectingPayment(r);
+                          setRejectionNotes("");
+                        }}
+                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-mono font-bold uppercase text-xs tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
+                      >
+                        <X size={14} /> Reject Payment
+                      </button>
+                    </div>
+                  )
+                ) : (
                   <button
-                    onClick={() => {
-                      updateStatus(selectedReceipt, "completed");
-                      setSelectedReceipt(null);
-                    }}
-                    className="flex-1 py-4 bg-green-600 hover:bg-green-700 text-white font-black uppercase text-[11px] tracking-widest italic transition-all"
+                    onClick={() => setSelectedReceipt(null)}
+                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-mono font-bold uppercase text-xs tracking-wider rounded-xl transition-all cursor-pointer"
                   >
-                    Approve
+                    Close Verification View
                   </button>
-                  <button
-                    onClick={() => {
-                      updateStatus(selectedReceipt, "failed");
-                      setSelectedReceipt(null);
-                    }}
-                    className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[11px] tracking-widest italic transition-all"
-                  >
-                    Reject
-                  </button>
-                </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -4227,6 +4977,291 @@ function AdminPanel({
           </motion.div>
         )}
 
+        {/* Admin Confirm Settlement Modal */}
+        {confirmingSettlement && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10003] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => !isProcessingSettlement && setConfirmingSettlement(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-emerald-500/40 rounded-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl relative my-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between pb-4 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <CheckCircle2 size={22} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-400 font-bold block">
+                      Admin Settlement Review
+                    </span>
+                    <h3 className="text-lg font-bold text-white">
+                      Confirm Settlement
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setConfirmingSettlement(null)}
+                  disabled={isProcessingSettlement}
+                  className="text-text-muted hover:text-white cursor-pointer disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Details Box */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 font-mono text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Customer Name</span>
+                  <span className="text-white font-bold">
+                    {confirmingSettlement.customerName ||
+                      clients.find((c) => c.uid === confirmingSettlement.userId)?.displayName ||
+                      "Subscriber"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Account ID</span>
+                  <span className="text-primary font-bold">
+                    #{confirmingSettlement.accountNumber ||
+                      clients.find((c) => c.uid === confirmingSettlement.userId)?.accountNumber ||
+                      "N/A"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Payment Amount</span>
+                  <span className="text-emerald-400 font-bold text-base">
+                    ₱ {confirmingSettlement.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Payment Method</span>
+                  <span className="text-white">{confirmingSettlement.method || "QR Ph"}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Transaction / Reference ID</span>
+                  <span className="text-primary font-bold break-all">
+                    {confirmingSettlement.referenceNumber}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                  <span className="text-text-muted uppercase text-[11px]">Date &amp; Time Submitted</span>
+                  <span className="text-text-dim text-[11px]">
+                    {confirmingSettlement.createdAt?.toDate
+                      ? confirmingSettlement.createdAt
+                          .toDate()
+                          .toLocaleString("en-PH", { timeZone: ASIA_TIMEZONE })
+                      : "Processing"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted uppercase text-[11px]">Current Status</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-black uppercase tracking-wider bg-amber-500/10 border border-amber-500/40 text-amber-400 rounded">
+                    <Clock size={10} className="animate-spin" /> Pending Confirmation
+                  </span>
+                </div>
+              </div>
+
+              {/* Proof Preview */}
+              {confirmingSettlement.screenshotUrl && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-text-muted uppercase">
+                    <span>Uploaded Screenshot Proof</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewingScreenshot(confirmingSettlement.screenshotUrl || null)}
+                      className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye size={12} /> View Full Size
+                    </button>
+                  </div>
+                  <div
+                    onClick={() => setViewingScreenshot(confirmingSettlement.screenshotUrl || null)}
+                    className="h-32 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden cursor-pointer group"
+                  >
+                    <img
+                      src={confirmingSettlement.screenshotUrl}
+                      alt="Proof"
+                      className="h-full object-contain group-hover:scale-105 transition-transform"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Policy Advisory Note */}
+              <div className="p-3.5 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-emerald-200/90 text-[11px] space-y-1 leading-relaxed">
+                <p className="font-bold flex items-center gap-1.5 text-emerald-400">
+                  <CheckCircle2 size={12} /> Settlement Finalization Notice:
+                </p>
+                <p className="text-[10px] text-text-muted">
+                  • Payment status will become <strong>Confirmed</strong>.
+                  <br />• ₱{confirmingSettlement.amount.toLocaleString()} will be credited toward subscriber balance.
+                  <br />• <strong>Subscription renewal or extension will NOT occur automatically.</strong>
+                  <br />• Permanent audit trail will record admin identity: <strong>{user?.email}</strong>.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={isProcessingSettlement}
+                  onClick={() => setConfirmingSettlement(null)}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-mono text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingSettlement}
+                  onClick={handleConfirmSettlement}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold uppercase rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                >
+                  {isProcessingSettlement ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )}
+                  Confirm Settlement
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Admin Reject Payment Modal */}
+        {rejectingPayment && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10003] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => !isProcessingSettlement && setRejectingPayment(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl relative my-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between pb-4 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                    <X size={22} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-rose-400 font-bold block">
+                      Admin Settlement Review
+                    </span>
+                    <h3 className="text-lg font-bold text-white">
+                      Reject Payment Submission
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setRejectingPayment(null)}
+                  disabled={isProcessingSettlement}
+                  className="text-text-muted hover:text-white cursor-pointer disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 font-mono text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted uppercase text-[11px]">Customer &amp; Ref ID</span>
+                  <span className="text-white font-bold">
+                    {rejectingPayment.customerName ||
+                      clients.find((c) => c.uid === rejectingPayment.userId)?.displayName ||
+                      "Subscriber"}{" "}
+                    • {rejectingPayment.referenceNumber}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted uppercase text-[11px]">Payment Amount</span>
+                  <span className="text-rose-400 font-bold">₱ {rejectingPayment.amount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted uppercase text-[11px]">Payment Method</span>
+                  <span className="text-slate-300">{rejectingPayment.method || "QR Ph"}</span>
+                </div>
+              </div>
+
+              {/* Rejection Reason Input */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-mono uppercase text-text-muted font-bold block">
+                  Rejection Reason / Notes (Logged in Audit &amp; Sent to Subscriber)
+                </label>
+                <textarea
+                  value={rejectionNotes}
+                  onChange={(e) => setRejectionNotes(e.target.value)}
+                  placeholder="State reason for rejection (e.g. proof screenshot unreadable, invalid transaction reference, amount does not match, duplicate receipt)..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-white placeholder-slate-600 focus:border-rose-500 outline-none"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Unclear screenshot proof",
+                    "Reference ID not found",
+                    "Amount mismatch",
+                    "Duplicate submission",
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setRejectionNotes(preset)}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono rounded cursor-pointer transition-colors"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 bg-rose-950/20 border border-rose-500/20 rounded-xl text-rose-200/90 text-[11px] leading-relaxed">
+                <p className="text-[10px] text-text-muted">
+                  • Payment status becomes <strong>Rejected</strong>.
+                  <br />• Subscriber balance and subscription remain untouched.
+                  <br />• Reason will be logged under admin <strong>{user?.email}</strong>.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={isProcessingSettlement}
+                  onClick={() => {
+                    setRejectingPayment(null);
+                    setRejectionNotes("");
+                  }}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-mono text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingSettlement}
+                  onClick={handleRejectPayment}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-bold uppercase rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-600/20 disabled:opacity-50"
+                >
+                  {isProcessingSettlement ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <X size={14} />
+                  )}
+                  Reject Payment
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {viewingScreenshot && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -4309,6 +5344,12 @@ function AdminPanel({
             setEditingScheduleUser={setEditingScheduleUser}
             tempDueDate={tempDueDate}
             setTempDueDate={setTempDueDate}
+            tempDueTime={tempDueTime}
+            setTempDueTime={setTempDueTime}
+            tempPaymentStatus={tempPaymentStatus}
+            setTempPaymentStatus={setTempPaymentStatus}
+            tempSubscriptionStatus={tempSubscriptionStatus}
+            setTempSubscriptionStatus={setTempSubscriptionStatus}
             tempClientId={tempClientId}
             setTempClientId={setTempClientId}
             tempUid={tempUid}
@@ -4333,6 +5374,25 @@ function AdminPanel({
             editingCycle={editingCycle}
             setEditingCycle={setEditingCycle}
             handleSaveCycle={handleSaveCycle}
+          />
+        )}
+
+        {showTelegramModal && (
+          <TelegramConfigModal
+            key="telegram-modal"
+            show={showTelegramModal}
+            onClose={() => setShowTelegramModal(false)}
+            telegramConfig={telegramConfig}
+            telegramFormToken={telegramFormToken}
+            setTelegramFormToken={setTelegramFormToken}
+            telegramFormChatId={telegramFormChatId}
+            setTelegramFormChatId={setTelegramFormChatId}
+            telegramFormEnabled={telegramFormEnabled}
+            setTelegramFormEnabled={setTelegramFormEnabled}
+            handleSaveTelegram={handleSaveTelegram}
+            handleTestTelegram={handleTestTelegram}
+            isSaving={isSavingTelegram}
+            isTesting={isTestingTelegram}
           />
         )}
 
@@ -4487,6 +5547,12 @@ function ScheduleModal({
   setEditingScheduleUser,
   tempDueDate,
   setTempDueDate,
+  tempDueTime,
+  setTempDueTime,
+  tempPaymentStatus,
+  setTempPaymentStatus,
+  tempSubscriptionStatus,
+  setTempSubscriptionStatus,
   tempClientId,
   setTempClientId,
   tempUid,
@@ -4507,6 +5573,12 @@ function ScheduleModal({
   setEditingScheduleUser: (u: UserProfile | null) => void;
   tempDueDate: string;
   setTempDueDate: (s: string) => void;
+  tempDueTime: string;
+  setTempDueTime: (s: string) => void;
+  tempPaymentStatus: "unpaid" | "processing" | "paid" | "rejected";
+  setTempPaymentStatus: (s: "unpaid" | "processing" | "paid" | "rejected") => void;
+  tempSubscriptionStatus: "ACTIVE" | "DUE" | "OVERDUE" | "PAID";
+  setTempSubscriptionStatus: (s: "ACTIVE" | "DUE" | "OVERDUE" | "PAID") => void;
   tempClientId: string;
   setTempClientId: (s: string) => void;
   tempUid: string;
@@ -4524,7 +5596,10 @@ function ScheduleModal({
   updateClientProfile: (
     userId: string,
     newUid: string,
-    date: string,
+    dueDateStr: string,
+    dueTimeStr: string,
+    paymentStatus: string,
+    subscriptionStatus: string,
     clientId: string,
     displayName: string,
     email: string,
@@ -4534,6 +5609,14 @@ function ScheduleModal({
   ) => void;
 }) {
   if (!editingScheduleUser) return null;
+
+  // Live evaluation of the entered schedule parameters
+  const simulatedEval = evaluateSubscriberStatus({
+    due_date: tempDueDate,
+    due_time: tempDueTime,
+    payment_status: tempPaymentStatus,
+    subscription_status: tempSubscriptionStatus,
+  });
 
   return (
     <motion.div
@@ -4549,11 +5632,16 @@ function ScheduleModal({
         className="sharp-card p-8 md:p-10 max-w-xl w-full border-t-8 border-primary space-y-6 bg-bg-base shadow-2xl max-h-[90vh] flex flex-col"
       >
         <div>
-          <h3 className="text-2xl font-black uppercase italic tracking-tighter">
-            CALIBRATE <span className="text-primary not-italic">PROFILE & IDENTITY</span>
-          </h3>
-          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-2">
-            Subscriber Node: <span className="text-white">{editingScheduleUser.displayName || "Unknown"}</span>
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-black uppercase italic tracking-tighter">
+              CALIBRATE <span className="text-primary not-italic">PROFILE &amp; BILLING</span>
+            </h3>
+            <span className="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary text-[9px] font-mono font-bold">
+              Asia/Manila (PHT)
+            </span>
+          </div>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-1">
+            Subscriber Node: <span className="text-white">{editingScheduleUser.displayName || "Unknown"}</span> (#{editingScheduleUser.accountNumber})
           </p>
         </div>
 
@@ -4574,7 +5662,7 @@ function ScheduleModal({
                   value={tempDisplayName}
                   onChange={(e) => setTempDisplayName(e.target.value)}
                   placeholder="e.g. John Doe"
-                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold uppercase text-white"
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-bold uppercase text-white"
                 />
               </div>
 
@@ -4587,7 +5675,7 @@ function ScheduleModal({
                   value={tempAccountNumber}
                   onChange={(e) => setTempAccountNumber(e.target.value)}
                   placeholder="e.g. HF-7MOSBV-7017"
-                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
                 />
               </div>
             </div>
@@ -4602,7 +5690,7 @@ function ScheduleModal({
                   value={tempEmail}
                   onChange={(e) => setTempEmail(e.target.value)}
                   placeholder="e.g. user@domain.com"
-                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
                 />
               </div>
 
@@ -4615,7 +5703,7 @@ function ScheduleModal({
                   value={tempPhone}
                   onChange={(e) => setTempPhone(e.target.value)}
                   placeholder="e.g. 09123456789"
-                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white"
                 />
               </div>
             </div>
@@ -4629,7 +5717,7 @@ function ScheduleModal({
                 value={tempAddress}
                 onChange={(e) => setTempAddress(e.target.value)}
                 placeholder="e.g. 123 Quezon Ave, Manila"
-                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-bold text-white"
+                className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-bold text-white"
               />
             </div>
           </div>
@@ -4637,24 +5725,21 @@ function ScheduleModal({
           {/* Database System Core */}
           <div className="space-y-4 border-b border-border-subtle/40 pb-6">
             <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
-              Part II: Core Accounts & Routing Re-linking
+              Part II: Core Accounts &amp; Routing Re-linking
             </h4>
 
             <div className="space-y-2">
               <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex justify-between">
                 <span>Account ID / UID (Database Reference Key)</span>
-                <span className="text-primary italic font-black">Editable & Migratable</span>
+                <span className="text-primary italic font-black text-[9px]">Editable &amp; Migratable</span>
               </label>
               <input
                 type="text"
                 value={tempUid}
                 onChange={(e) => setTempUid(e.target.value)}
                 placeholder="e.g. t8mD2xFleddg8vZ8"
-                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white select-all uppercase"
+                className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white select-all uppercase"
               />
-              <p className="text-[9px] text-text-muted/60 uppercase tracking-widest leading-relaxed italic">
-                Modifying the database key triggers seamless migration of payment documents, Chat channels, and subscriber history.
-              </p>
             </div>
 
             <div className="space-y-2">
@@ -4666,52 +5751,142 @@ function ScheduleModal({
                 value={tempClientId}
                 onChange={(e) => setTempClientId(e.target.value)}
                 placeholder="e.g. PPPOE_USER_001"
-                className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
+                className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold text-white uppercase"
               />
             </div>
           </div>
 
-          {/* Settlement / Billing Recurrence */}
+          {/* Automated Billing Logic & Due Date Fields */}
           <div className="space-y-4">
-            <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
-              Part III: Settlement Lifecycle
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+                Part III: Automated Due Date &amp; Billing Status
+              </h4>
+              <span className="text-[8px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                72h Grace Engine Active
+              </span>
+            </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
-                Settlement Due Timestamp (12-Hour Philippine Standard Time)
-              </label>
-              <div className="relative group">
-                <input
-                  type="datetime-local"
-                  value={tempDueDate}
-                  onChange={(e) => setTempDueDate(e.target.value)}
-                  className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono font-bold uppercase text-white appearance-none"
-                  style={{ colorScheme: 'dark' }}
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-primary/50 group-hover:text-primary transition-colors">
-                  <Calendar size={16} />
+            {/* Exact Due Date & Exact Due Time */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+                  <span>due_date</span>
+                  <span className="text-slate-400 text-[9px] font-mono">YYYY-MM-DD</span>
+                </label>
+                <div className="relative group">
+                  <input
+                    type="date"
+                    value={tempDueDate}
+                    onChange={(e) => setTempDueDate(e.target.value)}
+                    className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                    style={{ colorScheme: 'dark' }}
+                  />
                 </div>
               </div>
-              {tempDueDate && (
-                <div className="p-3 bg-primary/5 border border-primary/20">
-                  <div className="text-[9px] text-primary font-black uppercase tracking-widest mb-1 italic">Preview Format</div>
-                  <div className="text-xs font-mono font-bold text-white uppercase italic">
-                    {new Date(tempDueDate).toLocaleString('en-US', {
-                      timeZone: ASIA_TIMEZONE,
-                      month: 'short',
-                      day: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true
-                    })}
-                  </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+                  <span>due_time</span>
+                  <span className="text-slate-400 text-[9px] font-mono">e.g. 12:00 PM</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempDueTime}
+                    onChange={(e) => setTempDueTime(e.target.value)}
+                    placeholder="12:00 PM"
+                    className="flex-1 bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                  />
+                  <select
+                    value={["12:00 PM", "12:00 AM", "08:00 AM", "05:00 PM", "11:59 PM"].includes(tempDueTime) ? tempDueTime : ""}
+                    onChange={(e) => {
+                      if (e.target.value) setTempDueTime(e.target.value);
+                    }}
+                    className="bg-slate-900 border border-border-subtle px-2 text-[10px] font-mono text-slate-300 focus:outline-none focus:border-primary"
+                    title="Quick Presets"
+                  >
+                    <option value="">Presets</option>
+                    <option value="12:00 PM">12:00 PM (Noon)</option>
+                    <option value="12:00 AM">12:00 AM (Midnight)</option>
+                    <option value="08:00 AM">08:00 AM</option>
+                    <option value="05:00 PM">05:00 PM</option>
+                    <option value="11:59 PM">11:59 PM</option>
+                  </select>
                 </div>
-              )}
-              <p className="text-[9px] text-text-muted font-bold uppercase tracking-widest leading-relaxed italic">
-                Note: Entering historical deadlines relative to node clock will lock current access loops and trigger suspend state.
-              </p>
+              </div>
+            </div>
+
+            {/* payment_status & subscription_status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  payment_status
+                </label>
+                <select
+                  value={tempPaymentStatus}
+                  onChange={(e) => setTempPaymentStatus(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                >
+                  <option value="unpaid">UNPAID (Pending Payment)</option>
+                  <option value="processing">PROCESSING (Proof Submitted)</option>
+                  <option value="paid">PAID (Admin Confirmed)</option>
+                  <option value="rejected">REJECTED (Admin Rejected)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  subscription_status
+                </label>
+                <select
+                  value={tempSubscriptionStatus}
+                  onChange={(e) => setTempSubscriptionStatus(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                >
+                  <option value="ACTIVE">ACTIVE (Before Due Time)</option>
+                  <option value="DUE">DUE (Due Time Reached / Grace Active)</option>
+                  <option value="OVERDUE">OVERDUE (72h Grace Expired)</option>
+                  <option value="PAID">PAID (Settlement Confirmed)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Live Automated Billing Engine Evaluation Card */}
+            <div className="p-4 bg-slate-950 border border-border-subtle rounded-lg space-y-2">
+              <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-text-muted">
+                <span className="flex items-center gap-1.5 text-primary">
+                  <Clock size={12} /> Live Engine Evaluation Preview
+                </span>
+                <span className="font-mono text-slate-400">PHT (Asia/Manila)</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+                <span className="text-[10px] text-slate-300 font-mono">Calculated Status:</span>
+                <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+                  simulatedEval.subscription_status === "ACTIVE"
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                    : simulatedEval.subscription_status === "DUE"
+                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                    : simulatedEval.subscription_status === "OVERDUE"
+                    ? "bg-red-500/20 border-red-500/50 text-red-400"
+                    : "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
+                }`}>
+                  {simulatedEval.subscription_status}
+                </span>
+              </div>
+
+              <div className="text-[9px] font-mono text-slate-400 leading-relaxed">
+                {simulatedEval.hasConfirmedPayment ? (
+                  <span className="text-emerald-400">Payment confirmed by admin. Status is PAID.</span>
+                ) : simulatedEval.isOverdue ? (
+                  <span className="text-red-400 font-bold">72 hours have passed since exact due timestamp without confirmed payment. Status is OVERDUE.</span>
+                ) : simulatedEval.isDueReached || simulatedEval.isInGracePeriod ? (
+                  <span className="text-amber-400 font-medium">Exact due instant reached. In 72-hour grace period (~{simulatedEval.remainingGraceHours}h {simulatedEval.remainingGraceMinutes}m left).</span>
+                ) : (
+                  <span className="text-emerald-300">Authoritative server time is before due date &amp; time. Status is ACTIVE.</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -4721,7 +5896,10 @@ function ScheduleModal({
             onClick={() => updateClientProfile(
               editingScheduleUser.uid, 
               tempUid, 
-              tempDueDate, 
+              tempDueDate,
+              tempDueTime,
+              tempPaymentStatus,
+              tempSubscriptionStatus,
               tempClientId,
               tempDisplayName,
               tempEmail,
@@ -4729,7 +5907,7 @@ function ScheduleModal({
               tempAddress,
               tempAccountNumber
             )}
-            className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+            className="flex-1 py-4 bg-primary hover:bg-primary-dark text-white font-black uppercase tracking-[0.2em] italic text-[11px] transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 cursor-pointer"
           >
             <CheckCircle2 size={14} />
             Commit Configuration
@@ -4737,7 +5915,7 @@ function ScheduleModal({
           <button
             type="button"
             onClick={() => setEditingScheduleUser(null)}
-            className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all"
+            className="px-8 border border-border-subtle text-text-muted hover:text-white font-black uppercase tracking-widest text-[9px] transition-all cursor-pointer"
           >
             Cancel
           </button>
@@ -4988,6 +6166,203 @@ function BulkReminderModal({
           </button>
         </div>
       </motion.form>
+    </motion.div>
+  );
+}
+
+function TelegramConfigModal({
+  show,
+  onClose,
+  telegramConfig,
+  telegramFormToken,
+  setTelegramFormToken,
+  telegramFormChatId,
+  setTelegramFormChatId,
+  telegramFormEnabled,
+  setTelegramFormEnabled,
+  handleSaveTelegram,
+  handleTestTelegram,
+  isSaving,
+  isTesting,
+}: {
+  show: boolean;
+  onClose: () => void;
+  telegramConfig: {
+    configured: boolean;
+    chatId: string;
+    enabled: boolean;
+    maskedToken: string;
+  } | null;
+  telegramFormToken: string;
+  setTelegramFormToken: (s: string) => void;
+  telegramFormChatId: string;
+  setTelegramFormChatId: (s: string) => void;
+  telegramFormEnabled: boolean;
+  setTelegramFormEnabled: (b: boolean) => void;
+  handleSaveTelegram: (e?: React.FormEvent) => void;
+  handleTestTelegram: () => void;
+  isSaving: boolean;
+  isTesting: boolean;
+}) {
+  if (!show) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[10002] bg-hot-black/90 flex items-center justify-center p-4 sm:p-6 backdrop-blur-md"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="sharp-card p-6 sm:p-10 max-w-xl w-full border-t-8 border-sky-500 space-y-6 bg-bg-base shadow-2xl max-h-[92vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+              <Bot size={24} />
+            </div>
+            <div>
+              <h3 className="text-xl sm:text-2xl font-black uppercase italic tracking-tighter text-white">
+                TELEGRAM <span className="text-sky-400 not-italic">BOT ENGINE</span>
+              </h3>
+              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-0.5">
+                Instant Settlement Proof Alerts &amp; NOC Ticket Notifications
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-9 h-9 border border-border-subtle flex items-center justify-center text-text-muted hover:text-white hover:border-white transition-all cursor-pointer rounded"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Status Banner */}
+        <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase font-bold text-slate-400">Current Status</span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border flex items-center gap-1.5 ${
+                telegramConfig?.configured
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                  : "bg-amber-500/15 border-amber-500/30 text-amber-300"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  telegramConfig?.configured ? "bg-emerald-400 animate-ping" : "bg-amber-400"
+                }`}
+              />
+              {telegramConfig?.configured ? "Active & Connected" : "Token Setup Required"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2 text-[10px] font-mono">
+            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
+              <span className="text-text-muted block text-[8px] uppercase">Target Chat ID</span>
+              <span className="text-white font-bold">{telegramConfig?.chatId || "8732198426"}</span>
+            </div>
+            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
+              <span className="text-text-muted block text-[8px] uppercase">API Token</span>
+              <span className="text-sky-400 font-bold">
+                {telegramConfig?.maskedToken || "Not configured"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Configuration Form */}
+        <form onSubmit={handleSaveTelegram} className="space-y-4 flex-1 overflow-y-auto pr-1">
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+              <span>Telegram Bot API Token (from @BotFather)</span>
+              <span className="text-sky-400 text-[9px] font-mono">Secret</span>
+            </label>
+            <input
+              type="password"
+              value={telegramFormToken}
+              onChange={(e) => setTelegramFormToken(e.target.value)}
+              placeholder={telegramConfig?.maskedToken ? "Leave blank to keep existing token" : "e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ..."}
+              className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-sky-400 text-xs font-mono text-white rounded"
+            />
+            <p className="text-[9px] text-text-muted leading-relaxed">
+              Create a bot with <strong className="text-slate-300">@BotFather</strong> on Telegram, send <code className="text-sky-300">/newbot</code>, and paste the generated HTTP API token.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+              <span>Target Chat ID / Group ID</span>
+              <span className="text-slate-400 text-[9px] font-mono">e.g. 8732198426</span>
+            </label>
+            <input
+              type="text"
+              value={telegramFormChatId}
+              onChange={(e) => setTelegramFormChatId(e.target.value)}
+              placeholder="8732198426"
+              className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-sky-400 text-xs font-mono font-bold text-white rounded"
+            />
+            <p className="text-[9px] text-text-muted leading-relaxed">
+              Your personal Telegram user ID or group chat ID where settlement proof alerts and customer screenshots will be forwarded.
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-900/60 border border-border-subtle rounded-lg flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-white uppercase tracking-tight block">
+                Forward Settlement Proofs Automatically
+              </span>
+              <span className="text-[9px] text-text-muted block">
+                Dispatches subscriber name, account ID, amount, reference number, and uploaded screenshot proof.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={telegramFormEnabled}
+              onChange={(e) => setTelegramFormEnabled(e.target.checked)}
+              className="w-5 h-5 accent-sky-500 cursor-pointer"
+            />
+          </div>
+
+          {/* Quick Steps Guide */}
+          <div className="p-3 bg-sky-950/20 border border-sky-900/30 rounded-lg space-y-1.5 text-[9px] text-sky-300/80 font-mono">
+            <span className="font-bold uppercase tracking-wider text-sky-400 block mb-1">
+              💡 Setup in 3 Quick Steps:
+            </span>
+            <p>1. Message <strong>@BotFather</strong> on Telegram and send <code className="text-white">/newbot</code>.</p>
+            <p>2. Paste your bot token above and set your Chat ID (or leave the default <strong>8732198426</strong>).</p>
+            <p>3. Start your bot on Telegram, then click <strong>[Send Test Alert]</strong> below to confirm delivery!</p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleTestTelegram}
+              disabled={isTesting}
+              className="flex-1 py-3.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 hover:border-sky-500/50 font-black uppercase tracking-widest text-[10px] italic rounded transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isTesting ? <RefreshCw size={12} className="animate-spin" /> : <Send size={12} />}
+              <span>{isTesting ? "Testing Connection..." : "Send Test Alert"}</span>
+            </button>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex-1 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-black uppercase tracking-widest text-[10px] italic rounded transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-sky-600/20 disabled:opacity-50"
+            >
+              {isSaving ? <RefreshCw size={12} className="animate-spin" /> : <CheckCircle2 size={13} />}
+              <span>{isSaving ? "Saving Settings..." : "Save Bot Config"}</span>
+            </button>
+          </div>
+        </form>
+      </motion.div>
     </motion.div>
   );
 }
