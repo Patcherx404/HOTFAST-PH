@@ -17,11 +17,11 @@ export interface VercelResponse {
 }
 
 function getPayMongoAuthHeader(): string {
-  let raw = (
-    process.env.PAYMONGO_SECRET_KEY ||
-    process.env.PAYMONGO_AUTH_HEADER ||
-    "sk_live_DUN5bW3paRw54UjhXfCHddTk"
-  ).trim();
+  let raw = (process.env.PAYMONGO_SECRET_KEY || process.env.PAYMONGO_AUTH_HEADER || "").trim();
+
+  if (!raw) {
+    return "";
+  }
 
   // Strip wrapping double or single quotes
   if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
@@ -34,7 +34,7 @@ function getPayMongoAuthHeader(): string {
       const decoded = Buffer.from(raw.slice(6).trim(), "base64").toString("utf-8");
       raw = decoded.split(":")[0];
     } catch {
-      raw = "sk_live_DUN5bW3paRw54UjhXfCHddTk";
+      return "";
     }
   }
 
@@ -42,6 +42,8 @@ function getPayMongoAuthHeader(): string {
   if (raw.includes(":")) {
     raw = raw.split(":")[0].trim();
   }
+
+  if (!raw) return "";
 
   // PayMongo requires Basic authentication with username=secret_key and empty password
   return `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
@@ -100,6 +102,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const authHeader = getPayMongoAuthHeader();
+    if (!authHeader) {
+      return res.status(500).json({
+        error: "PAYMONGO_SECRET_KEY is not configured in environment variables.",
+      });
+    }
 
     const response = await fetch("https://api.paymongo.com/v1/qrph/generate", {
       method: "POST",
