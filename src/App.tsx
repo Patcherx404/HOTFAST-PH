@@ -938,7 +938,12 @@ export default function App() {
             {activeTab === "portal" && (
               <CustomerPortal
                 plans={plans}
-                onPay={() => setActiveTab("plans")}
+                onPay={() => {
+                  if (currentPlan) {
+                    setSelectedPlan(currentPlan);
+                  }
+                  setActiveTab("payment");
+                }}
                 onOpenLatencyMap={() => setShowLatencyMap(true)}
                 onOpenInstallModal={() => setShowInstallModal(true)}
                 isInstalled={isInstalled}

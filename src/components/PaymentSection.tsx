@@ -40,11 +40,11 @@ import { INTERNET_PLANS } from "../constants";
 function generateClientQRPhPayload(amountPhp: number, accountNum: string): string {
   const pad = (id: string, val: string) => `${id}${String(val.length).padStart(2, "0")}${val}`;
   const amountStr = amountPhp.toFixed(2);
-  const ref = (accountNum || `HF${Date.now()}`).slice(0, 25);
+  const ref = (accountNum || `HF${Date.now()}`).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 25);
   const merchantName = "HOTFAST PH";
   const city = "MANILA";
 
-  let p =
+  const p =
     pad("00", "01") +
     pad("01", "12") +
     pad("28", pad("00", "ph.gov.bsp") + pad("01", "HOTFASTPH01") + pad("02", ref)) +
@@ -68,11 +68,13 @@ function generateClientQRPhPayload(amountPhp: number, accountNum: string): strin
       }
     }
   }
-  return p.slice(0, -4) + "6304" + crc.toString(16).toUpperCase().padStart(4, "0");
+  return p + crc.toString(16).toUpperCase().padStart(4, "0");
 }
 
 interface PayMongoQRData {
   id: string;
+  payment_intent_id?: string;
+  checkout_url?: string;
   nation: string;
   type: string;
   mode: string;
@@ -144,11 +146,12 @@ export function PaymentSection({
   const [showAppGuide, setShowAppGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Sync selected plan changes
+  // Sync selected plan changes and regenerate QR code
   useEffect(() => {
     if (selectedPlan) {
       setActivePlan(selectedPlan);
       setAmount(selectedPlan.price);
+      generateQRPh(selectedPlan.price);
     }
   }, [selectedPlan]);
 
@@ -172,10 +175,12 @@ export function PaymentSection({
       // Clear previous timer
       if (timerRef.current) clearInterval(timerRef.current);
 
+      const effectiveAccount = accountNumber || (user ? `HF-${user.uid.substring(0, 8).toUpperCase()}` : "HF-CUSTOMER");
       const payload = {
         amount: targetAmount,
+        accountNumber: effectiveAccount,
         mobile_number: "+639122367040",
-        notes: `HOTFAST Payment for ${accountNumber || "Account"} - PHP ${targetAmount}`,
+        notes: `HOTFAST Payment for ${effectiveAccount} PHP ${targetAmount}`,
         expiry_seconds: 1800,
       };
 
@@ -227,7 +232,7 @@ export function PaymentSection({
       // Tier 3: Client-side compliant QR Ph generation fallback – ensures 100% success
       if (!newQrData || !newQrData.qr_image) {
         try {
-          const qrPayload = generateClientQRPhPayload(targetAmount, accountNumber);
+          const qrPayload = generateClientQRPhPayload(targetAmount, effectiveAccount);
           const clientQrImage = await QRCode.toDataURL(qrPayload, { width: 420, margin: 2 });
           newQrData = {
             id: `qr_client_${Date.now()}`,
@@ -238,7 +243,7 @@ export function PaymentSection({
             transaction_currency: "PHP",
             transaction_amount: Math.round(targetAmount * 100),
             merchant_name: "HOTFAST PH",
-            notes: `HOTFAST Payment for ${accountNumber || "Account"} - PHP ${targetAmount}`,
+            notes: `HOTFAST Payment for ${effectiveAccount} - PHP ${targetAmount}`,
             created_at: new Date().toISOString(),
             expires_at: new Date(Date.now() + 1800 * 1000).toISOString(),
             qr_string: qrPayload,
@@ -284,7 +289,8 @@ export function PaymentSection({
       console.warn("QR Ph generation notice, activating instant fallback:", err);
       try {
         const safeAmount = targetAmount > 0 ? targetAmount : 1000;
-        const fallbackPayload = generateClientQRPhPayload(safeAmount, accountNumber);
+        const effectiveAccount = accountNumber || "HF-CUSTOMER";
+        const fallbackPayload = generateClientQRPhPayload(safeAmount, effectiveAccount);
         const fallbackQrImage = await QRCode.toDataURL(fallbackPayload, { width: 420, margin: 2 });
         setQrData({
           id: `qr_fallback_${Date.now()}`,
@@ -357,20 +363,46 @@ export function PaymentSection({
     }
   };
 
-  // Download QR Code image
-  const handleDownloadQR = () => {
+  // Download QR Code image with robust cross-origin and data URL support
+  const handleDownloadQR = async () => {
     if (!qrData?.qr_image) {
       toast.error("QR image is still loading. Please wait a moment.");
       return;
     }
 
     try {
-      const link = document.createElement("a");
-      link.href = qrData.qr_image;
-      link.download = `HOTFAST-QRPh-P${amount}-${accountNumber}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const fileName = `HOTFAST-QRPh-P${amount}-${accountNumber || "Subscriber"}.png`;
+      if (qrData.qr_image.startsWith("data:")) {
+        const link = document.createElement("a");
+        link.href = qrData.qr_image;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        try {
+          const resp = await fetch(qrData.qr_image);
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = blobUrl;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        } catch {
+          // If cross-origin fetch is blocked, re-render QR string via client QRCode
+          const fallbackQr = await QRCode.toDataURL(qrData.qr_string || `HOTFAST-${amount}`, { width: 500, margin: 2 });
+          const link = document.createElement("a");
+          link.href = fallbackQr;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      }
+
       toast.success("QR Ph Code saved to your device!", {
         description: "In GCash/Maya, tap 'QR' > 'Upload from Photos' to pay instantly on mobile.",
         duration: 5000,
@@ -779,8 +811,19 @@ export function PaymentSection({
               </span>
             </div>
 
-            {/* Countdown / Status Badge */}
-            <div>
+            {/* Countdown / Status Badge & Manual Refresh */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => generateQRPh(amount)}
+                disabled={isGenerating}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-text-muted hover:text-white text-[10px] font-mono rounded flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
+                title="Regenerate dynamic QR Ph"
+              >
+                <RefreshCw size={11} className={isGenerating ? "animate-spin text-primary" : ""} />
+                <span>Refresh</span>
+              </button>
+
               {isGenerating ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 text-[10px] font-mono text-text-muted rounded-full">
                   <RefreshCw size={11} className="animate-spin" /> Generating...
@@ -956,6 +999,19 @@ export function PaymentSection({
                 <Smartphone size={13} /> Open Maya App
               </a>
             </div>
+
+            {/* Direct 1-Tap Web Checkout Option (if available from PayMongo) */}
+            {qrData?.checkout_url && (
+              <a
+                href={qrData.checkout_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600/20 via-sky-600/20 to-primary/20 hover:from-emerald-600/30 hover:to-primary/30 text-white border border-primary/40 text-[10px] font-mono font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 transition-all no-underline text-center shadow-lg"
+              >
+                <ExternalLink size={12} className="text-primary shrink-0" />
+                <span>Pay via PayMongo Web Portal (GCash/Maya/Cards)</span>
+              </a>
+            )}
 
             {/* Expandable Step-by-Step Guide for 1-Device Mobile Users */}
             {showAppGuide && (

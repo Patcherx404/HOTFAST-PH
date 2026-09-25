@@ -353,7 +353,7 @@ async function startServer() {
 
   const handlePayMongoGenerate = async (req: express.Request, res: express.Response) => {
     try {
-      const { amount, expiry_seconds, mobile_number, notes } = req.body || {};
+      const { amount, expiry_seconds, mobile_number, notes, accountNumber } = req.body || {};
       const parsedAmount = Number(amount) || 1000;
       const safeAmount = parsedAmount > 0 ? parsedAmount : 1000;
 
@@ -361,69 +361,188 @@ async function startServer() {
       const transactionAmount = Math.round(safeAmount * 100);
       const expirySeconds = Number(expiry_seconds) || 1800;
       const customerMobile = mobile_number || "+639122367040";
-      const cleanNotes = (notes || `HOTFAST Payment PHP ${safeAmount}`)
-        .substring(0, 45)
+      const cleanNotes = (notes || `HOTFAST Payment for ${accountNumber || "Account"} PHP ${safeAmount}`)
+        .substring(0, 50)
         .replace(/[^a-zA-Z0-9 -]/g, "");
 
       const authHeader = getPayMongoAuthHeader();
       let liveQrImage = "";
       let liveQrString = "";
       let liveId = "";
+      let paymentIntentId = "";
+      let checkoutUrl = "";
+      let expiresAt = new Date(Date.now() + expirySeconds * 1000).toISOString();
 
       if (authHeader) {
-        try {
-          const payload = {
-            data: {
-              attributes: {
-                kind: "instore",
-                mobile_number: customerMobile,
-                amount: transactionAmount,
-                notes: cleanNotes,
+        // Concurrently attempt 1) Dynamic QR Ph via Payment Intent and 2) Checkout Link
+        const [piResult, linkResult] = await Promise.allSettled([
+          (async () => {
+            // Step 1: Create Payment Intent for QR Ph
+            const piResp = await fetch("https://api.paymongo.com/v1/payment_intents", {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                authorization: authHeader,
+                "content-type": "application/json",
               },
-            },
-          };
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    amount: transactionAmount,
+                    payment_method_allowed: ["qrph"],
+                    currency: "PHP",
+                    description: cleanNotes,
+                  },
+                },
+              }),
+            });
+            const piData: any = await piResp.json().catch(() => null);
+            const piId = piData?.data?.id;
+            if (!piId) throw new Error("Could not create payment intent");
 
-          const response = await fetch("https://api.paymongo.com/v1/qrph/generate", {
-            method: "POST",
-            headers: {
-              accept: "application/json",
-              authorization: authHeader,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          });
+            // Step 2: Create Payment Method for QR Ph
+            const pmResp = await fetch("https://api.paymongo.com/v1/payment_methods", {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                authorization: authHeader,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    type: "qrph",
+                    billing: {
+                      name: "Hotfast Subscriber",
+                      email: "support@hotfast.ph",
+                      phone: customerMobile,
+                    },
+                  },
+                },
+              }),
+            });
+            const pmData: any = await pmResp.json().catch(() => null);
+            const pmId = pmData?.data?.id;
+            if (!pmId) throw new Error("Could not create QR Ph payment method");
 
-          const responseData: any = await response.json().catch(() => null);
+            // Step 3: Attach Payment Method to retrieve the dynamic QR Ph image
+            const attachResp = await fetch(`https://api.paymongo.com/v1/payment_intents/${piId}/attach`, {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                authorization: authHeader,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    payment_method: pmId,
+                    return_url: "https://hotfast.ph",
+                  },
+                },
+              }),
+            });
+            const attachData: any = await attachResp.json().catch(() => null);
+            let code = attachData?.data?.attributes?.next_action?.code;
 
-          if (response.ok && responseData?.data?.attributes?.qr_image) {
-            const attr = responseData.data.attributes;
-            liveQrImage = attr.qr_image;
-            liveQrString = attr.reference_id || responseData.data.id;
-            liveId = responseData.data.id || attr.reference_id;
-          } else {
-            console.warn(
-              "PayMongo API returned non-200 or missing QR image, activating standard compliant QR Ph generator fallback:",
-              responseData?.errors || response.statusText
-            );
-          }
-        } catch (apiErr: any) {
-          console.warn("PayMongo network error, activating QR Ph generator fallback:", apiErr?.message || apiErr);
+            // If not immediately returned in attach, poll payment intent once
+            if (!code?.image_url) {
+              const checkResp = await fetch(`https://api.paymongo.com/v1/payment_intents/${piId}`, {
+                headers: { accept: "application/json", authorization: authHeader },
+              });
+              const checkData: any = await checkResp.json().catch(() => null);
+              code = checkData?.data?.attributes?.next_action?.code;
+            }
+
+            if (code?.image_url) {
+              return {
+                piId,
+                qrImage: code.image_url,
+                qrId: code.id || piId,
+                expiresAt: code.expires_at || new Date(Date.now() + expirySeconds * 1000).toISOString(),
+              };
+            }
+            throw new Error("No QR image returned in payment intent attach");
+          })(),
+
+          (async () => {
+            // Create PayMongo checkout link for 1-tap mobile payment
+            const linkResp = await fetch("https://api.paymongo.com/v1/links", {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                authorization: authHeader,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    amount: transactionAmount,
+                    description: cleanNotes,
+                  },
+                },
+              }),
+            });
+            const linkData: any = await linkResp.json().catch(() => null);
+            return linkData?.data?.attributes?.checkout_url || "";
+          })(),
+        ]);
+
+        if (linkResult.status === "fulfilled" && linkResult.value) {
+          checkoutUrl = linkResult.value;
+        }
+
+        if (piResult.status === "fulfilled" && piResult.value?.qrImage) {
+          liveQrImage = piResult.value.qrImage;
+          liveId = piResult.value.qrId;
+          paymentIntentId = piResult.value.piId;
+          expiresAt = piResult.value.expiresAt;
+          liveQrString = checkoutUrl || liveId;
+        } else {
+          // Secondary fallback to /v1/qrph/generate
+          try {
+            const fallbackGen = await fetch("https://api.paymongo.com/v1/qrph/generate", {
+              method: "POST",
+              headers: {
+                accept: "application/json",
+                authorization: authHeader,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                data: {
+                  attributes: {
+                    kind: "instore",
+                    amount: transactionAmount,
+                    notes: cleanNotes,
+                  },
+                },
+              }),
+            });
+            const fbData: any = await fallbackGen.json().catch(() => null);
+            if (fallbackGen.ok && fbData?.data?.attributes?.qr_image) {
+              liveQrImage = fbData.data.attributes.qr_image;
+              liveId = fbData.data.id || `qr_${Date.now()}`;
+              liveQrString = checkoutUrl || liveId;
+            }
+          } catch (_) {}
         }
       }
 
-      // If live PayMongo QR is available, use it; otherwise generate standard compliant QR Ph
+      // If live PayMongo QR is unavailable, use standard compliant QR Ph generator
       if (!liveQrImage) {
         const fallbackQrPayload = generateStandardQRPhPayload(safeAmount, cleanNotes || "Account");
-        liveQrString = fallbackQrPayload;
+        liveQrString = checkoutUrl || fallbackQrPayload;
         liveQrImage = await QRCode.toDataURL(fallbackQrPayload, { width: 420, margin: 2 });
         liveId = `qr_ph_${Date.now()}`;
       }
 
       const normalizedData = {
         id: liveId,
+        payment_intent_id: paymentIntentId,
+        checkout_url: checkoutUrl,
         nation: "ph",
         type: "code",
-        mode: "instore",
+        mode: "dynamic",
         status: "active",
         transaction_currency: "PHP",
         transaction_amount: transactionAmount,
@@ -431,7 +550,7 @@ async function startServer() {
         merchant_mobile_number: customerMobile,
         notes: cleanNotes,
         created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + expirySeconds * 1000).toISOString(),
+        expires_at: expiresAt,
         qr_string: liveQrString,
         qr_image: liveQrImage,
       };
@@ -452,7 +571,7 @@ async function startServer() {
             id: `qr_ph_${Date.now()}`,
             nation: "ph",
             type: "code",
-            mode: "instore",
+            mode: "dynamic",
             status: "active",
             transaction_currency: "PHP",
             transaction_amount: Math.round(safeAmount * 100),
