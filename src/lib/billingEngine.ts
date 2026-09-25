@@ -196,24 +196,25 @@ export interface SubscriberStatusEvaluation {
  *    Admin triggers renewal -> ACTIVE, new due_date/due_time, payment_status: 'unpaid'
  */
 export function evaluateSubscriberStatus(
-  subscriber: Partial<UserProfile>,
+  subscriber?: Partial<UserProfile> | null,
   referenceTime: Date = new Date()
 ): SubscriberStatusEvaluation {
+  const safeSubscriber: Partial<UserProfile> = subscriber || {};
   const paymentStatus: "unpaid" | "processing" | "paid" | "rejected" =
-    subscriber.payment_status ||
-    (subscriber.billStatus === "paid" && (subscriber.balance || 0) <= 0 ? "paid" : "unpaid");
+    safeSubscriber.payment_status ||
+    (safeSubscriber.billStatus === "paid" && (safeSubscriber.balance || 0) <= 0 ? "paid" : "unpaid");
 
   // Format canonical due_date and due_time
   const canonicalDueDate =
-    subscriber.due_date ||
-    (subscriber.dueDate ? formatToPHTDate(subscriber.dueDate) : formatToPHTDate(new Date()));
+    safeSubscriber.due_date ||
+    (safeSubscriber.dueDate ? formatToPHTDate(safeSubscriber.dueDate) : formatToPHTDate(new Date()));
 
-  const canonicalDueTime = subscriber.due_time || "12:00 PM";
+  const canonicalDueTime = safeSubscriber.due_time || "12:00 PM";
 
   const dueInstant = parseSubscriberDueInstant(
     canonicalDueDate,
     canonicalDueTime,
-    subscriber.dueDate
+    safeSubscriber.dueDate
   );
 
   const gracePeriodEnd = new Date(dueInstant.getTime() + GRACE_PERIOD_MS);

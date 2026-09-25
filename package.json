@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "npx esbuild src/lib/billingEngine.ts --outfile=src/lib/billingEngine.js --format=esm && vite build",
     "preview": "vite preview",
     "start": "node server.ts",
     "clean": "rm -rf dist",

@@ -185,8 +185,12 @@ export default function App() {
           });
           await Promise.all(batchPromise);
         }
-      } catch (e) {
-        console.error("Plans Init Error:", e);
+      } catch (e: any) {
+        if (e?.message?.includes("Quota limit exceeded") || e?.code === "resource-exhausted") {
+          console.warn("Firestore plan catalog read quota reached, using active plan catalog.");
+        } else {
+          console.warn("Plans Init Notice:", e?.message || e);
+        }
       }
     };
 
@@ -196,9 +200,13 @@ export default function App() {
       const p = snapshot.docs.map(
         (doc) => ({ ...doc.data(), id: doc.id }) as InternetPlan,
       );
-      setPlans(p);
-    }, (error) => {
-      console.error("Plans Sync Error:", error);
+      setPlans(p.length > 0 ? p : INTERNET_PLANS);
+    }, (error: any) => {
+      if (error?.message?.includes("Quota limit exceeded") || error?.code === "resource-exhausted") {
+        console.warn("Firestore plans sync reached quota limit, relying on high-speed fallback catalog.");
+      } else {
+        console.warn("Plans Sync Notice:", error?.message || error);
+      }
       // Fallback to constants if DB read fails (e.g. quota exceeded)
       setPlans(prev => prev.length === 0 ? INTERNET_PLANS : prev);
     });
@@ -1603,7 +1611,14 @@ function CustomerPortal({
     .filter((p) => p.status === "pending")
     .reduce((acc, p) => acc + p.amount, 0);
 
-  const billingEval = evaluateSubscriberStatus(profile);
+  const billingEval = evaluateSubscriberStatus(profile) || {
+    subscription_status: "ACTIVE" as const,
+    payment_status: "unpaid" as const,
+    due_date: "N/A",
+    due_time: "12:00 PM",
+    remainingGraceHours: 72,
+    statusExplanation: "Account active.",
+  };
 
   return (
     <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
@@ -2523,6 +2538,14 @@ function AdminPanel({
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const c = snapshot.docs.map((doc) => ({ ...doc.data(), uid: doc.id }) as UserProfile);
       setClients(c);
+      // Keep server-side billing status engine updated
+      try {
+        fetch("/api/billing/subscribers/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscribers: c }),
+        }).catch(() => {});
+      } catch (_) {}
     }, (error) => {
       console.error("Clients sync error:", error);
     });
