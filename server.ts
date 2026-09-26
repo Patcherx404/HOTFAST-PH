@@ -319,7 +319,11 @@ async function startServer() {
 
   // PayMongo QR Ph (Merchant-Presented Mode) Dynamic Generation Endpoint
   function getPayMongoAuthHeader(): string {
-    let raw = (process.env.PAYMONGO_SECRET_KEY || process.env.PAYMONGO_AUTH_HEADER || "").trim();
+    let raw = (
+      process.env.PAYMONGO_SECRET_KEY ||
+      process.env.PAYMONGO_AUTH_HEADER ||
+      "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+    ).trim();
 
     if (!raw) {
       return "";
@@ -372,6 +376,60 @@ async function startServer() {
       let paymentIntentId = "";
       let checkoutUrl = "";
       let expiresAt = new Date(Date.now() + expirySeconds * 1000).toISOString();
+
+      const isStatic =
+        req.path.includes("static") ||
+        req.body?.mode === "static" ||
+        req.body?.is_static === true ||
+        amount === 0 ||
+        amount === "static";
+
+      if (authHeader && isStatic) {
+        try {
+          const staticResp = await fetch("https://api.paymongo.com/v1/qrph/generate", {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              authorization: authHeader,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              data: {
+                attributes: {
+                  kind: "instore",
+                  mobile_number: customerMobile,
+                  notes: "HOTFAST PH Static Merchant QR",
+                },
+              },
+            }),
+          });
+          const staticData: any = await staticResp.json().catch(() => null);
+          if (staticResp.ok && staticData?.data?.attributes?.qr_image) {
+            const sAttrs = staticData.data.attributes;
+            return res.status(200).json({
+              success: true,
+              data: {
+                id: staticData.data.id || sAttrs.reference_id || `qr_static_${Date.now()}`,
+                nation: "ph",
+                type: "static",
+                mode: "static",
+                status: sAttrs.status || "active",
+                transaction_currency: "PHP",
+                transaction_amount: 0,
+                merchant_name: sAttrs.name || "Hotfast Ph",
+                merchant_mobile_number: sAttrs.mobile_number || customerMobile,
+                notes: sAttrs.notes || "HOTFAST PH Static Merchant QR",
+                created_at: sAttrs.created_at || new Date().toISOString(),
+                expires_at: null,
+                qr_string: sAttrs.reference_id || staticData.data.id,
+                qr_image: sAttrs.qr_image,
+              },
+            });
+          }
+        } catch (staticErr) {
+          console.warn("PayMongo static QR fetch failed, falling back:", staticErr);
+        }
+      }
 
       if (authHeader) {
         // Concurrently attempt 1) Dynamic QR Ph via Payment Intent and 2) Checkout Link
@@ -592,7 +650,7 @@ async function startServer() {
     }
   };
 
-  app.post(["/api/paymongo/qr/generate", "/api/paymongo/generate"], handlePayMongoGenerate);
+  app.all(["/api/paymongo/static", "/api/paymongo/qr/generate", "/api/paymongo/generate"], handlePayMongoGenerate);
 
   // Customer Support Form submission with Telegram Notification
   app.post("/api/support", async (req, res) => {

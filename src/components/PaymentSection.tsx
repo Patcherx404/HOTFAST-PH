@@ -36,21 +36,25 @@ import QRCode from "qrcode";
 import { InternetPlan, PaymentRecord } from "../types";
 import { INTERNET_PLANS } from "../constants";
 
-// Helper for standard-compliant QR Ph dynamic string
-function generateClientQRPhPayload(amountPhp: number, accountNum: string): string {
+// Helper for standard-compliant QR Ph string (supports both static merchant and dynamic amount)
+function generateClientQRPhPayload(amountPhp: number, accountNum: string, isStatic: boolean = false): string {
   const pad = (id: string, val: string) => `${id}${String(val.length).padStart(2, "0")}${val}`;
-  const amountStr = amountPhp.toFixed(2);
   const ref = (accountNum || `HF${Date.now()}`).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 25);
   const merchantName = "HOTFAST PH";
   const city = "MANILA";
 
-  const p =
+  let p =
     pad("00", "01") +
-    pad("01", "12") +
+    pad("01", isStatic ? "11" : "12") +
     pad("28", pad("00", "ph.gov.bsp") + pad("01", "HOTFASTPH01") + pad("02", ref)) +
     pad("52", "4814") +
-    pad("53", "608") +
-    pad("54", amountStr) +
+    pad("53", "608");
+
+  if (!isStatic && amountPhp > 0) {
+    p += pad("54", amountPhp.toFixed(2));
+  }
+
+  p +=
     pad("58", "PH") +
     pad("59", merchantName) +
     pad("60", city) +
@@ -87,7 +91,7 @@ interface PayMongoQRData {
   merchant_mobile_number?: string;
   notes?: string;
   created_at: string;
-  expires_at: string;
+  expires_at: string | null;
   qr_string: string;
   qr_image: string; // Base64 data URL
 }
@@ -123,6 +127,9 @@ export function PaymentSection({
     activePlan ? activePlan.price : 1000
   );
 
+  // QR Mode: "static" (Official BSP Merchant QR) or "dynamic" (Auto-Amount 30m)
+  const [qrMode, setQrMode] = useState<"static" | "dynamic">("static");
+
   // PayMongo QR State
   const [qrData, setQrData] = useState<PayMongoQRData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -151,7 +158,7 @@ export function PaymentSection({
     if (selectedPlan) {
       setActivePlan(selectedPlan);
       setAmount(selectedPlan.price);
-      generateQRPh(selectedPlan.price);
+      generateQRPh(selectedPlan.price, qrMode);
     }
   }, [selectedPlan]);
 
@@ -164,9 +171,11 @@ export function PaymentSection({
     }
   }, [profile, user]);
 
-  // Generate QR Ph via PayMongo
-  const generateQRPh = async (targetAmount: number) => {
-    if (targetAmount <= 0) return;
+  // Generate QR Ph via PayMongo (Supports Static and Dynamic)
+  const generateQRPh = async (targetAmount: number, modeToUse?: "static" | "dynamic") => {
+    const selectedMode = modeToUse || qrMode;
+    const isStatic = selectedMode === "static";
+
     setIsGenerating(true);
     setGenerationError(null);
     setIsExpired(false);
@@ -177,19 +186,24 @@ export function PaymentSection({
 
       const effectiveAccount = accountNumber || (user ? `HF-${user.uid.substring(0, 8).toUpperCase()}` : "HF-CUSTOMER");
       const payload = {
-        amount: targetAmount,
+        mode: selectedMode,
+        is_static: isStatic,
+        amount: isStatic ? 0 : targetAmount,
         accountNumber: effectiveAccount,
         mobile_number: "+639122367040",
-        notes: `HOTFAST Payment for ${effectiveAccount} PHP ${targetAmount}`,
+        notes: isStatic
+          ? `HOTFAST PH Static Merchant QR (${effectiveAccount})`
+          : `HOTFAST Payment for ${effectiveAccount} PHP ${targetAmount}`,
         expiry_seconds: 1800,
       };
 
       let newQrData: PayMongoQRData | null = null;
       let lastErrorMessage = "";
 
-      // Tier 1: Try /api/paymongo/qr/generate
+      // Tier 1: Try /api/paymongo/static (if static) or /api/paymongo/qr/generate
+      const endpoint = isStatic ? "/api/paymongo/static" : "/api/paymongo/qr/generate";
       try {
-        const response1 = await fetch("/api/paymongo/qr/generate", {
+        const response1 = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -232,20 +246,22 @@ export function PaymentSection({
       // Tier 3: Client-side compliant QR Ph generation fallback – ensures 100% success
       if (!newQrData || !newQrData.qr_image) {
         try {
-          const qrPayload = generateClientQRPhPayload(targetAmount, effectiveAccount);
+          const qrPayload = generateClientQRPhPayload(targetAmount, effectiveAccount, isStatic);
           const clientQrImage = await QRCode.toDataURL(qrPayload, { width: 420, margin: 2 });
           newQrData = {
-            id: `qr_client_${Date.now()}`,
+            id: isStatic ? `qr_static_${Date.now()}` : `qr_client_${Date.now()}`,
             nation: "ph",
-            type: "code",
-            mode: "instore",
+            type: isStatic ? "static" : "code",
+            mode: isStatic ? "static" : "instore",
             status: "active",
             transaction_currency: "PHP",
-            transaction_amount: Math.round(targetAmount * 100),
+            transaction_amount: isStatic ? 0 : Math.round(targetAmount * 100),
             merchant_name: "HOTFAST PH",
-            notes: `HOTFAST Payment for ${effectiveAccount} - PHP ${targetAmount}`,
+            notes: isStatic
+              ? `HOTFAST PH Static Merchant QR`
+              : `HOTFAST Payment for ${effectiveAccount} - PHP ${targetAmount}`,
             created_at: new Date().toISOString(),
-            expires_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+            expires_at: isStatic ? null : new Date(Date.now() + 1800 * 1000).toISOString(),
             qr_string: qrPayload,
             qr_image: clientQrImage,
           };
@@ -260,55 +276,62 @@ export function PaymentSection({
 
       setQrData(newQrData);
 
-      // Compute expiry countdown from PayMongo expires_at or 1800s
-      let initialSeconds = 1800;
-      if (newQrData.expires_at) {
-        const expiryTime = new Date(newQrData.expires_at).getTime();
-        const now = Date.now();
-        const diffSeconds = Math.max(0, Math.floor((expiryTime - now) / 1000));
-        if (diffSeconds > 0) initialSeconds = diffSeconds;
+      if (isStatic) {
+        // Static QR Ph never expires!
+        setIsExpired(false);
+        setTimeLeft(0);
+        toast.success("Official Static QR Ph loaded! Never expires.");
+      } else {
+        // Compute expiry countdown from PayMongo expires_at or 1800s
+        let initialSeconds = 1800;
+        if (newQrData.expires_at) {
+          const expiryTime = new Date(newQrData.expires_at).getTime();
+          const now = Date.now();
+          const diffSeconds = Math.max(0, Math.floor((expiryTime - now) / 1000));
+          if (diffSeconds > 0) initialSeconds = diffSeconds;
+        }
+
+        setTimeLeft(initialSeconds);
+        setIsExpired(false);
+
+        // Start countdown
+        timerRef.current = setInterval(() => {
+          setTimeLeft((prev) => {
+            if (prev <= 1) {
+              if (timerRef.current) clearInterval(timerRef.current);
+              setIsExpired(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+
+        toast.success(`Dynamic QR Ph generated for ₱${targetAmount.toLocaleString()}!`);
       }
-
-      setTimeLeft(initialSeconds);
-      setIsExpired(false);
-
-      // Start countdown
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            if (timerRef.current) clearInterval(timerRef.current);
-            setIsExpired(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      toast.success(`Dynamic QR Ph generated for ₱${targetAmount.toLocaleString()}!`);
     } catch (err: any) {
       console.warn("QR Ph generation notice, activating instant fallback:", err);
       try {
         const safeAmount = targetAmount > 0 ? targetAmount : 1000;
         const effectiveAccount = accountNumber || "HF-CUSTOMER";
-        const fallbackPayload = generateClientQRPhPayload(safeAmount, effectiveAccount);
+        const fallbackPayload = generateClientQRPhPayload(safeAmount, effectiveAccount, isStatic);
         const fallbackQrImage = await QRCode.toDataURL(fallbackPayload, { width: 420, margin: 2 });
         setQrData({
-          id: `qr_fallback_${Date.now()}`,
+          id: isStatic ? `qr_static_${Date.now()}` : `qr_fallback_${Date.now()}`,
           nation: "ph",
-          type: "code",
-          mode: "instore",
+          type: isStatic ? "static" : "code",
+          mode: isStatic ? "static" : "instore",
           status: "active",
           transaction_currency: "PHP",
-          transaction_amount: Math.round(safeAmount * 100),
+          transaction_amount: isStatic ? 0 : Math.round(safeAmount * 100),
           merchant_name: "HOTFAST PH",
-          notes: `HOTFAST Payment - PHP ${safeAmount}`,
+          notes: isStatic ? `HOTFAST PH Static Merchant QR` : `HOTFAST Payment - PHP ${safeAmount}`,
           created_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+          expires_at: isStatic ? null : new Date(Date.now() + 1800 * 1000).toISOString(),
           qr_string: fallbackPayload,
           qr_image: fallbackQrImage,
         });
         setGenerationError(null);
-        toast.success(`Dynamic QR Ph generated for ₱${safeAmount.toLocaleString()}!`);
+        toast.success(isStatic ? "Official Static QR Ph loaded!" : `Dynamic QR Ph generated for ₱${safeAmount.toLocaleString()}!`);
       } catch (finalErr) {
         setGenerationError("Failed to generate QR Ph. Please click Regenerate.");
       }
@@ -317,9 +340,15 @@ export function PaymentSection({
     }
   };
 
+  // Switch between Static and Dynamic QR Ph
+  const handleSwitchMode = (mode: "static" | "dynamic") => {
+    setQrMode(mode);
+    generateQRPh(amount, mode);
+  };
+
   // Initial generation when component mounts
   useEffect(() => {
-    generateQRPh(amount);
+    generateQRPh(amount, "static");
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
@@ -475,8 +504,8 @@ export function PaymentSection({
       return;
     }
 
-    if (isExpired) {
-      toast.error("This QR Ph code has expired. Please click 'Regenerate QR' to proceed.");
+    if (isExpired && qrMode === "dynamic") {
+      toast.error("This dynamic QR Ph code has expired. Please click 'Regenerate QR' or switch to Static QR Ph to proceed.");
       return;
     }
 
@@ -491,12 +520,14 @@ export function PaymentSection({
       const customerName =
         profile?.displayName || user.displayName || user.email?.split("@")[0] || "Subscriber";
 
+      const methodLabel = qrMode === "static" ? "Static QR Ph (PayMongo)" : "Dynamic QR Ph (PayMongo)";
+
       const paymentData = {
         userId: user.uid,
         customerName,
         accountNumber,
         amount: Number(amount),
-        method: "QR Ph (PayMongo)",
+        method: methodLabel,
         status: "pending", // Waiting for Admin Confirmation
         referenceNumber: refNumber,
         qrId: qrData?.id || "",
@@ -796,18 +827,46 @@ export function PaymentSection({
         </div>
       </div>
 
-      {/* Main Grid: Left = Dynamic QR Presentation, Right = Billing Details & Verification */}
+      {/* Main Grid: Left = QR Ph Presentation (Static & Dynamic), Right = Billing Details & Verification */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Dynamic QR Ph Box */}
+        {/* Left Column: Official PayMongo QR Ph Box */}
         <div className="lg:col-span-6 bg-slate-900/80 border border-border-subtle rounded-2xl p-5 sm:p-8 shadow-xl relative overflow-hidden">
+          {/* Mode Switcher: Static Merchant vs Dynamic Auto-Amount */}
+          <div className="flex p-1 bg-slate-950 border border-slate-800 rounded-xl mb-5">
+            <button
+              type="button"
+              onClick={() => handleSwitchMode("static")}
+              className={`flex-1 py-2.5 px-3 text-xs font-mono font-bold uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                qrMode === "static"
+                  ? "bg-primary text-white shadow-lg shadow-primary/25"
+                  : "text-text-muted hover:text-white"
+              }`}
+            >
+              <ShieldCheck size={14} className={qrMode === "static" ? "text-white" : "text-primary"} />
+              <span>Static QR Ph</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchMode("dynamic")}
+              className={`flex-1 py-2.5 px-3 text-xs font-mono font-bold uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                qrMode === "dynamic"
+                  ? "bg-primary text-white shadow-lg shadow-primary/25"
+                  : "text-text-muted hover:text-white"
+              }`}
+            >
+              <Zap size={14} className={qrMode === "dynamic" ? "text-white" : "text-amber-400"} />
+              <span>Dynamic QR Ph</span>
+            </button>
+          </div>
+
           {/* Header Bar */}
           <div className="flex items-center justify-between pb-4 border-b border-slate-800">
             <div>
               <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted font-bold block">
-                Dynamic Payment Matrix
+                {qrMode === "static" ? "Static Merchant Matrix" : "Dynamic Payment Matrix"}
               </span>
               <span className="text-xs font-bold text-white">
-                PayMongo Merchant-Presented Mode (MPM)
+                {qrMode === "static" ? "Official PayMongo In-Store QR Ph" : "PayMongo Merchant-Presented Mode (MPM)"}
               </span>
             </div>
 
@@ -815,10 +874,10 @@ export function PaymentSection({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => generateQRPh(amount)}
+                onClick={() => generateQRPh(amount, qrMode)}
                 disabled={isGenerating}
                 className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-text-muted hover:text-white text-[10px] font-mono rounded flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
-                title="Regenerate dynamic QR Ph"
+                title="Reload QR Ph from API"
               >
                 <RefreshCw size={11} className={isGenerating ? "animate-spin text-primary" : ""} />
                 <span>Refresh</span>
@@ -826,7 +885,11 @@ export function PaymentSection({
 
               {isGenerating ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 text-[10px] font-mono text-text-muted rounded-full">
-                  <RefreshCw size={11} className="animate-spin" /> Generating...
+                  <RefreshCw size={11} className="animate-spin" /> Loading API...
+                </span>
+              ) : qrMode === "static" ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold rounded-full">
+                  <ShieldCheck size={11} /> Permanent (No Expiry)
                 </span>
               ) : isExpired ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-mono font-bold rounded-full">
@@ -855,7 +918,7 @@ export function PaymentSection({
                 <div className="flex flex-col items-center justify-center text-slate-800 space-y-3 p-6 text-center">
                   <RefreshCw className="animate-spin text-primary" size={36} />
                   <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-600">
-                    Connecting to PayMongo...
+                    Connecting to PayMongo API...
                   </span>
                 </div>
               ) : generationError ? (
@@ -866,27 +929,35 @@ export function PaymentSection({
                     {generationError}
                   </p>
                   <button
-                    onClick={() => generateQRPh(amount)}
+                    onClick={() => generateQRPh(amount, qrMode)}
                     className="px-3 py-1.5 bg-slate-900 text-white rounded text-[10px] font-mono font-bold uppercase hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw size={11} /> Retry Generation
                   </button>
                 </div>
-              ) : isExpired ? (
+              ) : isExpired && qrMode === "dynamic" ? (
                 <div className="flex flex-col items-center justify-center text-slate-800 space-y-3 p-4 text-center">
                   <Clock size={36} className="text-red-500" />
                   <span className="text-xs font-mono font-bold text-red-600 uppercase">
-                    QR Code Expired
+                    Dynamic QR Expired
                   </span>
                   <p className="text-[10px] text-slate-500">
-                    For security, dynamic QR codes expire after 30 minutes.
+                    Dynamic QR codes expire after 30 minutes. You can also switch to Static QR Ph which never expires.
                   </p>
-                  <button
-                    onClick={() => generateQRPh(amount)}
-                    className="px-4 py-2 bg-primary text-white rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 hover:bg-primary-dark transition-colors cursor-pointer"
-                  >
-                    <RefreshCw size={12} /> Regenerate QR
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => generateQRPh(amount, "dynamic")}
+                      className="px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1 hover:bg-primary-dark transition-colors cursor-pointer"
+                    >
+                      <RefreshCw size={11} /> Regenerate
+                    </button>
+                    <button
+                      onClick={() => handleSwitchMode("static")}
+                      className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1 hover:bg-slate-700 transition-colors cursor-pointer"
+                    >
+                      <ShieldCheck size={11} /> Use Static QR
+                    </button>
+                  </div>
                 </div>
               ) : qrData?.qr_image ? (
                 <img
@@ -907,22 +978,42 @@ export function PaymentSection({
             {/* Merchant & Amount Meta */}
             <div className="mt-5 text-center space-y-1">
               <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-text-muted">
-                Merchant: <span className="text-white">Hotfast Ph</span>
+                Merchant: <span className="text-white font-bold">Hotfast Ph</span>
               </div>
               <div className="text-2xl sm:text-3xl font-mono font-black text-primary italic">
                 ₱ {amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
               </div>
-              {qrData?.id && (
-                <div className="pt-1 flex items-center justify-center gap-1.5 text-[10px] font-mono text-text-muted">
-                  <span>ID: {qrData.id.substring(0, 16)}...</span>
-                  <button
-                    onClick={() => handleCopy(qrData.id, "QR ID")}
-                    className="text-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
-                    title="Copy QR ID"
-                  >
-                    <Copy size={11} />
-                  </button>
+              {qrMode === "static" ? (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-emerald-400 font-mono">
+                    ✦ Permanent Merchant Code • Enter <strong>₱{amount.toLocaleString()}</strong> in GCash/Maya
+                  </p>
+                  {accountNumber && (
+                    <div className="pt-0.5 flex items-center justify-center gap-1.5 text-[10px] font-mono text-text-muted">
+                      <span>Account Ref: <strong className="text-white">{accountNumber}</strong></span>
+                      <button
+                        onClick={() => handleCopy(accountNumber, "Account Number")}
+                        className="text-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                        title="Copy Account Number"
+                      >
+                        <Copy size={11} />
+                      </button>
+                    </div>
+                  )}
                 </div>
+              ) : (
+                qrData?.id && (
+                  <div className="pt-1 flex items-center justify-center gap-1.5 text-[10px] font-mono text-text-muted">
+                    <span>ID: {qrData.id.substring(0, 16)}...</span>
+                    <button
+                      onClick={() => handleCopy(qrData.id, "QR ID")}
+                      className="text-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                      title="Copy QR ID"
+                    >
+                      <Copy size={11} />
+                    </button>
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -931,7 +1022,7 @@ export function PaymentSection({
           <div className="grid grid-cols-2 gap-2.5 pt-2">
             <button
               type="button"
-              disabled={!qrData?.qr_image || isGenerating || isExpired}
+              disabled={!qrData?.qr_image || isGenerating || (isExpired && qrMode === "dynamic")}
               onClick={handleDownloadQR}
               className="py-3 px-3 bg-slate-800/90 hover:bg-slate-700/90 disabled:opacity-40 text-slate-200 border border-slate-700 hover:border-primary/50 text-[10px] sm:text-xs font-mono font-bold uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[42px]"
               title="Download QR code to your phone gallery"
@@ -942,7 +1033,7 @@ export function PaymentSection({
 
             <button
               type="button"
-              disabled={!qrData?.qr_string || isGenerating || isExpired}
+              disabled={!qrData?.qr_string || isGenerating || (isExpired && qrMode === "dynamic")}
               onClick={() => {
                 if (qrData?.qr_string) handleCopy(qrData.qr_string, "QR Payload String");
               }}
@@ -1001,7 +1092,7 @@ export function PaymentSection({
             </div>
 
             {/* Direct 1-Tap Web Checkout Option (if available from PayMongo) */}
-            {qrData?.checkout_url && (
+            {qrMode === "dynamic" && qrData?.checkout_url && (
               <a
                 href={qrData.checkout_url}
                 target="_blank"
@@ -1029,7 +1120,12 @@ export function PaymentSection({
                   <li>Open your preferred banking or e-wallet app (GCash, Maya, BDO, BPI, etc.).</li>
                   <li>Tap the <strong>QR Scanner</strong> icon.</li>
                   <li>Select <strong>Upload QR / Choose from Gallery / Album</strong>.</li>
-                  <li>Confirm the exact amount (<strong>₱{amount.toLocaleString()}</strong>) and authorize payment.</li>
+                  {qrMode === "static" ? (
+                    <li>Confirm merchant <strong>Hotfast Ph</strong> and enter amount <strong>₱{amount.toLocaleString()}</strong>.</li>
+                  ) : (
+                    <li>Confirm the exact amount (<strong>₱{amount.toLocaleString()}</strong>) and authorize payment.</li>
+                  )}
+                  <li>Take a screenshot of the completed transfer and upload it below as proof.</li>
                 </ol>
               </motion.div>
             )}

@@ -17,7 +17,11 @@ export interface VercelResponse {
 }
 
 function getPayMongoAuthHeader(): string {
-  let raw = (process.env.PAYMONGO_SECRET_KEY || process.env.PAYMONGO_AUTH_HEADER || "").trim();
+  let raw = (
+    process.env.PAYMONGO_SECRET_KEY ||
+    process.env.PAYMONGO_AUTH_HEADER ||
+    "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+  ).trim();
 
   if (!raw) {
     return "";
@@ -62,10 +66,6 @@ export default async function qrHandler(req: VercelRequest, res: VercelResponse)
     return res.status(200).end();
   }
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed. Only POST is supported." });
-  }
-
   try {
     let body = req.body;
     if (typeof body === "string") {
@@ -76,33 +76,44 @@ export default async function qrHandler(req: VercelRequest, res: VercelResponse)
       }
     }
 
-    const { amount, expiry_seconds, mobile_number, notes } = body || {};
+    const { amount, expiry_seconds, mobile_number, notes, mode, is_static, type } = body || {};
+
+    // Check if Static QR Ph was requested
+    const isStatic =
+      mode === "static" ||
+      is_static === true ||
+      type === "static" ||
+      amount === 0 ||
+      amount === "static";
 
     const parsedAmount = Number(amount);
-    if (!parsedAmount || isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: "Please specify a valid payment amount in PHP (greater than 0)." });
-    }
-
-    const transactionAmount = Math.round(parsedAmount * 100);
+    const transactionAmount = !isStatic && parsedAmount > 0 ? Math.round(parsedAmount * 100) : 0;
     const expirySeconds = Number(expiry_seconds) || 1800;
     const customerMobile = mobile_number || "+639122367040";
-    const paymentNotes = notes || `HOTFAST Payment PHP ${parsedAmount}`;
+    const paymentNotes = notes || (isStatic ? "HOTFAST PH Static Merchant QR" : `HOTFAST Payment PHP ${parsedAmount}`);
+
+    // Build official PayMongo instore QR Ph payload
+    const attributes: Record<string, any> = {
+      kind: "instore",
+      mobile_number: customerMobile,
+      notes: paymentNotes,
+    };
+
+    // If dynamic, attach exact transaction amount in centavos
+    if (!isStatic && transactionAmount > 0) {
+      attributes.amount = transactionAmount;
+    }
 
     const payload = {
       data: {
-        attributes: {
-          kind: "instore",
-          mobile_number: customerMobile,
-          amount: transactionAmount,
-          notes: paymentNotes,
-        },
+        attributes,
       },
     };
 
     const authHeader = getPayMongoAuthHeader();
     if (!authHeader) {
       return res.status(500).json({
-        error: "PAYMONGO_SECRET_KEY is not configured in environment variables.",
+        error: "PAYMONGO_SECRET_KEY is not configured.",
       });
     }
 
@@ -130,23 +141,23 @@ export default async function qrHandler(req: VercelRequest, res: VercelResponse)
       });
     }
 
-    const attributes = responseData.data.attributes || {};
+    const resAttrs = responseData.data.attributes || {};
 
     const normalizedData = {
-      id: responseData.data.id || attributes.reference_id || `qr_${Date.now()}`,
+      id: responseData.data.id || resAttrs.reference_id || `qr_${Date.now()}`,
       nation: "ph",
-      type: responseData.data.type || "code",
-      mode: attributes.kind || "instore",
-      status: attributes.status || "active",
+      type: isStatic ? "static" : (responseData.data.type || "code"),
+      mode: isStatic ? "static" : (resAttrs.kind || "instore"),
+      status: resAttrs.status || "active",
       transaction_currency: "PHP",
       transaction_amount: transactionAmount,
-      merchant_name: attributes.name || "Hotfast Ph",
-      merchant_mobile_number: attributes.mobile_number || customerMobile,
-      notes: attributes.notes || paymentNotes,
-      created_at: attributes.created_at || new Date().toISOString(),
-      expires_at: new Date(Date.now() + expirySeconds * 1000).toISOString(),
-      qr_string: attributes.reference_id || responseData.data.id,
-      qr_image: attributes.qr_image || "",
+      merchant_name: resAttrs.name || "Hotfast Ph",
+      merchant_mobile_number: resAttrs.mobile_number || customerMobile,
+      notes: resAttrs.notes || paymentNotes,
+      created_at: resAttrs.created_at || new Date().toISOString(),
+      expires_at: isStatic ? null : new Date(Date.now() + expirySeconds * 1000).toISOString(),
+      qr_string: resAttrs.reference_id || responseData.data.id,
+      qr_image: resAttrs.qr_image || "",
     };
 
     return res.status(200).json({
@@ -161,3 +172,5 @@ export default async function qrHandler(req: VercelRequest, res: VercelResponse)
     });
   }
 }
+
+export { qrHandler as handler, getPayMongoAuthHeader };
