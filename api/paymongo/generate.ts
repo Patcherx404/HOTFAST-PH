@@ -53,10 +53,6 @@ function getPayMongoAuthHeader(): string {
   return `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
 }
 
-// Module-level in-memory cache and in-flight promise for static QR Ph
-let cachedStaticQR: any = null;
-let staticQRPromise: Promise<any> | null = null;
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -88,15 +84,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       type === "static" ||
       amount === 0 ||
       amount === "static";
-
-    // Fast-path for Static QR: return cached static QR (only 1 request to PayMongo ever made)
-    if (isStatic && cachedStaticQR) {
-      return res.status(200).json({
-        success: true,
-        data: cachedStaticQR,
-        cached: true,
-      });
-    }
 
     const parsedAmount = Number(amount);
     const transactionAmount = !isStatic && parsedAmount > 0 ? Math.round(parsedAmount * 100) : 0;
@@ -169,10 +156,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       qr_string: resAttrs.reference_id || responseData.data.id,
       qr_image: resAttrs.qr_image || "",
     };
-
-    if (isStatic) {
-      cachedStaticQR = normalizedData;
-    }
 
     return res.status(200).json({
       success: true,

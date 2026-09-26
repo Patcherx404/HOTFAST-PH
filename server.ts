@@ -355,10 +355,6 @@ async function startServer() {
     return `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
   }
 
-  // Static QR Ph Cache & in-flight deduplication (Ensures ONLY 1 request to PayMongo)
-  let serverCachedStaticQR: any = null;
-  let serverStaticQRPromise: Promise<any> | null = null;
-
   const handlePayMongoGenerate = async (req: express.Request, res: express.Response) => {
     try {
       const { amount, expiry_seconds, mobile_number, notes, accountNumber } = req.body || {};
@@ -389,70 +385,48 @@ async function startServer() {
         amount === "static";
 
       if (authHeader && isStatic) {
-        // Fast path: if already fetched, return cached static QR (only 1 PayMongo request ever made)
-        if (serverCachedStaticQR) {
-          return res.status(200).json({
-            success: true,
-            data: serverCachedStaticQR,
-            cached: true,
-          });
-        }
-
         try {
-          if (!serverStaticQRPromise) {
-            serverStaticQRPromise = (async () => {
-              const staticResp = await fetch("https://api.paymongo.com/v1/qrph/generate", {
-                method: "POST",
-                headers: {
-                  accept: "application/json",
-                  authorization: authHeader,
-                  "content-type": "application/json",
+          const staticResp = await fetch("https://api.paymongo.com/v1/qrph/generate", {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              authorization: authHeader,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              data: {
+                attributes: {
+                  kind: "instore",
+                  mobile_number: customerMobile,
+                  notes: "HOTFAST PH Static Merchant QR",
                 },
-                body: JSON.stringify({
-                  data: {
-                    attributes: {
-                      kind: "instore",
-                      mobile_number: customerMobile,
-                      notes: "HOTFAST PH Static Merchant QR",
-                    },
-                  },
-                }),
-              });
-              const staticData: any = await staticResp.json().catch(() => null);
-              if (staticResp.ok && staticData?.data?.attributes?.qr_image) {
-                const sAttrs = staticData.data.attributes;
-                return {
-                  id: staticData.data.id || sAttrs.reference_id || `qr_static_${Date.now()}`,
-                  nation: "ph",
-                  type: "static",
-                  mode: "static",
-                  status: sAttrs.status || "active",
-                  transaction_currency: "PHP",
-                  transaction_amount: 0,
-                  merchant_name: sAttrs.name || "Hotfast Ph",
-                  merchant_mobile_number: sAttrs.mobile_number || customerMobile,
-                  notes: sAttrs.notes || "HOTFAST PH Static Merchant QR",
-                  created_at: sAttrs.created_at || new Date().toISOString(),
-                  expires_at: null,
-                  qr_string: sAttrs.reference_id || staticData.data.id,
-                  qr_image: sAttrs.qr_image,
-                };
-              }
-              return null;
-            })();
-          }
-
-          const staticResult = await serverStaticQRPromise;
-          serverStaticQRPromise = null;
-          if (staticResult) {
-            serverCachedStaticQR = staticResult;
+              },
+            }),
+          });
+          const staticData: any = await staticResp.json().catch(() => null);
+          if (staticResp.ok && staticData?.data?.attributes?.qr_image) {
+            const sAttrs = staticData.data.attributes;
             return res.status(200).json({
               success: true,
-              data: staticResult,
+              data: {
+                id: staticData.data.id || sAttrs.reference_id || `qr_static_${Date.now()}`,
+                nation: "ph",
+                type: "static",
+                mode: "static",
+                status: sAttrs.status || "active",
+                transaction_currency: "PHP",
+                transaction_amount: 0,
+                merchant_name: sAttrs.name || "Hotfast Ph",
+                merchant_mobile_number: sAttrs.mobile_number || customerMobile,
+                notes: sAttrs.notes || "HOTFAST PH Static Merchant QR",
+                created_at: sAttrs.created_at || new Date().toISOString(),
+                expires_at: null,
+                qr_string: sAttrs.reference_id || staticData.data.id,
+                qr_image: sAttrs.qr_image,
+              },
             });
           }
         } catch (staticErr) {
-          serverStaticQRPromise = null;
           console.warn("PayMongo static QR fetch failed, falling back:", staticErr);
         }
       }
@@ -783,7 +757,7 @@ Hotfast.online`;
   const telegramConfigFile = path.join(process.cwd(), "telegram-config.json");
 
   function getTelegramConfig(): TelegramConfig {
-    let token = (process.env.TELEGRAM_BOT_TOKEN || "8993172244:AAHdLW65QI9wt7ha2-1Vc8BA9828L-GxLxo").trim();
+    let token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
     let chat = (process.env.TELEGRAM_CHAT_ID || "8732198426").trim();
     let enabled = true;
 
@@ -842,14 +816,12 @@ Hotfast.online`;
       // 1. Data URI base64 image (e.g. data:image/png;base64,...)
       if (rawPhoto.startsWith("data:image/")) {
         try {
-          const commaIdx = rawPhoto.indexOf(",");
-          if (commaIdx !== -1) {
-            const headerPart = rawPhoto.substring(0, commaIdx);
-            const mimeMatch = headerPart.match(/^data:([^;]+);base64/);
-            const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
-            const base64Data = rawPhoto.substring(commaIdx + 1).replace(/\s+/g, "");
+          const matches = rawPhoto.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            const mimeType = matches[1];
+            const base64Data = matches[2];
             const buffer = Buffer.from(base64Data, "base64");
-            const extension = mimeType.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+            const extension = mimeType.split("/")[1] || "jpg";
             const blob = new Blob([buffer], { type: mimeType });
 
             const formData = new FormData();

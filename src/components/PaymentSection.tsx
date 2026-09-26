@@ -27,7 +27,6 @@ import {
   Eye,
   ImageIcon,
   Send,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "./FirebaseProvider";
@@ -104,10 +103,6 @@ interface PaymentSectionProps {
   onSelectPlan?: (plan: InternetPlan) => void;
 }
 
-// Global Static QR Ph Cache & in-flight promise (Guarantees ONLY 1 request ever executed)
-let cachedClientStaticQR: PayMongoQRData | null = null;
-let staticQrInFlightPromise: Promise<PayMongoQRData | null> | null = null;
-
 export function PaymentSection({
   plans,
   selectedPlan,
@@ -116,9 +111,12 @@ export function PaymentSection({
 }: PaymentSectionProps) {
   const { user, profile } = useAuth();
 
-  // Selected plan state: client must select a tier first; if null, payment is auto-hidden
+  // Selected plan state (defaults to passed plan, or user's active plan, or first plan)
   const [activePlan, setActivePlan] = useState<InternetPlan | null>(
-    selectedPlan || null
+    selectedPlan ||
+      plans.find((p) => p.id === profile?.currentPlanId) ||
+      plans[0] ||
+      null
   );
 
   const [accountNumber, setAccountNumber] = useState(
@@ -126,7 +124,7 @@ export function PaymentSection({
   );
 
   const [amount, setAmount] = useState<number>(
-    selectedPlan ? selectedPlan.price : 1000
+    activePlan ? activePlan.price : 1000
   );
 
   // QR Mode: "static" (Official BSP Merchant QR) or "dynamic" (Auto-Amount 30m)
@@ -155,16 +153,12 @@ export function PaymentSection({
   const [showAppGuide, setShowAppGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Sync selected plan changes and regenerate QR code (only for dynamic mode or when plan changes)
+  // Sync selected plan changes and regenerate QR code
   useEffect(() => {
     if (selectedPlan) {
       setActivePlan(selectedPlan);
       setAmount(selectedPlan.price);
-      if (qrMode === "dynamic") {
-        generateQRPh(selectedPlan.price, "dynamic");
-      } else {
-        generateQRPh(selectedPlan.price, "static");
-      }
+      generateQRPh(selectedPlan.price, qrMode);
     }
   }, [selectedPlan]);
 
@@ -181,36 +175,6 @@ export function PaymentSection({
   const generateQRPh = async (targetAmount: number, modeToUse?: "static" | "dynamic") => {
     const selectedMode = modeToUse || qrMode;
     const isStatic = selectedMode === "static";
-
-    // Fast-path: If Static QR is already cached in memory, reuse it immediately (0 requests!)
-    if (isStatic && cachedClientStaticQR) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setQrData(cachedClientStaticQR);
-      setIsGenerating(false);
-      setIsExpired(false);
-      setTimeLeft(0);
-      setGenerationError(null);
-      return;
-    }
-
-    // Fast-path: If an in-flight static request is already executing, await it rather than making a second request!
-    if (isStatic && staticQrInFlightPromise) {
-      setIsGenerating(true);
-      try {
-        const inFlightResult = await staticQrInFlightPromise;
-        if (inFlightResult) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          setQrData(inFlightResult);
-          setIsGenerating(false);
-          setIsExpired(false);
-          setTimeLeft(0);
-          setGenerationError(null);
-          return;
-        }
-      } catch {
-        // continue
-      }
-    }
 
     setIsGenerating(true);
     setGenerationError(null);
@@ -236,52 +200,50 @@ export function PaymentSection({
       let newQrData: PayMongoQRData | null = null;
       let lastErrorMessage = "";
 
-      if (isStatic) {
-        // Guaranteed single request to /api/paymongo/static
-        staticQrInFlightPromise = (async () => {
-          try {
-            const resp = await fetch("/api/paymongo/static", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            });
-            const data = await resp.json().catch(() => null);
-            if (data?.success && data?.data?.qr_image) {
-              return data.data as PayMongoQRData;
-            } else {
-              lastErrorMessage = data?.error || data?.message || "";
-            }
-          } catch (err: any) {
-            lastErrorMessage = err?.message || "";
+      // Tier 1: Try /api/paymongo/static (if static) or /api/paymongo/qr/generate
+      const endpoint = isStatic ? "/api/paymongo/static" : "/api/paymongo/qr/generate";
+      try {
+        const response1 = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const contentType1 = response1.headers.get("content-type") || "";
+        if (response1.ok && contentType1.includes("application/json")) {
+          const res1 = await response1.json().catch(() => null);
+          if (res1?.success && res1?.data) {
+            newQrData = res1.data;
+          } else {
+            lastErrorMessage = res1?.error || res1?.message || "";
           }
-          return null;
-        })();
-
-        newQrData = await staticQrInFlightPromise;
-        staticQrInFlightPromise = null;
-        if (newQrData) {
-          cachedClientStaticQR = newQrData;
         }
-      } else {
-        // Dynamic mode: Single request to /api/paymongo/qr/generate
+      } catch (err: any) {
+        lastErrorMessage = err?.message || "";
+      }
+
+      // Tier 2: Try /api/paymongo/generate if Tier 1 did not return QR data
+      if (!newQrData) {
         try {
-          const resp = await fetch("/api/paymongo/qr/generate", {
+          const response2 = await fetch("/api/paymongo/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          const data = await resp.json().catch(() => null);
-          if (data?.success && data?.data) {
-            newQrData = data.data as PayMongoQRData;
-          } else {
-            lastErrorMessage = data?.error || data?.message || "";
+          const contentType2 = response2.headers.get("content-type") || "";
+          if (response2.ok && contentType2.includes("application/json")) {
+            const res2 = await response2.json().catch(() => null);
+            if (res2?.success && res2?.data) {
+              newQrData = res2.data;
+            } else if (!lastErrorMessage) {
+              lastErrorMessage = res2?.error || res2?.message || "";
+            }
           }
         } catch (err: any) {
-          lastErrorMessage = err?.message || "";
+          if (!lastErrorMessage) lastErrorMessage = err?.message || "";
         }
       }
 
-      // Tier 3: Client-side compliant QR Ph generation fallback – ensures 100% success if offline
+      // Tier 3: Client-side compliant QR Ph generation fallback – ensures 100% success
       if (!newQrData || !newQrData.qr_image) {
         try {
           const qrPayload = generateClientQRPhPayload(targetAmount, effectiveAccount, isStatic);
@@ -303,9 +265,6 @@ export function PaymentSection({
             qr_string: qrPayload,
             qr_image: clientQrImage,
           };
-          if (isStatic) {
-            cachedClientStaticQR = newQrData;
-          }
         } catch (clientErr) {
           console.warn("Client QR generator notice:", clientErr);
         }
@@ -387,11 +346,9 @@ export function PaymentSection({
     generateQRPh(amount, mode);
   };
 
-  // Initial generation when component mounts (only if activePlan is already selected)
+  // Initial generation when component mounts
   useEffect(() => {
-    if (activePlan) {
-      generateQRPh(activePlan.price, "static");
-    }
+    generateQRPh(amount, "static");
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
@@ -409,10 +366,7 @@ export function PaymentSection({
     setActivePlan(plan);
     setAmount(plan.price);
     if (onSelectPlan) onSelectPlan(plan);
-    // In static mode, merchant QR never changes (0 requests). In dynamic mode, regenerate with new amount.
-    if (qrMode === "dynamic") {
-      generateQRPh(plan.price, "dynamic");
-    }
+    generateQRPh(plan.price);
   };
 
   // Copy helper
@@ -607,7 +561,7 @@ export function PaymentSection({
             accountNumber,
             clientId: profile?.clientId || undefined,
             amount: Number(amount),
-            method: methodLabel,
+            method: "QR Ph (PayMongo)",
             referenceNumber: refNumber,
             planName: activePlan?.name || "Fiber Internet Plan",
             screenshotUrl: receiptPreview || undefined,
@@ -843,94 +797,6 @@ export function PaymentSection({
     );
   }
 
-  // Step 1: Client must first select a tier from plans; if not selected, payment is auto-hidden!
-  if (!activePlan) {
-    return (
-      <section className="py-6 sm:py-10 md:py-16 px-3 sm:px-6 max-w-6xl mx-auto animate-in fade-in duration-300">
-        <div className="text-center mb-8 sm:mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/30 rounded-md text-[10px] font-mono font-bold uppercase tracking-widest text-primary mb-3">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
-            Step 1: Choose Subscription Tier
-          </div>
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-black text-white uppercase tracking-tight italic">
-            Select Plan Tier
-          </h2>
-          <p className="text-xs sm:text-sm text-text-muted mt-2 max-w-xl mx-auto font-mono">
-            Please choose an internet package below to proceed with payment. Once you select a tier, the QR Ph gateway and settlement verification form will automatically appear.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {plans.map((plan) => (
-            <div
-              key={plan.id}
-              className={`relative bg-slate-900/80 border rounded-2xl p-6 flex flex-col justify-between transition-all hover:border-primary/60 hover:bg-slate-900 ${
-                plan.isPopular ? "border-primary/50 shadow-lg shadow-primary/10" : "border-slate-800"
-              }`}
-            >
-              {plan.isPopular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[9px] font-mono font-black uppercase px-3 py-0.5 rounded-full shadow">
-                  Most Popular
-                </div>
-              )}
-
-              <div>
-                <div className="text-text-muted uppercase text-[10px] font-mono font-bold tracking-[0.2em] mb-1">
-                  {plan.name}
-                </div>
-                <div className="text-3xl sm:text-4xl font-black text-white italic tracking-tighter uppercase mb-1">
-                  {plan.speed} <span className="text-sm text-text-muted not-italic">Mbps</span>
-                </div>
-                <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary mb-4">
-                  {plan.bandwidth} Unlimited Data
-                </div>
-
-                <div className="space-y-2 mb-6 border-t border-slate-800/80 pt-4">
-                  {plan.features.slice(0, 4).map((feat, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300 font-mono">
-                      <div className="w-1.5 h-1.5 bg-primary rotate-45 shrink-0" />
-                      <span>{feat}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-auto pt-4 border-t border-slate-800">
-                <div className="text-2xl font-mono font-black text-white mb-4">
-                  ₱ {plan.price.toLocaleString()}{" "}
-                  <span className="text-xs text-text-muted font-sans font-bold uppercase tracking-wider">
-                    / mo
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActivePlan(plan);
-                    setAmount(plan.price);
-                    if (onSelectPlan) onSelectPlan(plan);
-                    if (qrMode === "dynamic") {
-                      generateQRPh(plan.price, "dynamic");
-                    } else {
-                      generateQRPh(plan.price, "static");
-                    }
-                  }}
-                  className={`w-full py-3.5 px-4 rounded-xl text-xs font-mono font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    plan.isPopular
-                      ? "bg-primary hover:bg-primary-dark text-white shadow-lg shadow-primary/25"
-                      : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-primary/50"
-                  }`}
-                >
-                  <span>Select Tier &amp; Pay</span>
-                  <ArrowRight size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section className="py-6 sm:py-10 md:py-16 px-3 sm:px-6 max-w-6xl mx-auto">
       {/* Header Banner */}
@@ -959,40 +825,6 @@ export function PaymentSection({
           <span>•</span>
           <span>40+ Banks</span>
         </div>
-      </div>
-
-      {/* Active Selected Tier Banner with Auto-Hide / Skip / Change Action */}
-      <div className="mb-6 p-4 sm:p-5 bg-slate-900/90 border border-primary/40 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
-        <div className="flex items-center gap-3.5 text-center sm:text-left">
-          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/40 flex items-center justify-center text-primary shrink-0">
-            <Zap size={22} />
-          </div>
-          <div>
-            <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted">
-              Selected Subscription Tier
-            </div>
-            <div className="text-base sm:text-lg font-black text-white flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-              <span>{activePlan.name}</span>
-              <span className="text-xs font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
-                ₱{activePlan.price.toLocaleString()}/mo • {activePlan.speed} Mbps
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActivePlan(null);
-            if (onSelectPlan) onSelectPlan(null as any);
-            toast.info("Payment hidden. Please select a plan tier to proceed.");
-          }}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-text-muted hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shrink-0"
-          title="Skip or change selected tier (auto-hides payment)"
-        >
-          <X size={14} className="text-red-400" />
-          <span>Skip / Change Tier</span>
-        </button>
       </div>
 
       {/* Main Grid: Left = QR Ph Presentation (Static & Dynamic), Right = Billing Details & Verification */}
@@ -1034,27 +866,40 @@ export function PaymentSection({
                 {qrMode === "static" ? "Static Merchant Matrix" : "Dynamic Payment Matrix"}
               </span>
               <span className="text-xs font-bold text-white">
-                {qrMode === "static" ? "Official HOTFAST PH" : "PayMongo Merchant-Presented Mode (MPM)"}
+                {qrMode === "static" ? "Official PayMongo In-Store QR Ph" : "PayMongo Merchant-Presented Mode (MPM)"}
               </span>
             </div>
 
-            {/* Countdown / Status Badge (dynamic mode only) */}
+            {/* Countdown / Status Badge & Manual Refresh */}
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => generateQRPh(amount, qrMode)}
+                disabled={isGenerating}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-text-muted hover:text-white text-[10px] font-mono rounded flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
+                title="Reload QR Ph from API"
+              >
+                <RefreshCw size={11} className={isGenerating ? "animate-spin text-primary" : ""} />
+                <span>Refresh</span>
+              </button>
+
               {isGenerating ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 text-[10px] font-mono text-text-muted rounded-full">
                   <RefreshCw size={11} className="animate-spin" /> Loading API...
                 </span>
-              ) : qrMode === "dynamic" ? (
-                isExpired ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-mono font-bold rounded-full">
-                    <AlertTriangle size={11} /> Expired
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold rounded-full">
-                    <Clock size={11} /> {formatTime(timeLeft)}
-                  </span>
-                )
-              ) : null}
+              ) : qrMode === "static" ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold rounded-full">
+                  <ShieldCheck size={11} /> Permanent (No Expiry)
+                </span>
+              ) : isExpired ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-mono font-bold rounded-full">
+                  <AlertTriangle size={11} /> Expired
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold rounded-full">
+                  <Clock size={11} /> {formatTime(timeLeft)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -1322,6 +1167,40 @@ export function PaymentSection({
                 </div>
               </div>
             </div>
+
+            {/* Quick Plan Switcher */}
+            {plans.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted flex items-center justify-between">
+                  <span>Switch Subscription Plan</span>
+                  <span className="text-[9px] text-primary">Click to regenerate QR</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {plans.slice(0, 3).map((plan) => {
+                    const isSelected = activePlan?.id === plan.id;
+                    return (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => handlePlanChange(plan)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-primary/10 border-primary text-white"
+                            : "bg-slate-950/60 border-slate-800 text-text-muted hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="text-[11px] font-mono font-bold truncate">
+                          {plan.name}
+                        </div>
+                        <div className="text-[10px] font-mono text-primary font-bold mt-0.5">
+                          ₱{plan.price.toLocaleString()}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Settlement Submission & Proof Form */}
