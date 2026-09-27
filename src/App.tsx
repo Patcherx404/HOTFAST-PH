@@ -438,11 +438,11 @@ export default function App() {
           </div>
 
           <div className="hidden md:flex items-center gap-10 text-[11px] font-bold uppercase tracking-[0.3em] text-text-dim">
-            {(["home", "plans", "payment", "portal", "admin"] as const)
+            {(["home", "payment", "portal", "admin"] as const)
               .filter((t) => {
                 if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
                 if (t === "admin" && (!adminAuth || !isSuperAdminEmail(user?.email))) return false;
-                if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
+                if (shouldHideBillingTabs && t === "payment") return false;
                 return true;
               })
               .map((tab) => (
@@ -765,11 +765,11 @@ export default function App() {
             )}
 
             <div className="flex flex-col gap-5 flex-1">
-              {(["home", "plans", "payment", "portal", "admin"] as const)
+              {(["home", "payment", "portal", "admin"] as const)
                 .filter((t) => {
                   if (!user && (t === "payment" || t === "portal" || t === "admin")) return false;
                   if (t === "admin" && (!adminAuth || !isSuperAdminEmail(user?.email))) return false;
-                  if (shouldHideBillingTabs && (t === "plans" || t === "payment")) return false;
+                  if (shouldHideBillingTabs && t === "payment") return false;
                   return true;
                 })
                 .map((tab) => (
@@ -911,7 +911,7 @@ export default function App() {
             {activeTab === "home" && (
               <>
                 <HeroSection 
-                  onExplore={() => setActiveTab("plans")} 
+                  onExplore={() => setActiveTab("payment")} 
                   onGoToPortal={() => setActiveTab("portal")}
                   onOpenLatencyMap={() => setShowLatencyMap(true)}
                   onOpenSupport={() => setShowSupportModal(true)}
@@ -924,10 +924,7 @@ export default function App() {
                 />
               </>
             )}
-            {activeTab === "plans" && (
-              <PlansSection plans={plans} onSelectPlan={handleSelectPlan} />
-            )}
-            {activeTab === "payment" && (
+            {(activeTab === "plans" || activeTab === "payment") && (
               <PaymentSection 
                 plans={plans} 
                 selectedPlan={selectedPlan} 
@@ -978,19 +975,6 @@ export default function App() {
           <span className="text-[9px] uppercase tracking-wider mt-1">Home</span>
           {activeTab === "home" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
         </button>
-
-        {!shouldHideBillingTabs && (
-          <button
-            onClick={() => setActiveTab("plans")}
-            className={`flex flex-col items-center justify-center py-1 px-2.5 min-w-[54px] min-h-[48px] rounded-lg transition-colors ${
-              activeTab === "plans" ? "text-primary font-black" : "text-text-muted hover:text-white"
-            }`}
-          >
-            <Zap size={18} />
-            <span className="text-[9px] uppercase tracking-wider mt-1">Plans</span>
-            {activeTab === "plans" && <span className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
-          </button>
-        )}
 
         {/* Latency Map Trigger Button */}
         <button
