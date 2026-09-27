@@ -19,7 +19,6 @@ import {
   ArrowRight,
   ExternalLink,
   Receipt,
-  Lock,
   Zap,
   Info,
   Check,
@@ -151,13 +150,21 @@ export function PaymentSection({
   const [showAppGuide, setShowAppGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Sync selected plan changes
+  // Sync selected plan changes and always scroll to top
   useEffect(() => {
     if (selectedPlan) {
       setActivePlan(selectedPlan);
       setAmount(selectedPlan.price);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [selectedPlan]);
+
+  // Scroll to top whenever active plan changes
+  useEffect(() => {
+    if (activePlan) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [activePlan]);
 
   // Sync account number
   useEffect(() => {
@@ -763,6 +770,7 @@ export function PaymentSection({
                     setAmount(plan.price);
                     if (onSelectPlan) onSelectPlan(plan);
                     generateQRPh();
+                    window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   className={`w-full py-3.5 px-4 rounded-xl text-xs font-mono font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer ${
                     plan.isPopular
@@ -1042,34 +1050,8 @@ export function PaymentSection({
           </div>
         </div>
 
-        {/* Right Column: Subscriber Context, Tier Picker & Settlement Verification Form */}
+        {/* Right Column: Settlement Verification Form */}
         <div className="lg:col-span-6 space-y-6">
-          {/* Subscriber & Plan Configuration Card */}
-          <div className="bg-slate-900/80 border border-border-subtle rounded-2xl p-5 sm:p-7 shadow-xl space-y-5">
-            {/* Account & Fixed Tier Info */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
-                  Subscriber ID
-                </label>
-                <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl font-mono text-sm font-bold text-white flex items-center justify-between">
-                  <span className="tracking-wider">{accountNumber}</span>
-                  <Lock size={14} className="text-text-muted" />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
-                  Selected Tier
-                </label>
-                <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl font-mono text-sm font-bold text-primary flex items-center justify-between">
-                  <span className="truncate">{activePlan?.name || "Standard Fiber"}</span>
-                  <Zap size={14} className="text-primary shrink-0" />
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Settlement Submission & Proof Form */}
           <form
             onSubmit={handleSubmitSettlement}

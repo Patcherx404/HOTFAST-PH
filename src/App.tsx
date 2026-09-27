@@ -358,6 +358,7 @@ export default function App() {
     }
     setSelectedPlan(plan);
     setActiveTab("payment");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleMarkNotificationAsRead = async (id: string) => {
