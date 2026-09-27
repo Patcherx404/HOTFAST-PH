@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   Clock,
   RefreshCw,
-  Smartphone,
   ShieldCheck,
   Upload,
   ArrowRight,
@@ -22,7 +21,6 @@ import {
   Zap,
   Info,
   Check,
-  HelpCircle,
   Eye,
   ImageIcon,
   Send,
@@ -146,9 +144,37 @@ export function PaymentSection({
   const [submittedRecord, setSubmittedRecord] = useState<PaymentRecord | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
 
-  // Quick App Guide Modal / Drawer state
-  const [showAppGuide, setShowAppGuide] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // 10-minute countdown timer (600 seconds)
+  const [timeLeft, setTimeLeft] = useState<number>(600);
+  const [isExpired, setIsExpired] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Start / Reset 10-minute timer whenever activePlan changes
+  useEffect(() => {
+    if (activePlan) {
+      setTimeLeft(600);
+      setIsExpired(false);
+
+      if (timerRef.current) clearInterval(timerRef.current);
+
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            setIsExpired(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [activePlan]);
 
   // Sync selected plan changes and always scroll to top
   useEffect(() => {
@@ -819,7 +845,7 @@ export function PaymentSection({
         </div>
       </div>
 
-      {/* Active Selected Tier Banner with Auto-Hide / Skip / Change Action */}
+      {/* Active Selected Tier Banner with Countdown Timer & Change Action */}
       <div className="mb-6 p-4 sm:p-5 bg-slate-900/90 border border-primary/40 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3.5 text-center sm:text-left">
           <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/40 flex items-center justify-center text-primary shrink-0">
@@ -838,19 +864,37 @@ export function PaymentSection({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setActivePlan(null);
-            if (onSelectPlan) onSelectPlan(null as any);
-            toast.info("Payment hidden. Please select a plan tier to proceed.");
-          }}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-text-muted hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shrink-0"
-          title="Skip or change selected tier (auto-hides payment)"
-        >
-          <X size={14} className="text-red-400" />
-          <span>Skip / Change Tier</span>
-        </button>
+        {/* Right side: Countdown Timer + Change Button */}
+        <div className="flex items-center gap-3">
+          {/* 10-Minute Countdown Timer */}
+          <div
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border font-mono text-xs font-bold transition-all ${
+              isExpired
+                ? "bg-red-500/10 border-red-500/30 text-red-400"
+                : timeLeft <= 120
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
+                : "bg-slate-950/80 border-slate-800 text-slate-300"
+            }`}
+            title="Session countdown timer"
+          >
+            <Clock size={13} className={isExpired ? "text-red-400" : "text-primary"} />
+            <span>{isExpired ? "00:00" : formatTime(timeLeft)}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActivePlan(null);
+              if (onSelectPlan) onSelectPlan(null as any);
+              toast.info("Please choose a tier from the plans below.");
+            }}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-text-muted hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+            title="Change selected tier"
+          >
+            <X size={14} className="text-red-400" />
+            <span>Change</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Grid: Left = QR Ph Presentation (Static & Dynamic), Right = Billing Details & Verification */}
@@ -987,66 +1031,6 @@ export function PaymentSection({
                 </>
               )}
             </button>
-          </div>
-
-          {/* Quick Deep Link Launchers for Mobile */}
-          <div className="mt-4 pt-4 border-t border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-[10px] font-mono text-text-muted">
-              <span className="uppercase font-bold tracking-wider">Mobile App Shortcuts:</span>
-              <button
-                type="button"
-                onClick={() => setShowAppGuide(!showAppGuide)}
-                className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <HelpCircle size={11} /> How to pay on mobile
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <a
-                href="gcash://"
-                target="_top"
-                onClick={() => {
-                  toast.info("Opening GCash... Tap 'QR' > 'Upload from Photos' to scan the saved code.");
-                }}
-                className="py-2.5 px-3 bg-[#007DFE]/15 hover:bg-[#007DFE]/25 text-[#007DFE] border border-[#007DFE]/40 text-[10px] font-mono font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 transition-all no-underline text-center"
-              >
-                <Smartphone size={13} /> Open GCash App
-              </a>
-
-              <a
-                href="paymaya://"
-                target="_top"
-                onClick={() => {
-                  toast.info("Opening Maya... Tap 'Scan QR' > select image from your gallery.");
-                }}
-                className="py-2.5 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 text-[10px] font-mono font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 transition-all no-underline text-center"
-              >
-                <Smartphone size={13} /> Open Maya App
-              </a>
-            </div>
-
-            {/* Expandable Step-by-Step Guide for 1-Device Mobile Users */}
-            {showAppGuide && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-[10px] font-mono space-y-2 text-slate-300"
-              >
-                <div className="font-bold text-white uppercase text-[10px] flex items-center gap-1">
-                  <Info size={12} className="text-primary" /> Paying on the same phone?
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400">
-                  <li>Tap <strong>Save QR to Phone</strong> above to save the image to your gallery.</li>
-                  <li>Open your preferred banking or e-wallet app (GCash, Maya, BDO, BPI, etc.).</li>
-                  <li>Tap the <strong>QR Scanner</strong> icon.</li>
-                  <li>Select <strong>Upload QR / Choose from Gallery / Album</strong>.</li>
-                  <li>Confirm merchant <strong>Hotfast Ph</strong> and enter amount <strong>₱{amount.toLocaleString()}</strong>.</li>
-                  <li>Take a screenshot of the completed transfer and upload it below as proof.</li>
-                </ol>
-              </motion.div>
-            )}
           </div>
         </div>
 

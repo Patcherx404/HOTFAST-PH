@@ -2152,20 +2152,20 @@ function Footer({
   activeTab?: string;
 }) {
   const { user, isAdmin } = useAuth();
-  const isAdminTab = activeTab === "admin";
+  const hideComplianceAndCredits = activeTab === "admin" || activeTab === "payment" || activeTab === "portal" || activeTab === "plans";
   const isAuthorizedAdmin = Boolean(user && isSuperAdminEmail(user.email));
 
   return (
     <footer className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 pb-24 md:pb-20 border-t border-border-subtle bg-bg-surface/30">
       <div className="max-w-7xl mx-auto">
         {/* Balanced Bottom Sections: [ Compliance ] [ Credits & Development ] */}
-        {/* Conditionally hidden when activeTab is set to 'admin' using component rendering logic */}
-        {!isAdminTab && (
+        {/* Hidden on admin, payment, portal, and plans tabs */}
+        {!hideComplianceAndCredits && (
           <FooterCreditsAndCompliance onOpenCompliance={onOpenCompliance} />
         )}
 
         {/* Footer Brand & Navigation Bar */}
-        <div className={`flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left ${!isAdminTab ? 'pt-8 border-t border-border-subtle/50' : ''}`}>
+        <div className={`flex flex-col md:flex-row justify-between items-center gap-8 sm:gap-10 text-center md:text-left ${!hideComplianceAndCredits ? 'pt-8 border-t border-border-subtle/50' : ''}`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg p-1 bg-slate-900/90 border border-primary/40 shadow-md shadow-primary/20 overflow-hidden flex items-center justify-center shrink-0">
               <img
@@ -2209,7 +2209,7 @@ function Footer({
             >
               Support
             </span>
-            {!isAdminTab && (
+            {!hideComplianceAndCredits && (
               <>
                 <span
                   id="footer-compliance-link"
@@ -2245,7 +2245,7 @@ function Footer({
                 Access
               </button>
             )}
-            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • BUILD 8.4.2</span>
+            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V31</span>
           </div>
         </div>
       </div>
