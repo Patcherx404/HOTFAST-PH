@@ -36,6 +36,7 @@ import { collection, addDoc, serverTimestamp, updateDoc, doc } from "firebase/fi
 import QRCode from "qrcode";
 import { InternetPlan, PaymentRecord } from "../types";
 import { INTERNET_PLANS } from "../constants";
+import { OFFICIAL_PAYMONGO_STATIC_QR } from "../lib/paymongoStaticQR";
 
 // Helper for standard-compliant QR Ph string (supports both static merchant and dynamic amount)
 function generateClientQRPhPayload(amountPhp: number, accountNum: string, isStatic: boolean = false): string {
@@ -105,7 +106,7 @@ interface PaymentSectionProps {
 }
 
 // Global Static QR Ph Cache & in-flight promise (Guarantees ONLY 1 request ever executed)
-let cachedClientStaticQR: PayMongoQRData | null = null;
+let cachedClientStaticQR: PayMongoQRData | null = OFFICIAL_PAYMONGO_STATIC_QR;
 let staticQrInFlightPromise: Promise<PayMongoQRData | null> | null = null;
 
 export function PaymentSection({
@@ -132,8 +133,8 @@ export function PaymentSection({
   // Static QR Ph Mode (exclusive standard)
   const qrMode = "static";
 
-  // PayMongo Static QR State
-  const [qrData, setQrData] = useState<PayMongoQRData | null>(null);
+  // PayMongo Static QR State (defaults immediately to official verified PayMongo QR)
+  const [qrData, setQrData] = useState<PayMongoQRData | null>(OFFICIAL_PAYMONGO_STATIC_QR);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
@@ -234,64 +235,19 @@ export function PaymentSection({
         cachedClientStaticQR = newQrData;
       }
 
-      // Offline compliant QR Ph fallback if network fails
+      // Fallback to verified authentic PayMongo Static QR if fetch returned empty
       if (!newQrData || !newQrData.qr_image) {
-        try {
-          const qrPayload = generateClientQRPhPayload(amount, effectiveAccount, true);
-          const clientQrImage = await QRCode.toDataURL(qrPayload, { width: 420, margin: 2 });
-          newQrData = {
-            id: `qr_static_${Date.now()}`,
-            nation: "ph",
-            type: "static",
-            mode: "static",
-            status: "active",
-            transaction_currency: "PHP",
-            transaction_amount: 0,
-            merchant_name: "Hotfast Ph",
-            notes: "HOTFAST PH Static Merchant QR",
-            created_at: new Date().toISOString(),
-            expires_at: null,
-            qr_string: qrPayload,
-            qr_image: clientQrImage,
-          };
-          cachedClientStaticQR = newQrData;
-        } catch (clientErr) {
-          console.warn("Client QR generator notice:", clientErr);
-        }
-      }
-
-      if (!newQrData || !newQrData.qr_image) {
-        throw new Error(lastErrorMessage || "Unable to generate PayMongo QR Ph code.");
+        newQrData = OFFICIAL_PAYMONGO_STATIC_QR;
+        cachedClientStaticQR = OFFICIAL_PAYMONGO_STATIC_QR;
       }
 
       setQrData(newQrData);
-      toast.success("Official Static QR Ph loaded!");
+      setGenerationError(null);
     } catch (err: any) {
-      console.warn("Static QR Ph notice, activating instant fallback:", err);
-      try {
-        const effectiveAccount = accountNumber || "HF-CUSTOMER";
-        const fallbackPayload = generateClientQRPhPayload(amount, effectiveAccount, true);
-        const fallbackQrImage = await QRCode.toDataURL(fallbackPayload, { width: 420, margin: 2 });
-        setQrData({
-          id: `qr_static_${Date.now()}`,
-          nation: "ph",
-          type: "static",
-          mode: "static",
-          status: "active",
-          transaction_currency: "PHP",
-          transaction_amount: 0,
-          merchant_name: "Hotfast Ph",
-          notes: "HOTFAST PH Static Merchant QR",
-          created_at: new Date().toISOString(),
-          expires_at: null,
-          qr_string: fallbackPayload,
-          qr_image: fallbackQrImage,
-        });
-        setGenerationError(null);
-        toast.success("Official Static QR Ph loaded!");
-      } catch (finalErr) {
-        setGenerationError("Failed to load QR Ph. Please try again.");
-      }
+      console.warn("Static QR Ph network notice, activating authentic PayMongo QR:", err);
+      setQrData(OFFICIAL_PAYMONGO_STATIC_QR);
+      cachedClientStaticQR = OFFICIAL_PAYMONGO_STATIC_QR;
+      setGenerationError(null);
     } finally {
       setIsGenerating(false);
     }
