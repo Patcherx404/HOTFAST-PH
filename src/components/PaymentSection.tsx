@@ -182,6 +182,8 @@ export function PaymentSection({
       setActivePlan(selectedPlan);
       setAmount(selectedPlan.price);
       window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      setActivePlan(null);
     }
   }, [selectedPlan]);
 
@@ -1053,20 +1055,41 @@ export function PaymentSection({
               </p>
             </div>
 
-            {/* Bank / App Reference Number Input */}
+            {/* QR String / Payload Display */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
-                Payment Reference Number / Trace ID
-              </label>
-              <input
-                type="text"
-                value={customerRefNumber}
-                onChange={(e) => setCustomerRefNumber(e.target.value)}
-                placeholder="e.g. 1029384756 or GCash Ref No."
-                className="w-full bg-slate-950 border border-slate-800 focus:border-primary focus:ring-1 focus:ring-primary p-3 rounded-xl font-mono text-sm text-white placeholder-slate-600 outline-none transition-all"
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
+                  QR String / Payload Data
+                </label>
+                {qrData?.qr_string && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(qrData.qr_string, "QR String")}
+                    className="text-[10px] font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedField === "QR String" ? (
+                      <>
+                        <Check size={11} className="text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={11} />
+                        <span>Copy String</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl font-mono text-xs text-text-dim break-all select-all leading-relaxed max-h-24 overflow-y-auto">
+                {qrData?.qr_string ? (
+                  qrData.qr_string
+                ) : (
+                  <span className="text-slate-600 italic">Generating QR Ph string payload...</span>
+                )}
+              </div>
               <p className="text-[9px] font-mono text-text-muted">
-                Found on your GCash/Maya/Bank confirmation screen or SMS.
+                Official BSP QR Ph standard payload for this transaction.
               </p>
             </div>
 

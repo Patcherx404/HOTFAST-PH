@@ -937,10 +937,10 @@ export default function App() {
               <CustomerPortal
                 plans={plans}
                 onPay={() => {
-                  if (currentPlan) {
-                    setSelectedPlan(currentPlan);
-                  }
+                  // User must always select a plan tier first: clear selectedPlan so the tier selection screen displays
+                  setSelectedPlan(null);
                   setActiveTab("payment");
+                  window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onOpenLatencyMap={() => setShowLatencyMap(true)}
                 onOpenInstallModal={() => setShowInstallModal(true)}
@@ -1795,13 +1795,6 @@ function CustomerPortal({
         </div>
       </div>
 
-      {/* 30-Day Data Consumption Trends Line Chart */}
-      <DataConsumptionChart
-        accountNumber={profile?.accountNumber}
-        planName={currentPlan?.name}
-        planSpeed={currentPlan?.speed}
-      />
-
       <div className="bg-bg-base p-0 relative">
         <div className="px-4 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 border-b border-border-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <h3 className="text-xs sm:text-sm font-black uppercase tracking-[0.3em] sm:tracking-[0.4em] flex items-center gap-2.5 sm:gap-3 italic text-primary">
@@ -2245,7 +2238,7 @@ function Footer({
                 Access
               </button>
             )}
-            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V31</span>
+            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V34</span>
           </div>
         </div>
       </div>
