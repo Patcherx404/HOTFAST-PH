@@ -55,6 +55,7 @@ export interface PaymentRecord {
   status: 'pending' | 'confirmed' | 'rejected' | 'completed' | 'failed';
   referenceNumber: string;
   screenshotUrl?: string;
+  blobUrl?: string;
   rejectionReason?: string;
   qrId?: string;
   qrString?: string;

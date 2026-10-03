@@ -120,7 +120,43 @@ ${paymentId ? `🗂 Payment ID: ${paymentId}\n` : ""}🕐 Submitted (PHT): ${pht
     if (screenshotUrl && typeof screenshotUrl === "string" && screenshotUrl.trim() !== "") {
       const rawPhoto = screenshotUrl.trim();
 
-      if (rawPhoto.startsWith("data:image/")) {
+      if (rawPhoto.includes("blob.vercel-storage.com")) {
+        try {
+          const blobToken = (
+            process.env.BLOB_READ_WRITE_TOKEN ||
+            "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+          ).trim();
+          const { get: getBlob } = await import("@vercel/blob");
+          const isPrivate = rawPhoto.includes("private.blob.vercel-storage.com");
+          const blobData = await getBlob(rawPhoto, {
+            access: isPrivate ? "private" : "public",
+            token: blobToken,
+          });
+          const arrayBuf = await new Response(blobData.stream).arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          const mimeType = blobData.blob?.contentType || "image/jpeg";
+          const blobObj = new Blob([buffer], { type: mimeType });
+
+          const formData = new FormData();
+          formData.append("chat_id", chat);
+          formData.append("photo", blobObj, `payment_proof_${Date.now()}.jpg`);
+          const caption = telegramText.length > 1020 ? telegramText.slice(0, 1016) + "..." : telegramText;
+          formData.append("caption", caption);
+
+          const photoResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: "POST",
+            body: formData,
+          });
+          const photoData: any = await photoResp.json().catch(() => ({}));
+          if (photoResp.ok && photoData?.ok) {
+            telegramSent = true;
+          } else {
+            errorDetail = photoData?.description || photoResp.statusText;
+          }
+        } catch (blobPhotoErr: any) {
+          console.error("Error reading blob photo for Telegram:", blobPhotoErr);
+        }
+      } else if (rawPhoto.startsWith("data:image/")) {
         try {
           const commaIdx = rawPhoto.indexOf(",");
           if (commaIdx !== -1) {

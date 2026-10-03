@@ -25,14 +25,16 @@ import {
   X,
   Sparkles,
   CheckCircle,
+  LogIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "./FirebaseProvider";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db, handleFirestoreError, OperationType, loginWithGoogle } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp, updateDoc, doc } from "firebase/firestore";
 import QRCode from "qrcode";
 import { InternetPlan, PaymentRecord } from "../types";
 import { OFFICIAL_PAYMONGO_STATIC_QR } from "../lib/paymongoStaticQR";
+import { getDisplayImageUrl } from "../lib/blobUtils";
 
 interface PayMongoQRData {
   id: string;
@@ -345,7 +347,7 @@ export function PaymentSection({
         try {
           const img = new Image();
           img.onload = () => {
-            const maxDim = 1200;
+            const maxDim = 900;
             let width = img.width;
             let height = img.height;
             if (width > maxDim || height > maxDim) {
@@ -363,7 +365,7 @@ export function PaymentSection({
             const ctx = canvas.getContext("2d");
             if (ctx) {
               ctx.drawImage(img, 0, 0, width, height);
-              const compressed = canvas.toDataURL("image/jpeg", 0.82);
+              const compressed = canvas.toDataURL("image/jpeg", 0.75);
               setReceiptPreview(compressed);
             } else {
               setReceiptPreview(rawResult);
@@ -386,6 +388,7 @@ export function PaymentSection({
     e.preventDefault();
     if (!user) {
       toast.error("Please sign in first to submit your payment.");
+      loginWithGoogle();
       return;
     }
 
@@ -393,6 +396,12 @@ export function PaymentSection({
       toast.error("Receipt screenshot required", {
         description: "Please attach a screenshot of your successful transfer so our team can verify it.",
       });
+      return;
+    }
+
+    const paymentAmount = Number(amount) || Number(activePlan?.price) || 0;
+    if (paymentAmount <= 0) {
+      toast.error("Please select an internet plan with a valid amount.");
       return;
     }
 
@@ -409,8 +418,10 @@ export function PaymentSection({
 
       const methodLabel = "QR Ph (PayMongo)";
 
-      // Attempt uploading receipt proof to Vercel Blob CDN if image was selected
+      // Upload receipt proof to Vercel Blob storage
       let uploadedScreenshotUrl = receiptPreview || "";
+      let blobStoreUrl = "";
+
       if (receiptPreview && receiptPreview.startsWith("data:")) {
         try {
           const uploadRes = await fetch("/api/upload", {
@@ -424,11 +435,12 @@ export function PaymentSection({
           if (uploadRes.ok) {
             const uploadJson = await uploadRes.json();
             if (uploadJson?.url) {
-              uploadedScreenshotUrl = uploadJson.url;
+              blobStoreUrl = uploadJson.url;
+              uploadedScreenshotUrl = uploadJson.viewUrl || uploadJson.url;
             }
           }
         } catch (uploadErr) {
-          console.warn("Vercel Blob upload fallback to base64 preview:", uploadErr);
+          console.warn("Upload notice:", uploadErr);
         }
       }
 
@@ -436,13 +448,14 @@ export function PaymentSection({
         userId: user.uid,
         customerName,
         accountNumber,
-        amount: Number(amount),
+        amount: paymentAmount,
         method: methodLabel,
         status: "pending",
         referenceNumber: refNumber,
         qrId: qrData?.id || "",
         qrString: qrData?.qr_string || "",
         screenshotUrl: uploadedScreenshotUrl || "",
+        blobUrl: blobStoreUrl || "",
         planName: activePlan?.name || "Fiber Internet Plan",
         createdAt: serverTimestamp(),
       };
@@ -472,7 +485,7 @@ export function PaymentSection({
             method: methodLabel,
             referenceNumber: refNumber,
             planName: activePlan?.name || "Fiber Internet Plan",
-            screenshotUrl: uploadedScreenshotUrl || undefined,
+            screenshotUrl: blobStoreUrl || uploadedScreenshotUrl || undefined,
             submittedAt: new Date().toISOString(),
           }),
         }).catch((err) => {
@@ -494,6 +507,7 @@ export function PaymentSection({
         qrId: qrData?.id,
         qrString: qrData?.qr_string,
         screenshotUrl: uploadedScreenshotUrl || undefined,
+        blobUrl: blobStoreUrl || undefined,
         planName: activePlan?.name,
         createdAt: new Date(),
       };
@@ -584,18 +598,18 @@ export function PaymentSection({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
+                  onClick={() => setViewingProof(getDisplayImageUrl(submittedRecord.screenshotUrl) || null)}
                   className="text-primary hover:text-primary-light flex items-center gap-1 transition-colors cursor-pointer text-xs"
                 >
                   <Eye size={13} /> View full receipt
                 </button>
               </div>
               <div
-                onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
+                onClick={() => setViewingProof(getDisplayImageUrl(submittedRecord.screenshotUrl) || null)}
                 className="cursor-pointer group relative overflow-hidden rounded-xl border border-slate-800/80 bg-black/40 max-h-40 flex items-center justify-center"
               >
                 <img
-                  src={submittedRecord.screenshotUrl}
+                  src={getDisplayImageUrl(submittedRecord.screenshotUrl)}
                   alt="Uploaded receipt"
                   className="max-h-40 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
                 />
@@ -781,16 +795,10 @@ export function PaymentSection({
   // Screen C: Main Friendly QR Ph Payment & Verification Interface
   // =========================================================================
   return (
-    <section 
-      style={{ height: "885.656px" }}
-      className="py-6 sm:py-10 md:py-14 px-4 sm:px-6 max-w-5xl mx-auto"
-    >
+    <section className="py-6 sm:py-10 md:py-14 pb-32 sm:pb-24 px-4 sm:px-6 max-w-5xl mx-auto w-full min-h-screen">
       {/* Friendly Stepper Header */}
       <div className="mb-6 sm:mb-8">
-        <div 
-          style={{ height: "83px" }}
-          className="pb-4 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3"
-        >
+        <div className="pb-4 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-xs font-semibold text-emerald-400 mb-2">
               <ShieldCheck size={13} /> Secure National QR Ph Payment
@@ -825,10 +833,7 @@ export function PaymentSection({
         <div className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col justify-between">
           <div>
             {/* Card Header */}
-            <div 
-              style={{ height: "4.5px" }}
-              className="flex items-center justify-between pb-4 border-b border-slate-800 overflow-hidden"
-            >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-xs font-bold text-white uppercase tracking-wider">
@@ -873,10 +878,7 @@ export function PaymentSection({
 
             {/* QR Code Presentation Box */}
             <div className="my-5 flex flex-col items-center justify-center">
-              <div 
-                style={{ height: "283px" }}
-                className="relative p-4 sm:p-5 bg-white rounded-2xl shadow-xl max-w-[260px] sm:max-w-[280px] w-full aspect-square flex items-center justify-center"
-              >
+              <div className="relative p-4 sm:p-5 bg-white rounded-2xl shadow-xl max-w-[260px] sm:max-w-[280px] w-full aspect-square flex items-center justify-center">
                 {/* QR Ph Badge */}
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-700 px-3 py-0.5 rounded-full shadow flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-red-500" />
@@ -1081,23 +1083,34 @@ export function PaymentSection({
             </div>
 
             {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isSubmitting || isGenerating || !user}
-              className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-primary/25 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin" />
-                  <span>Submitting Receipt...</span>
-                </>
-              ) : (
-                <>
-                  <span>Submit Payment Proof</span>
-                  <ArrowRight size={16} />
-                </>
-              )}
-            </button>
+            {!user ? (
+              <button
+                type="button"
+                onClick={loginWithGoogle}
+                className="w-full py-4 px-5 bg-primary hover:bg-primary-dark text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-primary/25 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogIn size={16} />
+                <span>Sign In with Google to Submit Payment</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting || isGenerating}
+                className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-primary/25 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Submitting Receipt...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Submit Payment Proof</span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Reassurance Info Box */}
             <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1 text-xs text-text-muted">
@@ -1109,12 +1122,6 @@ export function PaymentSection({
                 An operations administrator will verify your transfer and update your connection status. Need urgent help? Chat with us anytime!
               </p>
             </div>
-
-            {!user && (
-              <p className="text-xs text-center text-primary font-semibold">
-                Please sign in to your Hotfast account to record payments.
-              </p>
-            )}
           </form>
         </div>
       </div>

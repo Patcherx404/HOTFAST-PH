@@ -73,6 +73,7 @@ import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
 import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { PaymentSection } from "./components/PaymentSection";
+import { getDisplayImageUrl } from "./lib/blobUtils";
 import { toast, Toaster } from "sonner";
 import {
   evaluateSubscriberStatus,
@@ -1922,12 +1923,12 @@ function CustomerPortal({
                       </span>
                       <div className="aspect-video bg-slate-900 border border-border-subtle overflow-hidden relative group rounded-lg">
                         <img
-                          src={selectedReceipt.screenshotUrl}
+                          src={getDisplayImageUrl(selectedReceipt.screenshotUrl)}
                           alt="Receipt proof"
                           className="w-full h-full object-contain"
                         />
                         <a
-                          href={selectedReceipt.screenshotUrl}
+                          href={getDisplayImageUrl(selectedReceipt.screenshotUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest"
@@ -2089,7 +2090,7 @@ function Footer({
                 Access
               </button>
             )}
-            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V39</span>
+            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V40</span>
           </div>
         </div>
       </div>
@@ -3662,12 +3663,12 @@ function AdminPanel({
                             {p.screenshotUrl ? (
                               <button
                                 type="button"
-                                onClick={() => setViewingScreenshot(p.screenshotUrl || null)}
+                                onClick={() => setViewingScreenshot(getDisplayImageUrl(p.screenshotUrl) || null)}
                                 className="group/proof flex items-center gap-2 p-1.5 rounded-lg border border-slate-800 hover:border-primary bg-slate-950/80 transition-all cursor-pointer"
                                 title="Click to inspect proof screenshot"
                               >
                                 <img
-                                  src={p.screenshotUrl}
+                                  src={getDisplayImageUrl(p.screenshotUrl)}
                                   alt="Proof screenshot"
                                   className="w-10 h-10 object-cover rounded bg-black"
                                 />
@@ -4437,18 +4438,18 @@ function AdminPanel({
                       </span>
                       <button
                         type="button"
-                        onClick={() => setViewingScreenshot(selectedReceipt.screenshotUrl || null)}
+                        onClick={() => setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null)}
                         className="text-primary hover:underline text-[10px] font-mono flex items-center gap-1 cursor-pointer"
                       >
                         <Eye size={11} /> Open Fullscreen
                       </button>
                     </div>
                     <div
-                      onClick={() => setViewingScreenshot(selectedReceipt.screenshotUrl || null)}
+                      onClick={() => setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null)}
                       className="aspect-video bg-slate-950 border border-border-subtle overflow-hidden relative group cursor-pointer rounded-lg"
                     >
                       <img
-                        src={selectedReceipt.screenshotUrl}
+                        src={getDisplayImageUrl(selectedReceipt.screenshotUrl)}
                         alt="Receipt proof"
                         className="w-full h-full object-contain"
                       />
@@ -4932,18 +4933,18 @@ function AdminPanel({
                     <span>Uploaded Screenshot Proof</span>
                     <button
                       type="button"
-                      onClick={() => setViewingScreenshot(confirmingSettlement.screenshotUrl || null)}
+                      onClick={() => setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null)}
                       className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <Eye size={12} /> View Full Size
                     </button>
                   </div>
                   <div
-                    onClick={() => setViewingScreenshot(confirmingSettlement.screenshotUrl || null)}
+                    onClick={() => setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null)}
                     className="h-32 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden cursor-pointer group"
                   >
                     <img
-                      src={confirmingSettlement.screenshotUrl}
+                      src={getDisplayImageUrl(confirmingSettlement.screenshotUrl)}
                       alt="Proof"
                       className="h-full object-contain group-hover:scale-105 transition-transform"
                     />

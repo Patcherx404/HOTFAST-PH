@@ -834,8 +834,43 @@ Hotfast.online`;
     if (options.photoUrlOrBase64 && options.photoUrlOrBase64.trim() !== "") {
       const rawPhoto = options.photoUrlOrBase64.trim();
 
-      // 1. Data URI base64 image (e.g. data:image/png;base64,...)
-      if (rawPhoto.startsWith("data:image/")) {
+      // 1. Vercel Blob URL (private or public)
+      if (rawPhoto.includes("blob.vercel-storage.com")) {
+        try {
+          const blobToken = (
+            process.env.BLOB_READ_WRITE_TOKEN ||
+            "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+          ).trim();
+          const { get: getBlob } = await import("@vercel/blob");
+          const isPrivate = rawPhoto.includes("private.blob.vercel-storage.com");
+          const blobData = await getBlob(rawPhoto, {
+            access: isPrivate ? "private" : "public",
+            token: blobToken,
+          });
+          const arrayBuf = await new Response(blobData.stream).arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          const mimeType = blobData.blob?.contentType || "image/jpeg";
+          const blobObj = new Blob([buffer], { type: mimeType });
+
+          const formData = new FormData();
+          formData.append("chat_id", chat);
+          formData.append("photo", blobObj, `payment_proof_${Date.now()}.jpg`);
+          const caption = options.text.length > 1020 ? options.text.slice(0, 1016) + "..." : options.text;
+          formData.append("caption", caption);
+
+          const photoResp = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: "POST",
+            body: formData,
+          });
+          const photoData: any = await photoResp.json().catch(() => ({}));
+          if (photoResp.ok && photoData?.ok) {
+            console.log(`✅ [Telegram Bot] Settlement screenshot from Vercel Blob forwarded to Telegram Chat ${chat}`);
+            return { success: true };
+          }
+        } catch (blobErr: any) {
+          console.warn("⚠️ [Telegram Bot] Error reading blob image, falling back:", blobErr?.message || blobErr);
+        }
+      } else if (rawPhoto.startsWith("data:image/")) {
         try {
           const commaIdx = rawPhoto.indexOf(",");
           if (commaIdx !== -1) {
@@ -924,7 +959,10 @@ Hotfast.online`;
       if (!base64Data) {
         return res.status(400).json({ error: "base64Data is required" });
       }
-      const token = process.env.BLOB_READ_WRITE_TOKEN;
+      const token = (
+        process.env.BLOB_READ_WRITE_TOKEN ||
+        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+      ).trim();
       if (token) {
         try {
           const { put } = await import("@vercel/blob");
@@ -943,19 +981,71 @@ Hotfast.online`;
             ? `receipts/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "")}`
             : `receipts/${Date.now()}-payment-proof.${ext}`;
 
-          const blob = await put(safeFilename, buffer, {
-            access: "public",
-            contentType: detectedType,
-            token,
+          let blobResult: any = null;
+          try {
+            blobResult = await put(safeFilename, buffer, {
+              access: "public",
+              contentType: detectedType,
+              token,
+            });
+          } catch (putErr: any) {
+            if (putErr?.message && putErr.message.includes("private store")) {
+              blobResult = await put(safeFilename, buffer, {
+                access: "private",
+                contentType: detectedType,
+                token,
+              });
+            } else {
+              throw putErr;
+            }
+          }
+
+          const isPrivate = blobResult.url.includes("private.blob.vercel-storage.com");
+          const viewUrl = isPrivate
+            ? `/api/blob/view?url=${encodeURIComponent(blobResult.url)}`
+            : blobResult.url;
+
+          return res.json({
+            success: true,
+            url: blobResult.url,
+            viewUrl,
+            isPrivate,
           });
-          return res.json({ success: true, url: blob.url });
         } catch (blobErr: any) {
           console.warn("Vercel Blob upload notice:", blobErr?.message || blobErr);
         }
       }
-      return res.json({ success: true, url: base64Data, fallback: true });
+      return res.json({ success: true, url: base64Data, viewUrl: base64Data, fallback: true });
     } catch (err: any) {
       return res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Vercel Blob Viewer endpoint (streams private images)
+  app.get("/api/blob/view", async (req, res) => {
+    try {
+      const rawUrl = req.query.url as string;
+      if (!rawUrl) {
+        return res.status(400).send("Missing url parameter");
+      }
+      const token = (
+        process.env.BLOB_READ_WRITE_TOKEN ||
+        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+      ).trim();
+      const { get } = await import("@vercel/blob");
+      const isPrivate = rawUrl.includes("private.blob.vercel-storage.com");
+      const result = await get(rawUrl, {
+        access: isPrivate ? "private" : "public",
+        token,
+      });
+      const contentType = result.blob?.contentType || "image/jpeg";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      const arrayBuf = await new Response(result.stream).arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    } catch (err: any) {
+      console.error("Error viewing blob image:", err?.message || err);
+      return res.status(404).send("Image not found");
     }
   });
 
