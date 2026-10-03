@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Upload,
   ArrowRight,
+  ExternalLink,
+  Receipt,
   Zap,
   Info,
   Check,
@@ -23,8 +25,6 @@ import {
   ImageIcon,
   Send,
   X,
-  Sparkles,
-  CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "./FirebaseProvider";
@@ -32,7 +32,47 @@ import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp, updateDoc, doc } from "firebase/firestore";
 import QRCode from "qrcode";
 import { InternetPlan, PaymentRecord } from "../types";
+import { INTERNET_PLANS } from "../constants";
 import { OFFICIAL_PAYMONGO_STATIC_QR } from "../lib/paymongoStaticQR";
+
+// Helper for standard-compliant QR Ph string (supports both static merchant and dynamic amount)
+function generateClientQRPhPayload(amountPhp: number, accountNum: string, isStatic: boolean = false): string {
+  const pad = (id: string, val: string) => `${id}${String(val.length).padStart(2, "0")}${val}`;
+  const ref = (accountNum || `HF${Date.now()}`).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 25);
+  const merchantName = "HOTFAST PH";
+  const city = "MANILA";
+
+  let p =
+    pad("00", "01") +
+    pad("01", isStatic ? "11" : "12") +
+    pad("28", pad("00", "ph.gov.bsp") + pad("01", "HOTFASTPH01") + pad("02", ref)) +
+    pad("52", "4814") +
+    pad("53", "608");
+
+  if (!isStatic && amountPhp > 0) {
+    p += pad("54", amountPhp.toFixed(2));
+  }
+
+  p +=
+    pad("58", "PH") +
+    pad("59", merchantName) +
+    pad("60", city) +
+    pad("62", pad("01", ref)) +
+    "6304";
+
+  let crc = 0xffff;
+  for (let i = 0; i < p.length; i++) {
+    crc ^= p.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  return p + crc.toString(16).toUpperCase().padStart(4, "0");
+}
 
 interface PayMongoQRData {
   id: string;
@@ -62,7 +102,7 @@ interface PaymentSectionProps {
   onSelectPlan?: (plan: InternetPlan) => void;
 }
 
-// Global Static QR Ph Cache & in-flight promise (Guarantees minimal requests)
+// Global Static QR Ph Cache & in-flight promise (Guarantees ONLY 1 request ever executed)
 let cachedClientStaticQR: PayMongoQRData | null = OFFICIAL_PAYMONGO_STATIC_QR;
 let staticQrInFlightPromise: Promise<PayMongoQRData | null> | null = null;
 
@@ -74,7 +114,7 @@ export function PaymentSection({
 }: PaymentSectionProps) {
   const { user, profile } = useAuth();
 
-  // Selected plan state
+  // Selected plan state: client must select a tier first; if null, payment is auto-hidden
   const [activePlan, setActivePlan] = useState<InternetPlan | null>(
     selectedPlan || null
   );
@@ -87,7 +127,10 @@ export function PaymentSection({
     selectedPlan ? selectedPlan.price : 1000
   );
 
-  // PayMongo Static QR State
+  // Static QR Ph Mode (exclusive standard)
+  const qrMode = "static";
+
+  // PayMongo Static QR State (defaults immediately to official verified PayMongo QR)
   const [qrData, setQrData] = useState<PayMongoQRData | null>(OFFICIAL_PAYMONGO_STATIC_QR);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -101,7 +144,6 @@ export function PaymentSection({
   const [submittedRecord, setSubmittedRecord] = useState<PaymentRecord | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
 
-  // UI helpers
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // 10-minute countdown timer (600 seconds)
@@ -162,16 +204,13 @@ export function PaymentSection({
   }, [profile, user]);
 
   // Generate Official PayMongo Static QR Ph
-  const generateQRPh = async (forceRefresh: boolean = false) => {
-    if (cachedClientStaticQR && !forceRefresh) {
+  const generateQRPh = async () => {
+    // Fast-path: If Static QR is already cached in memory, reuse it immediately (0 requests!)
+    if (cachedClientStaticQR) {
       setQrData(cachedClientStaticQR);
       setIsGenerating(false);
       setGenerationError(null);
       return;
-    }
-
-    if (forceRefresh) {
-      cachedClientStaticQR = null;
     }
 
     if (staticQrInFlightPromise) {
@@ -203,7 +242,9 @@ export function PaymentSection({
       };
 
       let newQrData: PayMongoQRData | null = null;
+      let lastErrorMessage = "";
 
+      // Guaranteed single request to /api/paymongo/static
       staticQrInFlightPromise = (async () => {
         try {
           const resp = await fetch("/api/paymongo/static", {
@@ -214,9 +255,11 @@ export function PaymentSection({
           const data = await resp.json().catch(() => null);
           if (data?.success && data?.data?.qr_image) {
             return data.data as PayMongoQRData;
+          } else {
+            lastErrorMessage = data?.error || data?.message || "";
           }
         } catch (err: any) {
-          console.warn("Static QR Ph fetch notice:", err?.message || err);
+          lastErrorMessage = err?.message || "";
         }
         return null;
       })();
@@ -245,7 +288,7 @@ export function PaymentSection({
     }
   };
 
-  // Initial generation when component mounts
+  // Initial generation when component mounts (only if activePlan is already selected)
   useEffect(() => {
     if (activePlan) {
       generateQRPh();
@@ -257,6 +300,13 @@ export function PaymentSection({
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
+  // Handle plan selection change
+  const handlePlanChange = (plan: InternetPlan) => {
+    setActivePlan(plan);
+    setAmount(plan.price);
+    if (onSelectPlan) onSelectPlan(plan);
   };
 
   // Copy helper
@@ -275,17 +325,14 @@ export function PaymentSection({
         document.body.removeChild(ta);
       }
       setCopiedField(label);
-      toast.success(`${label} copied!`, {
-        description: `"${text}" is now in your clipboard.`,
-        duration: 2500,
-      });
+      toast.success(`${label} copied to clipboard!`);
       setTimeout(() => setCopiedField(null), 2500);
     } catch {
-      toast.error("Could not copy automatically. Please copy manually.");
+      toast.error("Failed to copy. Please manually copy the text.");
     }
   };
 
-  // Download QR Code image with friendly mobile instructions
+  // Download QR Code image with robust cross-origin and data URL support
   const handleDownloadQR = async () => {
     if (!qrData?.qr_image) {
       toast.error("QR image is still loading. Please wait a moment.");
@@ -314,6 +361,7 @@ export function PaymentSection({
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
         } catch {
+          // If cross-origin fetch is blocked, re-render QR string via client QRCode
           const fallbackQr = await QRCode.toDataURL(qrData.qr_string || `HOTFAST-${amount}`, { width: 500, margin: 2 });
           const link = document.createElement("a");
           link.href = fallbackQr;
@@ -324,17 +372,17 @@ export function PaymentSection({
         }
       }
 
-      toast.success("QR Code saved to your photos!", {
-        description: "Open GCash or Maya > tap 'QR' > select 'Upload from Gallery' to pay without a second screen.",
-        duration: 6000,
+      toast.success("QR Ph Code saved to your device!", {
+        description: "In GCash/Maya, tap 'QR' > 'Upload from Photos' to pay instantly on mobile.",
+        duration: 5000,
       });
     } catch (err) {
       console.error("Failed to download QR:", err);
-      toast.error("Failed to save image. You can take a screenshot of the QR code instead.");
+      toast.error("Failed to save image. Please screenshot the QR code.");
     }
   };
 
-  // File upload for receipt with automatic downscaling
+  // File upload for receipt with automatic downscaling to ensure fast transmission and no payload errors
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -385,13 +433,13 @@ export function PaymentSection({
   const handleSubmitSettlement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      toast.error("Please sign in first to submit your payment.");
+      toast.error("Please login to record your settlement.");
       return;
     }
 
     if (!receiptPreview) {
-      toast.error("Receipt screenshot required", {
-        description: "Please attach a screenshot of your successful transfer so our team can verify it.",
+      toast.error("Payment screenshot proof required", {
+        description: "Please upload a screenshot of your payment confirmation before submitting.",
       });
       return;
     }
@@ -407,7 +455,7 @@ export function PaymentSection({
       const customerName =
         profile?.displayName || user.displayName || user.email?.split("@")[0] || "Subscriber";
 
-      const methodLabel = "QR Ph (PayMongo)";
+      const methodLabel = "Static QR Ph (PayMongo)";
 
       const paymentData = {
         userId: user.uid,
@@ -415,7 +463,7 @@ export function PaymentSection({
         accountNumber,
         amount: Number(amount),
         method: methodLabel,
-        status: "pending",
+        status: "pending", // Waiting for Admin Confirmation
         referenceNumber: refNumber,
         qrId: qrData?.id || "",
         qrString: qrData?.qr_string || "",
@@ -426,6 +474,8 @@ export function PaymentSection({
 
       const docRef = await addDoc(collection(db, paymentsPath), paymentData);
 
+      // Explicitly update user payment_status to 'processing' (Waiting for Admin Confirmation)
+      // Note: subscription_status, balance, and due date remain strictly unchanged!
       try {
         await updateDoc(doc(db, "users", user.uid), {
           payment_status: "processing",
@@ -452,9 +502,18 @@ export function PaymentSection({
             screenshotUrl: receiptPreview || undefined,
             submittedAt: new Date().toISOString(),
           }),
-        }).catch((err) => {
-          console.warn("Telegram settlement notification dispatch notice:", err);
-        });
+        })
+          .then(async (res) => {
+            const resData = await res.json().catch(() => ({}));
+            if (res.ok && resData?.telegramNotified) {
+              console.log("✅ Telegram Bot notified of pending settlement.");
+            } else if (resData?.error) {
+              console.warn("Telegram notification response notice:", resData.error);
+            }
+          })
+          .catch((err) => {
+            console.warn("Telegram settlement notification dispatch error:", err);
+          });
       } catch (tgError) {
         console.warn("Could not dispatch Telegram alert:", tgError);
       }
@@ -477,145 +536,149 @@ export function PaymentSection({
 
       setSubmittedRecord(record);
       setIsSubmitted(true);
-      toast.success("Payment submitted successfully!", {
-        description: "Our operations team is now verifying your transfer. We'll update your account shortly!",
-        duration: 5000,
+      toast.success("Pending Settlement request created!", {
+        description: "Waiting for Admin Confirmation. An alert has been forwarded to the Telegram bot.",
       });
     } catch (err: any) {
       console.error("Settlement submission error:", err);
       handleFirestoreError(err, OperationType.CREATE, paymentsPath);
-      toast.error("Failed to submit payment proof. Please try again.");
+      toast.error("Failed to submit settlement. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // =========================================================================
-  // Screen A: Submitted Confirmation Screen (Friendly, Reassuring, Clear)
-  // =========================================================================
+  // If submitted, show Pending Settlement & Waiting for Admin Confirmation card
   if (isSubmitted && submittedRecord) {
     return (
-      <section className="py-10 sm:py-16 px-4 sm:px-6 max-w-2xl mx-auto">
+      <section className="py-12 sm:py-20 px-4 sm:px-6 max-w-2xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900 border border-emerald-500/30 p-6 sm:p-10 rounded-3xl shadow-2xl relative overflow-hidden"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-slate-900/95 border border-amber-500/30 p-6 sm:p-10 rounded-2xl shadow-2xl relative overflow-hidden"
         >
-          {/* Subtle soft backdrop glow */}
-          <div className="absolute -top-16 -right-16 w-56 h-56 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Friendly Success Icon & Heading */}
-          <div className="text-center space-y-3 mb-8">
-            <div className="w-16 h-16 bg-emerald-500/15 border border-emerald-500/40 rounded-full flex items-center justify-center mx-auto text-emerald-400 shadow-xl shadow-emerald-500/10">
-              <CheckCircle2 size={36} />
+          <div className="text-center space-y-4 mb-8">
+            <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/40 rounded-full flex items-center justify-center mx-auto text-amber-400 shadow-lg shadow-amber-500/10">
+              <Clock size={36} className="animate-pulse" />
             </div>
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-2">
-                <Sparkles size={12} /> Payment Received for Verification
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                Thank you! Your payment is under review
+              <span className="inline-block px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono uppercase tracking-[0.25em] text-amber-300 font-bold rounded-full mb-2">
+                Pending Settlement
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
+                Waiting for Admin Confirmation
               </h2>
-              <p className="text-sm text-text-muted mt-2 max-w-md mx-auto leading-relaxed">
-                We've received your receipt for <strong className="text-white">₱{submittedRecord.amount.toLocaleString()}</strong>. Our team typically verifies transfers within <strong className="text-emerald-400">5 to 15 minutes</strong>.
+              <p className="text-xs text-text-muted mt-2 max-w-lg mx-auto leading-relaxed">
+                Your payment screenshot and details have been submitted to the <strong className="text-white">Admin Console</strong>. The payment has <strong className="text-amber-300">not</strong> been finalized yet and your subscription has <strong className="text-amber-300">not</strong> been automatically renewed.
               </p>
-            </div>
-          </div>
-
-          {/* Friendly 3-Step Verification Timeline */}
-          <div className="mb-6 p-4 bg-slate-950/70 border border-slate-800 rounded-2xl">
-            <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 px-1">
-              What happens next?
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
-                <div className="w-5 h-5 bg-emerald-500 text-slate-950 rounded-full flex items-center justify-center text-[10px] font-bold mx-auto mb-1">
-                  ✓
-                </div>
-                <div className="text-[11px] font-bold text-emerald-400">Submitted</div>
-                <div className="text-[10px] text-text-muted">Receipt sent</div>
-              </div>
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 animate-pulse">
-                <div className="w-5 h-5 bg-amber-500 text-slate-950 rounded-full flex items-center justify-center text-[10px] font-bold mx-auto mb-1">
-                  2
-                </div>
-                <div className="text-[11px] font-bold text-amber-400">Verifying</div>
-                <div className="text-[10px] text-text-muted">~5-15 mins</div>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                <div className="w-5 h-5 bg-slate-800 text-slate-400 rounded-full flex items-center justify-center text-[10px] font-bold mx-auto mb-1">
-                  3
-                </div>
-                <div className="text-[11px] font-bold text-slate-400">Activated</div>
-                <div className="text-[10px] text-text-muted">Plan renewed</div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px] font-mono rounded-full mt-3">
+                <Send size={11} /> Telegram Bot Alert Dispatched to Admin NOC
               </div>
             </div>
           </div>
 
-          {/* Receipt Screenshot Preview (Collapsible / Tap to view) */}
+          {/* Uploaded Screenshot Proof Preview */}
           {submittedRecord.screenshotUrl && (
-            <div className="mb-6 bg-slate-950/80 border border-slate-800 p-4 rounded-2xl">
-              <div className="flex items-center justify-between text-xs text-text-muted font-medium mb-2.5">
-                <span className="flex items-center gap-1.5 text-slate-300">
-                  <ImageIcon size={14} className="text-emerald-400" /> Attached Transfer Receipt
+            <div className="mb-6 bg-slate-950/90 border border-amber-500/20 p-4 rounded-xl space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-mono uppercase text-amber-400 font-bold tracking-wider">
+                <span className="flex items-center gap-1.5">
+                  <ImageIcon size={14} /> Uploaded Proof of Payment
                 </span>
                 <button
                   type="button"
                   onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
-                  className="text-primary hover:text-primary-light flex items-center gap-1 transition-colors cursor-pointer text-xs"
+                  className="text-[10px] text-text-muted hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
                 >
-                  <Eye size={13} /> View full receipt
+                  <Eye size={12} /> View Full Image
                 </button>
               </div>
               <div
                 onClick={() => setViewingProof(submittedRecord.screenshotUrl || null)}
-                className="cursor-pointer group relative overflow-hidden rounded-xl border border-slate-800/80 bg-black/40 max-h-40 flex items-center justify-center"
+                className="cursor-pointer group relative overflow-hidden rounded-lg border border-slate-800 bg-black/60 max-h-48 flex items-center justify-center"
               >
                 <img
                   src={submittedRecord.screenshotUrl}
-                  alt="Uploaded receipt"
-                  className="max-h-40 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
+                  alt="Uploaded payment proof"
+                  className="max-h-48 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
                 />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-semibold">
-                  <Eye size={15} /> Tap to expand
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-mono font-bold uppercase">
+                  <Eye size={16} /> Click to Expand
                 </div>
               </div>
             </div>
           )}
 
-          {/* Clean Payment Summary Card */}
-          <div className="bg-slate-950/80 border border-slate-800 p-5 rounded-2xl space-y-3 text-xs">
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-800">
-              <span className="text-text-muted">Amount Paid</span>
-              <span className="text-base font-black text-white">
-                ₱{submittedRecord.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+          {/* Payment & Settlement Details Box */}
+          <div className="bg-slate-950/80 border border-slate-800 p-5 sm:p-6 rounded-xl space-y-3.5 font-mono text-xs">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Payment Status</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-[10px] tracking-wider uppercase rounded">
+                <Clock size={11} className="animate-spin" /> Waiting for Admin Confirmation
               </span>
             </div>
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-800">
-              <span className="text-text-muted">Account Number</span>
-              <span className="font-semibold text-primary">{submittedRecord.accountNumber}</span>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Customer Name</span>
+              <span className="text-white font-bold">{submittedRecord.customerName || profile?.displayName || "Subscriber"}</span>
             </div>
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-800">
-              <span className="text-text-muted">Plan</span>
-              <span className="font-semibold text-white">{submittedRecord.planName || activePlan?.name}</span>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Account ID</span>
+              <span className="text-primary font-bold">{submittedRecord.accountNumber}</span>
             </div>
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-800">
-              <span className="text-text-muted">Payment Method</span>
-              <span className="font-semibold text-white flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                QR Ph (GCash/Maya/Bank)
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Payment Method</span>
+              <span className="text-white font-bold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                {submittedRecord.method}
               </span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-text-muted">Reference Number</span>
-              <span className="font-mono text-slate-300">{submittedRecord.referenceNumber}</span>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Transaction / Ref ID</span>
+              <span className="text-primary font-bold break-all text-[11px] sm:text-xs">
+                {submittedRecord.referenceNumber}
+              </span>
             </div>
+
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+              <span className="text-text-muted uppercase tracking-wider text-[11px]">Date &amp; Time Submitted</span>
+              <span className="text-text-dim text-[11px]">
+                {new Date().toLocaleString("en-PH", {
+                  timeZone: "Asia/Manila",
+                  month: "short",
+                  day: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center pt-1">
+              <span className="text-text-muted uppercase tracking-wider text-xs">Payment Amount</span>
+              <span className="text-lg sm:text-xl font-bold text-white">
+                ₱ {submittedRecord.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Compliance & Policy Advisory */}
+          <div className="mt-5 p-4 rounded-xl bg-amber-950/30 border border-amber-500/20 text-amber-200/90 text-[11px] leading-relaxed space-y-1">
+            <p className="font-bold flex items-center gap-1.5 text-amber-400">
+              <AlertTriangle size={13} /> Admin Confirmation Required:
+            </p>
+            <p className="text-text-muted text-[10px]">
+              This payment will be finalized only after an authorized administrator reviews your uploaded proof in the Admin Console and clicks <strong>Confirm Settlement</strong>. Subscription renewal or extension remains a separate manual admin action.
+            </p>
           </div>
 
           {/* Action Buttons */}
           <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <button
-              type="button"
               onClick={() => {
                 setIsSubmitted(false);
                 setSubmittedRecord(null);
@@ -624,18 +687,17 @@ export function PaymentSection({
                 setCustomerRefNumber("");
                 generateQRPh();
               }}
-              className="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold rounded-xl transition-colors text-center cursor-pointer order-2 sm:order-1"
+              className="flex-1 py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center cursor-pointer"
             >
-              Make Another Payment
+              Submit Another Settlement
             </button>
             <button
-              type="button"
               onClick={() => {
                 if (onSuccess) onSuccess();
               }}
-              className="flex-1 py-3 px-5 bg-primary hover:bg-primary-dark text-white text-xs font-bold rounded-xl transition-all text-center flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-primary/25 order-1 sm:order-2"
+              className="flex-1 py-3.5 px-4 bg-primary hover:bg-primary-dark text-white text-xs font-mono font-bold uppercase tracking-wider rounded-xl transition-colors text-center flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-primary/20"
             >
-              Go to My Subscriber Portal <ArrowRight size={14} />
+              Go to Subscriber Portal <ArrowRight size={14} />
             </button>
           </div>
         </motion.div>
@@ -653,14 +715,14 @@ export function PaymentSection({
               <div className="relative max-w-3xl w-full max-h-[90vh] flex flex-col items-center">
                 <button
                   onClick={() => setViewingProof(null)}
-                  className="absolute -top-10 right-0 text-white hover:text-primary transition-colors text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  className="absolute -top-10 right-0 text-white hover:text-primary transition-colors text-xs font-mono uppercase tracking-wider flex items-center gap-1 cursor-pointer"
                 >
-                  <X size={16} /> Close
+                  Close [ESC]
                 </button>
                 <img
                   src={viewingProof}
-                  alt="Receipt expanded"
-                  className="max-h-[85vh] w-auto max-w-full rounded-2xl border border-slate-700 shadow-2xl object-contain"
+                  alt="Proof screenshot expanded"
+                  className="max-h-[85vh] w-auto max-w-full rounded-xl border border-slate-700 shadow-2xl object-contain"
                 />
               </div>
             </motion.div>
@@ -670,53 +732,52 @@ export function PaymentSection({
     );
   }
 
-  // =========================================================================
-  // Screen B: Tier Selector (When activePlan is not yet selected)
-  // =========================================================================
+  // Step 1: Client must first select a tier from plans; if not selected, payment is auto-hidden!
   if (!activePlan) {
     return (
-      <section className="py-8 sm:py-14 px-4 sm:px-6 max-w-6xl mx-auto animate-in fade-in duration-300">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/30 rounded-full text-xs font-semibold text-primary mb-3">
-            <Sparkles size={13} /> Step 1: Choose Your Plan
+      <section className="py-6 sm:py-10 md:py-16 px-3 sm:px-6 max-w-6xl mx-auto animate-in fade-in duration-300">
+        <div className="text-center mb-8 sm:mb-12">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/30 rounded-md text-[10px] font-mono font-bold uppercase tracking-widest text-primary mb-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+            Step 1: Choose Subscription Tier
           </div>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight">
-            Select Your Fiber Internet Plan
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-black text-white uppercase tracking-tight italic">
+            Select Plan Tier
           </h2>
-          <p className="text-sm text-text-muted mt-2 max-w-xl mx-auto">
-            Choose a plan to continue to the easy QR Ph payment page. You can pay using GCash, Maya, or any Philippine bank.
+          <p className="text-xs sm:text-sm text-text-muted mt-2 max-w-xl mx-auto font-mono">
+            Please choose an internet package below to proceed with payment. Once you select a tier, the QR Ph gateway and settlement verification form will automatically appear.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {plans.map((plan) => (
             <div
               key={plan.id}
-              className={`relative bg-slate-900/90 border rounded-3xl p-6 flex flex-col justify-between transition-all hover:border-primary/60 hover:shadow-xl hover:shadow-primary/5 ${
-                plan.isPopular ? "border-primary/60 shadow-lg shadow-primary/10" : "border-slate-800"
+              className={`relative bg-slate-900/80 border rounded-2xl p-6 flex flex-col justify-between transition-all hover:border-primary/60 hover:bg-slate-900 ${
+                plan.isPopular ? "border-primary/50 shadow-lg shadow-primary/10" : "border-slate-800"
               }`}
             >
               {plan.isPopular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[11px] font-bold px-3 py-0.5 rounded-full shadow-md">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[9px] font-mono font-black uppercase px-3 py-0.5 rounded-full shadow">
                   Most Popular
                 </div>
               )}
 
               <div>
-                <div className="text-text-muted text-xs font-semibold tracking-wider uppercase mb-1">
+                <div className="text-text-muted uppercase text-[10px] font-mono font-bold tracking-[0.2em] mb-1">
                   {plan.name}
                 </div>
-                <div className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-1">
-                  {plan.speed} <span className="text-base font-normal text-text-muted">Mbps</span>
+                <div className="text-3xl sm:text-4xl font-black text-white italic tracking-tighter uppercase mb-1">
+                  {plan.speed} <span className="text-sm text-text-muted not-italic">Mbps</span>
                 </div>
-                <div className="text-xs font-semibold text-primary mb-4 flex items-center gap-1.5">
-                  <Zap size={13} /> Unlimited Fiber Internet
+                <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary mb-4">
+                  {plan.bandwidth} Unlimited Data
                 </div>
 
-                <div className="space-y-2 mb-6 border-t border-slate-800 pt-4">
+                <div className="space-y-2 mb-6 border-t border-slate-800/80 pt-4">
                   {plan.features.slice(0, 4).map((feat, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs text-slate-300">
-                      <Check size={13} className="text-emerald-400 shrink-0" />
+                    <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300 font-mono">
+                      <div className="w-1.5 h-1.5 bg-primary rotate-45 shrink-0" />
                       <span>{feat}</span>
                     </div>
                   ))}
@@ -724,9 +785,11 @@ export function PaymentSection({
               </div>
 
               <div className="mt-auto pt-4 border-t border-slate-800">
-                <div className="text-2xl font-black text-white mb-4">
-                  ₱{plan.price.toLocaleString()}{" "}
-                  <span className="text-xs font-normal text-text-muted">/ month</span>
+                <div className="text-2xl font-mono font-black text-white mb-4">
+                  ₱ {plan.price.toLocaleString()}{" "}
+                  <span className="text-xs text-text-muted font-sans font-bold uppercase tracking-wider">
+                    / mo
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -737,13 +800,13 @@ export function PaymentSection({
                     generateQRPh();
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className={`w-full py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  className={`w-full py-3.5 px-4 rounded-xl text-xs font-mono font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer ${
                     plan.isPopular
                       ? "bg-primary hover:bg-primary-dark text-white shadow-lg shadow-primary/25"
-                      : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-primary/40"
+                      : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 hover:border-primary/50"
                   }`}
                 >
-                  <span>Select &amp; Pay</span>
+                  <span>Select Tier &amp; Pay</span>
                   <ArrowRight size={14} />
                 </button>
               </div>
@@ -754,30 +817,70 @@ export function PaymentSection({
     );
   }
 
-  // =========================================================================
-  // Screen C: Main Friendly QR Ph Payment & Verification Interface
-  // =========================================================================
   return (
-    <section 
-      style={{ height: "885.656px" }}
-      className="py-6 sm:py-10 md:py-14 px-4 sm:px-6 max-w-5xl mx-auto"
-    >
-      {/* Friendly Stepper Header */}
-      <div className="mb-6 sm:mb-8">
-        <div 
-          style={{ height: "83px" }}
-          className="pb-4 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3"
-        >
+    <section className="py-6 sm:py-10 md:py-16 px-3 sm:px-6 max-w-6xl mx-auto">
+      {/* Header Banner */}
+      <div className="mb-6 sm:mb-8 text-center sm:text-left flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-primary/10 border border-primary/30 rounded-md text-[10px] font-mono font-bold uppercase tracking-widest text-primary mb-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+            Official QR Ph Merchant Gateway
+          </div>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white uppercase tracking-tight italic">
+            QR Ph Settlement
+          </h2>
+          <p className="text-xs sm:text-sm text-text-muted mt-1 max-w-xl">
+            Scan and pay with any Philippine bank or e-wallet supporting the national QR Ph standard.
+          </p>
+        </div>
+
+        {/* Quick Supported Icons */}
+        <div className="flex items-center gap-2 self-center sm:self-auto bg-slate-900/60 border border-slate-800 px-3 py-1.5 rounded-lg text-[10px] font-mono text-text-muted">
+          <span className="font-bold text-white">QR Ph:</span>
+          <span className="text-sky-400 font-bold">GCash</span>
+          <span>•</span>
+          <span className="text-emerald-400 font-bold">Maya</span>
+          <span>•</span>
+          <span className="text-amber-400 font-bold">BDO/BPI</span>
+          <span>•</span>
+          <span>40+ Banks</span>
+        </div>
+      </div>
+
+      {/* Active Selected Tier Banner with Countdown Timer & Change Action */}
+      <div className="mb-6 p-4 sm:p-5 bg-slate-900/90 border border-primary/40 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-3.5 text-center sm:text-left">
+          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/40 flex items-center justify-center text-primary shrink-0">
+            <Zap size={22} />
+          </div>
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-xs font-semibold text-emerald-400 mb-2">
-              <ShieldCheck size={13} /> Secure National QR Ph Payment
+            <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted">
+              Selected Subscription Tier
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Pay Your Internet Bill
-            </h2>
-            <p className="text-xs sm:text-sm text-text-muted mt-1 max-w-lg">
-              Scan or upload the QR code using GCash, Maya, or any Philippine banking app.
-            </p>
+            <div className="text-base sm:text-lg font-black text-white flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+              <span>{activePlan.name}</span>
+              <span className="text-xs font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+                ₱{activePlan.price.toLocaleString()}/mo • {activePlan.speed} Mbps
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right side: Countdown Timer + Change Button */}
+        <div className="flex items-center gap-3">
+          {/* 10-Minute Countdown Timer */}
+          <div
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border font-mono text-xs font-bold transition-all ${
+              isExpired
+                ? "bg-red-500/10 border-red-500/30 text-red-400"
+                : timeLeft <= 120
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
+                : "bg-slate-950/80 border-slate-800 text-slate-300"
+            }`}
+            title="Session countdown timer"
+          >
+            <Clock size={13} className={isExpired ? "text-red-400" : "text-primary"} />
+            <span>{isExpired ? "00:00" : formatTime(timeLeft)}</span>
           </div>
 
           <button
@@ -785,218 +888,224 @@ export function PaymentSection({
             onClick={() => {
               setActivePlan(null);
               if (onSelectPlan) onSelectPlan(null as any);
-              toast.info("Please pick a plan from the list.");
+              toast.info("Please choose a tier from the plans below.");
             }}
-            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Change selected plan"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-text-muted hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+            title="Change selected tier"
           >
-            <X size={13} className="text-text-muted" />
-            <span>Change Plan</span>
+            <X size={14} className="text-red-400" />
+            <span>Change</span>
           </button>
         </div>
       </div>
 
-      {/* Main Two-Column Layout */}
+      {/* Main Grid: Left = QR Ph Presentation (Static & Dynamic), Right = Billing Details & Verification */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: QR Code Display Card */}
-        <div className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col justify-between">
-          <div>
-            {/* Card Header */}
-            <div 
-              style={{ height: "4.5px" }}
-              className="flex items-center justify-between pb-4 border-b border-slate-800 overflow-hidden"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-bold text-white uppercase tracking-wider">
-                  National QR Ph Code
-                </span>
-              </div>
-              <span className="text-[11px] text-text-muted font-medium">
-                Official PayMongo Gateway
+        {/* Left Column: Official PayMongo Static QR Ph Box */}
+        <div className="lg:col-span-6 bg-slate-900/80 border border-border-subtle rounded-2xl p-5 sm:p-8 shadow-xl relative overflow-hidden">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted font-bold block">
+                Static Merchant Matrix
+              </span>
+              <span className="text-xs font-bold text-white">
+                Official HOTFAST PH
               </span>
             </div>
 
-            {/* Small Session Countdown Timer above QR Ph */}
-            <div className="flex items-center justify-center pt-3 pb-1">
-              <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-mono font-medium ${
-                  isExpired
-                    ? "bg-red-500/10 border-red-500/30 text-red-400"
-                    : timeLeft <= 120
-                    ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse"
-                    : "bg-slate-950/80 border-slate-800 text-slate-300"
-                }`}
-                title="Session countdown timer"
-              >
-                <Clock size={11} className={isExpired ? "text-red-400" : "text-primary"} />
-                <span>Session: {isExpired ? "Expired" : formatTime(timeLeft)}</span>
-                <button
-                  type="button"
-                  disabled={isGenerating}
-                  onClick={() => {
-                    generateQRPh(true);
-                    setTimeLeft(600);
-                    setIsExpired(false);
-                    toast.success("Session refreshed");
-                  }}
-                  className="ml-0.5 text-text-muted hover:text-white transition-colors cursor-pointer"
-                  title="Refresh timer"
-                >
-                  <RefreshCw size={10} className={isGenerating ? "animate-spin text-primary" : ""} />
-                </button>
-              </div>
-            </div>
+            {/* Subtle loading indicator */}
+            {isGenerating && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 text-[10px] font-mono text-text-muted rounded-full">
+                <RefreshCw size={11} className="animate-spin" /> Loading API...
+              </span>
+            )}
+          </div>
 
-            {/* QR Code Presentation Box */}
-            <div className="my-5 flex flex-col items-center justify-center">
-              <div 
-                style={{ height: "283px" }}
-                className="relative p-4 sm:p-5 bg-white rounded-2xl shadow-xl max-w-[260px] sm:max-w-[280px] w-full aspect-square flex items-center justify-center"
-              >
-                {/* QR Ph Badge */}
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-700 px-3 py-0.5 rounded-full shadow flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">
-                    QR Ph Standard
+          {/* QR Code Canvas / Display Area */}
+          <div className="py-6 sm:py-8 flex flex-col items-center justify-center">
+            <div className="relative p-4 sm:p-5 bg-white rounded-2xl shadow-2xl transition-all max-w-[280px] sm:max-w-[320px] w-full aspect-square flex items-center justify-center group">
+              {/* QR Ph Brand Badge on top */}
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-700 px-3 py-0.5 rounded-full shadow-lg flex items-center gap-1.5 z-10">
+                <span className="w-2 h-2 rounded-full bg-red-500" />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-white">
+                  BSP QR Ph Standard
+                </span>
+              </div>
+
+              {isGenerating ? (
+                <div className="flex flex-col items-center justify-center text-slate-800 space-y-3 p-6 text-center">
+                  <RefreshCw className="animate-spin text-primary" size={36} />
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-600">
+                    Connecting to PayMongo API...
                   </span>
                 </div>
+              ) : generationError ? (
+                <div className="flex flex-col items-center justify-center text-red-600 space-y-2 p-3 text-center">
+                  <AlertTriangle size={32} />
+                  <span className="text-xs font-mono font-bold">Failed to load QR</span>
+                  <p className="text-[10px] text-red-500 max-w-[220px] line-clamp-2 font-mono">
+                    {generationError}
+                  </p>
+                  <button
+                    onClick={() => generateQRPh()}
+                    className="px-3 py-1.5 bg-slate-900 text-white rounded text-[10px] font-mono font-bold uppercase hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw size={11} /> Retry
+                  </button>
+                </div>
+              ) : qrData?.qr_image ? (
+                <img
+                  src={qrData.qr_image}
+                  alt="PayMongo QR Ph Code"
+                  className="w-full h-full object-contain rounded-lg"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-slate-800 space-y-2">
+                  <QrCode size={48} className="text-slate-400" />
+                  <span className="text-xs font-mono font-bold text-slate-500">
+                    Generating Code...
+                  </span>
+                </div>
+              )}
+            </div>
 
-                {isGenerating ? (
-                  <div className="flex flex-col items-center justify-center text-slate-800 space-y-2 p-6 text-center">
-                    <RefreshCw className="animate-spin text-primary" size={32} />
-                    <span className="text-xs font-semibold text-slate-600">
-                      Loading QR Code...
-                    </span>
-                  </div>
-                ) : generationError ? (
-                  <div className="flex flex-col items-center justify-center text-red-600 space-y-2 p-3 text-center">
-                    <AlertTriangle size={28} />
-                    <span className="text-xs font-bold">Failed to load QR</span>
+            {/* Merchant & Amount Meta */}
+            <div className="mt-5 text-center space-y-1">
+              <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-text-muted">
+                Merchant: <span className="text-white font-bold">Hotfast Ph</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-mono font-black text-primary italic">
+                ₱ {amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-emerald-400 font-mono">
+                  ✦ Enter <strong>₱{amount.toLocaleString()}</strong> in GCash / Maya / Bank App
+                </p>
+                {accountNumber && (
+                  <div className="pt-0.5 flex items-center justify-center gap-1.5 text-[10px] font-mono text-text-muted">
+                    <span>Account Ref: <strong className="text-white">{accountNumber}</strong></span>
                     <button
                       type="button"
-                      onClick={() => generateQRPh(true)}
-                      className="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors"
+                      onClick={() => handleCopy(accountNumber, "Account Number")}
+                      className="text-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                      title="Copy Account Number"
                     >
-                      Retry
+                      <Copy size={11} />
                     </button>
                   </div>
-                ) : qrData?.qr_image ? (
-                  <img
-                    src={qrData.qr_image}
-                    alt="PayMongo QR Ph Code"
-                    className="w-full h-full object-contain rounded-lg"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-slate-800 space-y-2">
-                    <QrCode size={40} className="text-slate-400" />
-                    <span className="text-xs font-semibold text-slate-500">
-                      Generating Code...
-                    </span>
-                  </div>
                 )}
-              </div>
-
-              {/* Amount & Copy Controls */}
-              <div className="mt-5 text-center space-y-2 w-full">
-                <div className="text-xs font-medium text-text-muted">
-                  Amount to Transfer
-                </div>
-                <div className="text-3xl sm:text-4xl font-black text-white tracking-tight flex items-center justify-center gap-2">
-                  <span>₱{amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(amount.toFixed(2), "Amount")}
-                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-text-muted hover:text-white rounded-lg transition-colors cursor-pointer"
-                    title="Copy exact amount"
-                  >
-                    {copiedField === "Amount" ? (
-                      <Check size={14} className="text-emerald-400" />
-                    ) : (
-                      <Copy size={14} />
-                    )}
-                  </button>
-                </div>
-
-                {/* Account Reference with quick copy */}
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-                  <span className="text-text-muted">Account Ref:</span>
-                  <strong className="text-white font-mono">{accountNumber}</strong>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(accountNumber, "Account Number")}
-                    className="text-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
-                    title="Copy Account Reference"
-                  >
-                    {copiedField === "Account Number" ? (
-                      <Check size={13} className="text-emerald-400" />
-                    ) : (
-                      <Copy size={13} />
-                    )}
-                  </button>
-                </div>
-
-                {/* Supported Wallets & Banks Badges Below QR Ph */}
-                <div className="pt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-                  <span className="text-text-muted font-medium text-[11px] mr-0.5">Supported:</span>
-                  <span className="font-bold text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2 py-0.5 rounded-md text-[11px]">GCash</span>
-                  <span className="font-bold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-md text-[11px]">Maya</span>
-                  <span className="font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-md text-[11px]">BDO / BPI</span>
-                  <span className="font-bold text-slate-300 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-[11px]">+40 Banks</span>
-                </div>
               </div>
             </div>
           </div>
 
-          {/* Friendly Action: Save QR Button */}
-          <div className="pt-2">
+          {/* QR Action Buttons: Download & Copy Payload */}
+          <div className="grid grid-cols-2 gap-2.5 pt-2">
             <button
               type="button"
               disabled={!qrData?.qr_image || isGenerating}
               onClick={handleDownloadQR}
-              className="w-full py-3.5 px-4 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white text-xs font-bold rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-primary/20"
+              className="py-3 px-3 bg-slate-800/90 hover:bg-slate-700/90 disabled:opacity-40 text-slate-200 border border-slate-700 hover:border-primary/50 text-[10px] sm:text-xs font-mono font-bold uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[42px]"
+              title="Download QR code to your phone gallery"
             >
-              <Download size={15} />
-              <span>Save QR to Photos / Phone</span>
+              <Download size={14} className="text-primary shrink-0" />
+              <span className="truncate">Save QR to Phone</span>
             </button>
-            <p className="text-[11px] text-center text-text-muted mt-2">
-              💡 On mobile? Save the QR image, then open GCash/Maya &gt; tap QR &gt; select "Upload from Photos".
-            </p>
+
+            <button
+              type="button"
+              disabled={!qrData?.qr_string || isGenerating}
+              onClick={() => {
+                if (qrData?.qr_string) handleCopy(qrData.qr_string, "QR Payload String");
+              }}
+              className="py-3 px-3 bg-slate-800/90 hover:bg-slate-700/90 disabled:opacity-40 text-slate-200 border border-slate-700 hover:border-primary/50 text-[10px] sm:text-xs font-mono font-bold uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[42px]"
+              title="Copy official EMVCo QRPh payload string"
+            >
+              {copiedField === "QR Payload String" ? (
+                <>
+                  <Check size={14} className="text-emerald-400 shrink-0" />
+                  <span className="text-emerald-400 truncate">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={14} className="text-primary shrink-0" />
+                  <span className="truncate">Copy QR String</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Right Column: Upload Proof & Submit Form */}
-        <div className="lg:col-span-6">
+        {/* Right Column: Settlement Verification Form */}
+        <div className="lg:col-span-6 space-y-6">
+          {/* Settlement Submission & Proof Form */}
           <form
             onSubmit={handleSubmitSettlement}
-            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5"
+            className="bg-slate-900/80 border border-border-subtle rounded-2xl p-5 sm:p-7 shadow-xl space-y-5"
           >
-            {/* Form Header */}
-            <div className="pb-4 border-b border-slate-800">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold rounded-full mb-1">
-                <CheckCircle size={12} /> Step 2: Upload Receipt
-              </div>
-              <h3 className="text-lg font-bold text-white">
+            <div className="pb-3 border-b border-slate-800">
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400 font-bold block">
+                Settlement Verification
+              </span>
+              <h3 className="text-base font-bold text-white mt-0.5">
                 Confirm Your Payment
               </h3>
-              <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                Attach a screenshot of your successful GCash, Maya, or Bank transfer. Our team will verify and renew your internet plan.
+              <p className="text-[11px] text-text-muted mt-0.5">
+                Upload your payment screenshot below to create a <strong>Pending Settlement</strong> request. An administrator will review your proof in the Admin Console.
               </p>
             </div>
 
-            {/* Drag & Drop Upload Zone */}
+            {/* QR String / Payload Display */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                <span>Payment Screenshot / Receipt</span>
-                <span className="text-emerald-400 text-[11px] font-medium">Required</span>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted block">
+                  QR String / Payload Data
+                </label>
+                {qrData?.qr_string && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(qrData.qr_string, "QR String")}
+                    className="text-[10px] font-mono text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedField === "QR String" ? (
+                      <>
+                        <Check size={11} className="text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={11} />
+                        <span>Copy String</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl font-mono text-xs text-text-dim break-all select-all leading-relaxed max-h-24 overflow-y-auto">
+                {qrData?.qr_string ? (
+                  qrData.qr_string
+                ) : (
+                  <span className="text-slate-600 italic">Generating QR Ph string payload...</span>
+                )}
+              </div>
+              <p className="text-[9px] font-mono text-text-muted">
+                Official BSP QR Ph standard payload for this transaction.
+              </p>
+            </div>
+
+            {/* Screenshot Receipt Upload (Required Proof) */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-text-muted flex items-center justify-between">
+                <span>Payment Screenshot / Proof (Required)</span>
+                <span className="text-amber-400 text-[9px] font-bold">Admin Verification</span>
               </label>
 
               <div
                 onClick={() => document.getElementById("qr-receipt-upload")?.click()}
-                className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-all ${
+                className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${
                   receiptPreview
-                    ? "border-emerald-500/70 bg-emerald-500/5"
-                    : "border-slate-800 hover:border-slate-700 bg-slate-950/70"
+                    ? "border-amber-500/80 bg-amber-500/5"
+                    : "border-slate-800 hover:border-slate-700 bg-slate-950/60"
                 }`}
               >
                 <input
@@ -1012,84 +1121,51 @@ export function PaymentSection({
                     <img
                       src={receiptPreview}
                       alt="Receipt preview"
-                      className="max-h-40 mx-auto rounded-xl object-contain shadow-lg border border-emerald-500/30"
+                      className="max-h-36 mx-auto rounded-lg object-contain shadow-md border border-amber-500/30"
                     />
-                    <div className="flex items-center justify-center gap-2 pt-1">
-                      <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
-                        <Check size={13} /> Screenshot attached
-                      </span>
-                      <span className="text-text-muted text-xs">·</span>
-                      <span className="text-xs text-primary hover:underline font-medium">
-                        Tap to replace
-                      </span>
+                    <div className="text-[10px] font-mono text-amber-400 font-bold uppercase">
+                      Tap to replace screenshot
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-2 py-3">
-                    <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto">
-                      <Upload size={22} />
+                  <div className="space-y-1 py-2">
+                    <Upload size={22} className="text-amber-400 mx-auto mb-1" />
+                    <div className="text-xs font-mono font-bold text-slate-200">
+                      Upload Payment Proof Screenshot
                     </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white">
-                        Tap to upload your payment screenshot
-                      </div>
-                      <div className="text-xs text-text-muted mt-0.5">
-                        PNG, JPG, or screenshot up to 5MB
-                      </div>
+                    <div className="text-[10px] font-mono text-text-muted">
+                      PNG, JPG up to 5MB • Required for settlement confirmation
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Optional Reference Number */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                <span>Reference / Transaction Number</span>
-                <span className="text-text-muted text-[11px]">Optional</span>
-              </label>
-              <input
-                type="text"
-                value={customerRefNumber}
-                onChange={(e) => setCustomerRefNumber(e.target.value)}
-                placeholder="e.g. 10023489123 or leave blank if on screenshot"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-primary transition-colors font-mono"
-              />
-            </div>
-
             {/* Submit Button */}
             <button
               type="submit"
               disabled={isSubmitting || isGenerating || !user}
-              className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-primary/25 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-4 px-5 bg-primary hover:bg-primary-dark disabled:opacity-40 text-white font-mono font-black uppercase tracking-[0.18em] text-xs sm:text-sm rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 italic cursor-pointer min-h-[48px]"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw size={16} className="animate-spin" />
-                  <span>Submitting Receipt...</span>
+                  Creating Pending Settlement...
                 </>
               ) : (
                 <>
-                  <span>Submit Payment Proof</span>
-                  <ArrowRight size={16} />
+                  Submit Proof for Settlement <ArrowRight size={16} />
                 </>
               )}
             </button>
 
-            {/* Reassurance Info Box */}
-            <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1 text-xs text-text-muted">
-              <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                <Clock size={13} className="text-emerald-400" />
-                <span>Fast Verification (~5-15 mins)</span>
-              </div>
-              <p className="text-[11px] leading-relaxed">
-                An operations administrator will verify your transfer and update your connection status. Need urgent help? Chat with us anytime!
-              </p>
-            </div>
+            <p className="text-[10px] font-mono text-center text-text-muted leading-relaxed">
+              Creates a <strong>Pending Settlement</strong> with status <em>“Waiting for Admin Confirmation”</em>. No automatic plan renewal or due date extension will occur until confirmed by an admin.
+            </p>
 
             {!user && (
-              <p className="text-xs text-center text-primary font-semibold">
-                Please sign in to your Hotfast account to record payments.
+              <p className="text-[10px] font-mono text-center text-primary font-bold uppercase tracking-wider">
+                Please login with Google or your Subscriber Account to record settlements.
               </p>
             )}
           </form>
@@ -1098,5 +1174,4 @@ export function PaymentSection({
     </section>
   );
 }
-
 export default PaymentSection;
