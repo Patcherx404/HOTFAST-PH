@@ -67,7 +67,7 @@ import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
 import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
-import { PWAInstallModal, PWAInstallBanner } from "./components/PWAInstallPrompt";
+import { PWAInstallModal } from "./components/PWAInstallPrompt";
 import { ComplianceModal } from "./components/ComplianceModal";
 import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
@@ -495,78 +495,6 @@ export default function App() {
 
             {user ? (
               <div className="flex items-center gap-6">
-                <div className="relative">
-                  <button
-                    onClick={() => setShowNotifications(!showNotifications)}
-                    className="p-2 text-text-muted hover:text-primary transition-all relative"
-                  >
-                    <Bell size={20} />
-                    {unreadCount > 0 && (
-                      <span className="absolute top-1 right-1 w-4 h-4 bg-primary text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-bg-base">
-                        {unreadCount}
-                      </span>
-                    )}
-                  </button>
-
-                  <AnimatePresence>
-                    {showNotifications && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className="absolute right-0 mt-4 w-80 bg-bg-surface border border-border-subtle shadow-2xl z-[100] max-h-[400px] overflow-y-auto"
-                      >
-                        <div className="p-4 border-b border-border-subtle flex justify-between items-center bg-bg-base/50">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">
-                            Alert Registry
-                          </span>
-                          {notifications.length > 0 && (
-                            <span className="text-[9px] font-bold text-primary italic lowercase">
-                              Real-time Feed
-                            </span>
-                          )}
-                        </div>
-                        {notifications.length === 0 ? (
-                          <div className="p-8 text-center text-[10px] font-bold uppercase tracking-widest text-text-muted italic">
-                            No active alerts detected
-                          </div>
-                        ) : (
-                          <div className="divide-y divide-border-subtle">
-                            {notifications.map((n, idx) => (
-                              <div
-                                key={`notif-${n.id || idx}`}
-                                className={`p-4 hover:bg-white/5 transition-colors cursor-pointer ${!n.read ? "bg-primary/5" : ""}`}
-                                onClick={() =>
-                                  handleMarkNotificationAsRead(n.id)
-                                }
-                              >
-                                <div className="flex gap-3">
-                                  <div
-                                    className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${n.type === "alert" ? "bg-red-500" : n.type === "warning" ? "bg-yellow-500" : "bg-primary"}`}
-                                  />
-                                  <div>
-                                    <div className="text-[11px] font-black uppercase tracking-tight">
-                                      {n.title}
-                                    </div>
-                                    <div className="text-[10px] text-text-muted leading-relaxed mt-1">
-                                      {n.message}
-                                    </div>
-                                    <div className="text-[8px] font-mono mt-2 text-text-dim/50 italic">
-                                      {n.createdAt?.toDate
-                                        ? n.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
-                                        : "Just now"}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
                 <button
                   onClick={() => setActiveTab("portal")}
                   className="flex items-center gap-3 px-4 py-2 bg-slate-900 border border-border-subtle text-[10px] font-bold uppercase tracking-widest hover:border-primary/50 transition-colors"
@@ -612,83 +540,6 @@ export default function App() {
             >
               <MapPin size={18} className="animate-pulse" />
             </button>
-
-            {user && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="p-2 text-text-muted hover:text-primary transition-all relative"
-                  title="Notifications"
-                >
-                  <Bell size={18} />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-primary text-white text-[7px] font-black flex items-center justify-center rounded-full border border-bg-base">
-                      {unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {showNotifications && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="fixed top-16 left-3 right-3 bg-bg-surface border border-border-subtle shadow-2xl z-[150] max-h-[70vh] overflow-y-auto"
-                    >
-                      <div className="p-4 border-b border-border-subtle flex justify-between items-center bg-bg-base/90">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">
-                          Alert Registry
-                        </span>
-                        <button 
-                          onClick={() => setShowNotifications(false)}
-                          className="text-text-muted hover:text-white p-1 text-xs"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                      {notifications.length === 0 ? (
-                        <div className="p-6 text-center text-[10px] font-bold uppercase tracking-widest text-text-muted italic">
-                          No active alerts detected
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-border-subtle">
-                          {notifications.map((n, idx) => (
-                            <div
-                              key={`m-notif-${n.id || idx}`}
-                              className={`p-4 hover:bg-white/5 transition-colors cursor-pointer ${!n.read ? "bg-primary/5" : ""}`}
-                              onClick={() => {
-                                handleMarkNotificationAsRead(n.id);
-                                setShowNotifications(false);
-                              }}
-                            >
-                              <div className="flex gap-3">
-                                <div
-                                  className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${n.type === "alert" ? "bg-red-500" : n.type === "warning" ? "bg-yellow-500" : "bg-primary"}`}
-                                />
-                                <div>
-                                  <div className="text-[11px] font-black uppercase tracking-tight">
-                                    {n.title}
-                                  </div>
-                                  <div className="text-[10px] text-text-muted leading-relaxed mt-1">
-                                    {n.message}
-                                  </div>
-                                  <div className="text-[8px] font-mono mt-2 text-text-dim/50 italic">
-                                    {n.createdAt?.toDate
-                                      ? n.createdAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE })
-                                      : "Just now"}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
 
             <button
               className="p-2 text-white hover:text-primary transition-colors flex items-center gap-1.5"
@@ -1612,14 +1463,14 @@ function CustomerPortal({
 
   return (
     <div className="py-6 sm:py-12 px-3 sm:px-6 max-w-7xl mx-auto space-y-4">
-      {onOpenInstallModal && !isInstalled && (
-        <PWAInstallBanner onOpenModal={onOpenInstallModal} isInstalled={!!isInstalled} />
-      )}
       <div className="space-y-px bg-border-subtle border border-border-subtle">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-px">
         <div className="md:col-span-8 bg-bg-base p-5 sm:p-8 md:p-12 flex flex-col sm:flex-row items-center sm:items-start md:items-center justify-between text-center sm:text-left gap-6 sm:gap-8">
           <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 sm:gap-8 w-full sm:w-auto">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0">
+            <div 
+              style={{ height: "73px", width: "106px" }}
+              className="p-1 border border-border-subtle rounded-full overflow-hidden group shrink-0"
+            >
               <img
                 src={user.photoURL || ""}
                 alt="avatar"
@@ -2238,7 +2089,7 @@ function Footer({
                 Access
               </button>
             )}
-            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V34</span>
+            <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V39</span>
           </div>
         </div>
       </div>
