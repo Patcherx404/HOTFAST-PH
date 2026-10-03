@@ -917,6 +917,48 @@ Hotfast.online`;
     }
   }
 
+  // Vercel Blob Upload endpoint
+  app.post("/api/upload", async (req, res) => {
+    try {
+      const { base64Data, filename, contentType } = req.body || {};
+      if (!base64Data) {
+        return res.status(400).json({ error: "base64Data is required" });
+      }
+      const token = process.env.BLOB_READ_WRITE_TOKEN;
+      if (token) {
+        try {
+          const { put } = await import("@vercel/blob");
+          let cleanBase64 = base64Data;
+          let detectedType = contentType || "image/jpeg";
+          if (base64Data.startsWith("data:")) {
+            const match = base64Data.match(/^data:([^;]+);base64,/);
+            if (match) {
+              detectedType = match[1];
+              cleanBase64 = base64Data.slice(match[0].length);
+            }
+          }
+          const buffer = Buffer.from(cleanBase64.replace(/\s+/g, ""), "base64");
+          const ext = detectedType.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+          const safeFilename = filename
+            ? `receipts/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "")}`
+            : `receipts/${Date.now()}-payment-proof.${ext}`;
+
+          const blob = await put(safeFilename, buffer, {
+            access: "public",
+            contentType: detectedType,
+            token,
+          });
+          return res.json({ success: true, url: blob.url });
+        } catch (blobErr: any) {
+          console.warn("Vercel Blob upload notice:", blobErr?.message || blobErr);
+        }
+      }
+      return res.json({ success: true, url: base64Data, fallback: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   // Client Settlement Proof Submission Telegram Alert
   app.post("/api/telegram/payment-settlement", async (req, res) => {
     try {

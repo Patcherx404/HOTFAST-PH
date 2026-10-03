@@ -61,10 +61,44 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
         setAccountNumber("N/A");
       }
       if (userPhone && !phone) {
-        setPhone(userPhone);
+        let p = userPhone.replace(/\D/g, "");
+        if (p.startsWith("639")) p = "0" + p.slice(2);
+        if (p.startsWith("09")) setPhone(p.slice(0, 11));
+        else setPhone("09");
       }
     }
   }, [isOpen, profile, user, hasUser, userDisplayName, userAccountNumber, userEmail, userPhone]);
+
+  const handlePhoneFocus = () => {
+    if (!phone) {
+      setPhone("09");
+    }
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (!raw) {
+      setPhone("");
+      return;
+    }
+
+    let digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      setPhone("");
+      return;
+    }
+
+    // Auto-normalize numbers starting with 639 to 09
+    if (digits.startsWith("639")) {
+      digits = "0" + digits.slice(2);
+    } else if (digits.startsWith("9") && !digits.startsWith("09")) {
+      digits = "0" + digits;
+    } else if (!digits.startsWith("09")) {
+      digits = "09" + digits.replace(/^0+/, "");
+    }
+
+    setPhone(digits.slice(0, 11));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,8 +113,9 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
       return;
     }
 
-    if (!clientPhone || clientPhone.length < 7) {
-      setErrorMessage("Phone number is required. Please fill up a valid contact number (e.g. 0917-XXX-XXXX).");
+    const digitsOnly = clientPhone.replace(/\D/g, "");
+    if (!digitsOnly.startsWith("09") || digitsOnly.length !== 11) {
+      setErrorMessage("Phone number must start with 09 and contain exactly 11 digits (e.g. 09171234567).");
       return;
     }
 
@@ -393,21 +428,25 @@ export function SupportModal({ isOpen, onClose }: SupportModalProps) {
                         <Phone size={12} className="text-primary" /> Fill Up Phone Number <span className="text-primary">*</span>
                       </label>
                       <span className="text-[9px] font-mono uppercase tracking-wider text-primary font-bold bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
-                        Required
+                        Starts with 09 only
                       </span>
                     </div>
                     <div className="relative">
                       <input
                         type="tel"
+                        inputMode="numeric"
+                        pattern="09[0-9]{9}"
+                        maxLength={11}
                         required
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 0917-123-4567 or +63 912 345 6789"
-                        className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim font-mono transition-colors"
+                        onFocus={handlePhoneFocus}
+                        onChange={handlePhoneChange}
+                        placeholder="09XXXXXXXXX (11 digits, e.g. 09171234567)"
+                        className="w-full px-3 py-2 bg-bg-base border border-border-subtle focus:border-primary focus:outline-none rounded text-xs text-white placeholder:text-text-dim font-mono tracking-wider transition-colors"
                       />
                     </div>
                     <span className="text-[10px] text-text-dim mt-1 block">
-                      Our NOC technical team will contact this phone number regarding your concern.
+                      Philippine mobile numbers only (must start with <strong>09</strong>, exactly 11 digits).
                     </span>
                   </div>
 
