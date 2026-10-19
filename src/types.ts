@@ -18,7 +18,6 @@ export interface UserProfile {
   uid: string;
   accountNumber: string;
   clientId?: string;
-  apiKey?: string;
   displayName: string;
   email: string;
   phone?: string;

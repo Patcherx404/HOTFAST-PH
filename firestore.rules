@@ -137,13 +137,12 @@ service cloud.firestore {
     match /chats/{chatId} {
       function isValidChatSession(data) {
         return data.userId is string &&
-               (!('userName' in data) || data.userName is string) &&
-               (!('lastMessage' in data) || data.lastMessage is string) &&
-               (!('updatedAt' in data) || data.updatedAt == request.time || data.updatedAt is timestamp);
+               data.userName is string &&
+               data.updatedAt == request.time;
       }
       allow list: if isAdmin() || isOwner(chatId);
       allow get: if isOwner(chatId) || isAdmin();
-      allow create: if (isOwner(chatId) || isAdmin()) && isValidChatSession(request.resource.data);
+      allow create: if isOwner(chatId) && isValidChatSession(request.resource.data);
       allow update: if (isOwner(chatId) || isAdmin()) && isValidChatSession(request.resource.data);
       allow delete: if (request.auth.token != null && 'email' in request.auth.token && request.auth.token.email == 'projectile.afk@gmail.com') || isAdmin() || isOwner(chatId);
     }
@@ -151,9 +150,9 @@ service cloud.firestore {
     match /chats/{chatId}/messages/{messageId} {
       function isValidChatMessage(data) {
         return data.text is string && data.text.size() <= 4096 &&
+               data.senderId == request.auth.uid &&
                data.senderRole in ['user', 'admin'] &&
-               (!('senderId' in data) || data.senderId is string) &&
-               (!('createdAt' in data) || data.createdAt == request.time || data.createdAt is timestamp);
+               data.createdAt == request.time;
       }
       allow list: if isOwner(chatId) || isAdmin();
       allow get: if isOwner(chatId) || isAdmin();
