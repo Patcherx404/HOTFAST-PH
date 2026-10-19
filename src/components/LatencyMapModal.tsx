@@ -17,13 +17,8 @@ interface LatencyMapModalProps {
   onClose: () => void;
 }
 
-export const HOTFAST_NODE_COORDS = {
-  lat: 10.509848359158417,
-  lng: 122.82730190382401,
-  nodeName: "HF-NODE-VISAYAS-01",
-  region: "Western Visayas (Negros Occidental)",
-  networkType: "Ultra-Low Latency Fiber & Microwave Backbone",
-};
+import { HOTFAST_NODE_COORDS } from "../constants";
+export { HOTFAST_NODE_COORDS };
 
 export default function LatencyMapModal({ isOpen, onClose }: LatencyMapModalProps) {
   const [mapMode, setMapMode] = useState<"google" | "osm">("google");
