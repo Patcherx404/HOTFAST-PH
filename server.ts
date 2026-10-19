@@ -1,5 +1,4 @@
 import express from "express";
-import compression from "compression";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -259,7 +258,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(compression());
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -305,22 +303,6 @@ async function startServer() {
     const record = supportRateLimitMap.get(ip);
     if (!record || now > record.resetTime) {
       supportRateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
-      return false;
-    }
-    if (record.count >= maxRequests) {
-      return true;
-    }
-    record.count += 1;
-    return false;
-  }
-
-  // Sliding window rate limiter for Live Chat support agent (40 messages per 2 minutes)
-  const liveChatRateLimitMap = new Map<string, { count: number; resetTime: number }>();
-  function checkLiveChatRateLimit(key: string, maxRequests = 40, windowMs = 2 * 60 * 1000): boolean {
-    const now = Date.now();
-    const record = liveChatRateLimitMap.get(key);
-    if (!record || now > record.resetTime) {
-      liveChatRateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
       return false;
     }
     if (record.count >= maxRequests) {
@@ -1067,87 +1049,6 @@ Hotfast.online`;
     }
   });
 
-  // Vercel Blob Delete endpoint (deletes receipt images from Vercel Blob storage)
-  app.post("/api/blob/delete", async (req, res) => {
-    try {
-      const normalizeBlobUrl = (raw?: string | null): string | null => {
-        if (!raw || typeof raw !== "string") return null;
-        const trimmed = raw.trim();
-        if (!trimmed) return null;
-        if (trimmed.includes("/api/blob/view")) {
-          try {
-            const parsed = new URL(trimmed, "http://localhost");
-            const inner = parsed.searchParams.get("url");
-            if (inner && inner.includes("blob.vercel-storage.com")) {
-              return inner.trim();
-            }
-          } catch {
-            const match = trimmed.match(/[?&]url=([^&]+)/);
-            if (match && match[1]) {
-              try {
-                const decoded = decodeURIComponent(match[1]);
-                if (decoded.includes("blob.vercel-storage.com")) {
-                  return decoded.trim();
-                }
-              } catch {
-                // ignore
-              }
-            }
-          }
-        }
-        if (trimmed.includes("blob.vercel-storage.com")) {
-          return trimmed;
-        }
-        return null;
-      };
-
-      const rawUrl = req.body?.url || req.query?.url;
-      const rawUrls: string[] = Array.isArray(req.body?.urls)
-        ? req.body.urls
-        : rawUrl
-        ? [rawUrl]
-        : [];
-
-      const validUrls = rawUrls
-        .map((u) => normalizeBlobUrl(u))
-        .filter((u): u is string => Boolean(u));
-
-      if (validUrls.length === 0) {
-        return res.json({
-          success: true,
-          skipped: true,
-          message: "No Vercel Blob URL provided to delete.",
-        });
-      }
-
-      const token = (
-        process.env.BLOB_READ_WRITE_TOKEN ||
-        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
-      ).trim();
-
-      if (!token) {
-        return res.status(400).json({
-          success: false,
-          error: "BLOB_READ_WRITE_TOKEN is not configured.",
-        });
-      }
-
-      const { del } = await import("@vercel/blob");
-      await del(validUrls, { token });
-
-      return res.json({
-        success: true,
-        deleted: validUrls,
-      });
-    } catch (err: any) {
-      console.error("Error deleting from Vercel Blob storage:", err?.message || err);
-      return res.status(500).json({
-        success: false,
-        error: err?.message || String(err),
-      });
-    }
-  });
-
   // Client Settlement Proof Submission Telegram Alert
   app.post("/api/telegram/payment-settlement", async (req, res) => {
     try {
@@ -1226,112 +1127,6 @@ ${paymentId ? `🗂 Payment ID: ${paymentId}\n` : ""}🕐 Submitted (PHT): ${pht
       console.error("Error processing settlement Telegram notification:", err?.message || err);
       return res.status(500).json({
         error: "Internal error processing Telegram settlement notification.",
-        message: err?.message || String(err),
-      });
-    }
-  });
-
-  // Client Live Chat Support Agent Instant Telegram Alert
-  app.post("/api/telegram/live-chat", async (req, res) => {
-    try {
-      const clientIp =
-        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "unknown";
-
-      if (checkLiveChatRateLimit(clientIp)) {
-        return res.status(429).json({
-          error: "Too many live chat messages in a short window. Please wait a moment before sending again.",
-        });
-      }
-
-      const { message, clientName, accountNumber, email, phone, userId, plan, isGuest } = req.body || {};
-
-      const cleanMessage =
-        typeof message === "string"
-          ? message.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 3000)
-          : "";
-
-      if (!cleanMessage) {
-        return res.status(400).json({ error: "Message content cannot be empty." });
-      }
-
-      const cleanName =
-        typeof clientName === "string" && clientName.trim()
-          ? clientName.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 100)
-          : "Subscriber Client";
-
-      const cleanAccount =
-        typeof accountNumber === "string" && accountNumber.trim() && accountNumber.trim() !== "N/A"
-          ? accountNumber.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 50)
-          : null;
-
-      const cleanEmail =
-        typeof email === "string" && email.trim()
-          ? email.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 100)
-          : null;
-
-      const cleanPhone =
-        typeof phone === "string" && phone.trim()
-          ? phone.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 50)
-          : null;
-
-      const cleanPlan =
-        typeof plan === "string" && plan.trim()
-          ? plan.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 100)
-          : null;
-
-      const cleanUserId =
-        typeof userId === "string" && userId.trim()
-          ? userId.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, 128)
-          : null;
-
-      const timestamp = new Date().toLocaleString("en-PH", {
-        timeZone: "Asia/Manila",
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-
-      const lines: string[] = [
-        "💬 [HOTFAST PH] LIVE CHAT CLIENT MESSAGE 💬",
-        "────────────────────────────",
-        `👤 Client: ${cleanName}${isGuest ? " (Guest / Visitor)" : ""}`,
-      ];
-
-      if (cleanAccount) {
-        lines.push(`🆔 Account No: ${cleanAccount}`);
-      }
-      if (cleanEmail || cleanPhone) {
-        const contactInfo = [cleanEmail, cleanPhone].filter(Boolean).join(" | ");
-        lines.push(`📞 Contact: ${contactInfo}`);
-      }
-      if (cleanPlan) {
-        lines.push(`📡 Plan: ${cleanPlan}`);
-      }
-      if (cleanUserId) {
-        lines.push(`🔑 UID: ${cleanUserId}`);
-      }
-
-      lines.push("");
-      lines.push("💬 Client Message:");
-      lines.push(`"${cleanMessage}"`);
-      lines.push("");
-      lines.push(`🕐 Time: ${timestamp} (PHT)`);
-      lines.push("⚡️ Prompt: Open Admin Console -> Live Chat tab to reply in real-time!");
-      lines.push("🌐 Portal: https://hotfast.online");
-
-      const telegramText = lines.join("\n");
-      const tgResult = await sendTelegramNotification({ text: telegramText });
-
-      return res.status(200).json({
-        success: true,
-        message: "Live chat message received and notified to Telegram.",
-        telegramNotified: tgResult.success,
-      });
-    } catch (err: any) {
-      console.error("Live chat telegram notification error:", err?.message || err);
-      return res.status(500).json({
-        error: "Failed to process live chat notification.",
         message: err?.message || String(err),
       });
     }
@@ -1477,7 +1272,6 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
 
   interface SubscriberBillingRecord {
     uid: string;
-    clientId?: string;
     accountNumber?: string;
     displayName?: string;
     email?: string;
@@ -1490,7 +1284,6 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
     payment_status?: "unpaid" | "processing" | "paid" | "rejected";
     subscription_status?: "ACTIVE" | "DUE" | "OVERDUE" | "PAID";
     lastStatusCheck?: any;
-    [key: string]: any;
   }
 
   let lastBillingCheckTime: Date | null = null;
@@ -1540,8 +1333,6 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
             const sub: SubscriberBillingRecord = {
               uid,
               accountNumber: fields.accountNumber?.stringValue || "",
-              clientId: fields.clientId?.stringValue || "",
-              apiKey: fields.apiKey?.stringValue || "",
               displayName: fields.displayName?.stringValue || "",
               email: fields.email?.stringValue || "",
               balance: Number(fields.balance?.integerValue || fields.balance?.doubleValue || 0),
@@ -1835,205 +1626,6 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
     }
   });
 
-  function formatClientApiResponse(client: any, apiKeyProvided?: string) {
-    const isSuspended = client.status === "suspended";
-    const isExpired =
-      client.subscription_status === "EXPIRED" ||
-      client.subscription_status === "OVERDUE" ||
-      isSuspended;
-    const isActive =
-      (client.subscription_status === "ACTIVE" ||
-        client.billStatus === "paid" ||
-        client.status === "active") &&
-      !isSuspended;
-    const effectiveStatus = isActive ? "active" : "suspended";
-    const expiryDate = client.due_date || "";
-    const expiryTime = client.due_time || "12:00 PM";
-    const expiryString = expiryDate ? `${expiryDate} ${expiryTime}` : "";
-
-    const keyMatches =
-      !client.apiKey ||
-      !apiKeyProvided ||
-      client.apiKey.trim() === apiKeyProvided.trim();
-
-    return {
-      success: true,
-      code: 200,
-      status: effectiveStatus,
-      active: isActive,
-      is_active: isActive,
-      expired: isExpired,
-      is_expired: isExpired,
-      authenticated: keyMatches,
-      clientId: client.clientId || client.accountNumber || "",
-      client_id: client.clientId || client.accountNumber || "",
-      accountNumber: client.accountNumber || "",
-      account_number: client.accountNumber || "",
-      displayName: client.displayName || "",
-      name: client.displayName || "",
-      username: client.clientId || client.accountNumber || client.email || "",
-      email: client.email || "",
-      due_date: expiryDate,
-      due_time: expiryTime,
-      dueDate: client.dueDate || "",
-      expiry: expiryString,
-      expiry_date: expiryDate,
-      expiry_time: expiryTime,
-      expiration: expiryString,
-      subscription_status: client.subscription_status || (isActive ? "ACTIVE" : "DUE"),
-      payment_status: client.payment_status || "unpaid",
-      billStatus: client.billStatus || (isActive ? "paid" : "due"),
-      balance: client.balance || 0,
-      currentPlanId: client.currentPlanId || "",
-      plan: client.currentPlanId || "Standard",
-      client: {
-        ...client,
-        status: effectiveStatus,
-        active: isActive,
-        due_date: expiryDate,
-        due_time: expiryTime,
-      },
-      data: {
-        ...client,
-        status: effectiveStatus,
-        active: isActive,
-        due_date: expiryDate,
-        due_time: expiryTime,
-      },
-    };
-  }
-
-  // Client REST API for subscribers (List, Filter, or Query by Client ID / API Key for Wifi5Soft)
-  app.get("/api/clients", async (req, res) => {
-    try {
-      const subscribers = await fetchSubscribersFromFirestore();
-      const q = req.query as Record<string, string>;
-      const apiKeyProvided =
-        (req.headers["x-api-key"] as string) ||
-        (req.headers["authorization"] ? (req.headers["authorization"] as string).replace(/^Bearer\s+/i, "") : "") ||
-        q.api_key ||
-        q.apiKey ||
-        q.token ||
-        q.key;
-
-      const singleTarget =
-        q.client_id ||
-        q.clientId ||
-        q.accountNumber ||
-        q.account_number ||
-        q.identifier ||
-        q.username ||
-        q.user ||
-        (req.headers["x-client-id"] as string);
-
-      // If a specific client ID or identifier was queried, return single client directly for Wifi5soft / router
-      if (singleTarget) {
-        const targetClean = singleTarget.trim().toLowerCase();
-        const match = subscribers.find((s) => {
-          if (!s) return false;
-          return (
-            s.uid?.toLowerCase() === targetClean ||
-            s.accountNumber?.trim().toLowerCase() === targetClean ||
-            s.clientId?.trim().toLowerCase() === targetClean ||
-            s.email?.trim().toLowerCase() === targetClean
-          );
-        });
-
-        if (!match) {
-          return res.status(404).json({
-            success: false,
-            code: 404,
-            status: "not_found",
-            error: "Client not found",
-            identifier: singleTarget,
-          });
-        }
-
-        return res.json(formatClientApiResponse(match, apiKeyProvided));
-      }
-
-      const { status, search, limit } = q;
-      let filtered = [...subscribers];
-
-      if (status && typeof status === "string" && status !== "all") {
-        filtered = filtered.filter(
-          (s) =>
-            s.status === status ||
-            s.billStatus === status ||
-            s.subscription_status?.toLowerCase() === status.toLowerCase()
-        );
-      }
-
-      if (search && typeof search === "string") {
-        const queryStr = search.toLowerCase();
-        filtered = filtered.filter(
-          (s) =>
-            s.displayName?.toLowerCase().includes(queryStr) ||
-            s.accountNumber?.toLowerCase().includes(queryStr) ||
-            s.clientId?.toLowerCase().includes(queryStr) ||
-            s.email?.toLowerCase().includes(queryStr) ||
-            s.uid?.toLowerCase().includes(queryStr)
-        );
-      }
-
-      if (limit) {
-        const n = parseInt(limit as string, 10);
-        if (!isNaN(n) && n > 0) {
-          filtered = filtered.slice(0, n);
-        }
-      }
-
-      return res.json({
-        success: true,
-        total: filtered.length,
-        gateway: "ASIA-EAST1-PROD",
-        timezone: "Asia/Manila (UTC+8)",
-        timestamp: new Date().toISOString(),
-        clients: filtered,
-      });
-    } catch (err: any) {
-      return res.status(500).json({ error: "Failed to fetch clients", message: err?.message });
-    }
-  });
-
-  // Client REST API by UID, Account Number, or Client ID (Wifi5Soft & MikroTik Endpoint)
-  app.get("/api/clients/:identifier", async (req, res) => {
-    try {
-      const { identifier } = req.params;
-      const apiKeyProvided =
-        (req.headers["x-api-key"] as string) ||
-        (req.headers["authorization"] ? (req.headers["authorization"] as string).replace(/^Bearer\s+/i, "") : "") ||
-        (req.query.api_key as string) ||
-        (req.query.apiKey as string);
-
-      const subscribers = await fetchSubscribersFromFirestore();
-      const targetClean = identifier.trim().toLowerCase();
-      const client = subscribers.find((s) => {
-        if (!s) return false;
-        return (
-          s.uid?.toLowerCase() === targetClean ||
-          s.accountNumber?.trim().toLowerCase() === targetClean ||
-          s.clientId?.trim().toLowerCase() === targetClean ||
-          s.email?.trim().toLowerCase() === targetClean
-        );
-      });
-
-      if (!client) {
-        return res.status(404).json({
-          success: false,
-          code: 404,
-          status: "not_found",
-          error: "Client not found",
-          identifier,
-        });
-      }
-
-      return res.json(formatClientApiResponse(client, apiKeyProvided));
-    } catch (err: any) {
-      return res.status(500).json({ error: "Failed to fetch client", message: err?.message });
-    }
-  });
-
   // Admin & System Access API routes authorization enforcement
   app.all(["/api/admin", "/api/admin/*", "/api/system-access", "/api/system-access/*"], (req, res) => {
     if (!isAuthorizedAdminRequest(req)) {
@@ -2176,23 +1768,8 @@ Your Telegram bot is operational and configured to receive real-time subscriber 
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(
-      express.static(distPath, {
-        maxAge: "1y",
-        immutable: true,
-        setHeaders: (res, filePath) => {
-          if (
-            filePath.endsWith(".html") ||
-            filePath.endsWith("sw.js") ||
-            filePath.endsWith("manifest.webmanifest")
-          ) {
-            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-          }
-        },
-      })
-    );
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

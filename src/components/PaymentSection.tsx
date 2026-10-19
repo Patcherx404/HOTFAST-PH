@@ -611,8 +611,6 @@ export function PaymentSection({
                 <img
                   src={getDisplayImageUrl(submittedRecord.screenshotUrl)}
                   alt="Uploaded receipt"
-                  loading="lazy"
-                  decoding="async"
                   className="max-h-40 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-semibold">
@@ -699,7 +697,6 @@ export function PaymentSection({
                 <img
                   src={viewingProof}
                   alt="Receipt expanded"
-                  decoding="async"
                   className="max-h-[85vh] w-auto max-w-full rounded-2xl border border-slate-700 shadow-2xl object-contain"
                 />
               </div>
@@ -913,7 +910,6 @@ export function PaymentSection({
                   <img
                     src={qrData.qr_image}
                     alt="PayMongo QR Ph Code"
-                    decoding="async"
                     className="w-full h-full object-contain rounded-lg"
                   />
                 ) : (
@@ -1041,8 +1037,6 @@ export function PaymentSection({
                     <img
                       src={receiptPreview}
                       alt="Receipt preview"
-                      loading="lazy"
-                      decoding="async"
                       className="max-h-40 mx-auto rounded-xl object-contain shadow-lg border border-emerald-500/30"
                     />
                     <div className="flex items-center justify-center gap-2 pt-1">

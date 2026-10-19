@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Wifi,
@@ -59,24 +59,21 @@ import {
   Code2,
   LifeBuoy,
   Bot,
-  ChevronLeft,
-  ArrowLeft,
 } from "lucide-react";
 import { INTERNET_PLANS, ADMIN_EMAIL, isSuperAdminEmail } from "./constants";
 import { useAuth } from "./components/FirebaseProvider";
 import { ChatWidget } from "./components/ChatWidget";
+import LatencyMapModal from "./components/LatencyMapModal";
 import LatencyMapSection from "./components/LatencyMapSection";
+import DataConsumptionChart from "./components/DataConsumptionChart";
 import { usePWAInstall } from "./hooks/usePWAInstall";
+import { PWAInstallModal } from "./components/PWAInstallPrompt";
+import { ComplianceModal } from "./components/ComplianceModal";
+import { SupportModal } from "./components/SupportModal";
 import { FooterCreditsAndCompliance } from "./components/FooterCreditsAndCompliance";
+import { AdminTicketsTab } from "./components/AdminTicketsTab";
 import { PaymentSection } from "./components/PaymentSection";
-
-// Performance Optimization: On-demand components are lazily evaluated to minimize initial bundle footprint
-const LatencyMapModal = React.lazy(() => import("./components/LatencyMapModal"));
-const PWAInstallModal = React.lazy(() => import("./components/PWAInstallPrompt").then(m => ({ default: m.PWAInstallModal })));
-const ComplianceModal = React.lazy(() => import("./components/ComplianceModal").then(m => ({ default: m.ComplianceModal })));
-const SupportModal = React.lazy(() => import("./components/SupportModal").then(m => ({ default: m.SupportModal })));
-const AdminTicketsTab = React.lazy(() => import("./components/AdminTicketsTab").then(m => ({ default: m.AdminTicketsTab })));
-import { getDisplayImageUrl, deleteBlobFile } from "./lib/blobUtils";
+import { getDisplayImageUrl } from "./lib/blobUtils";
 import { toast, Toaster } from "sonner";
 import {
   evaluateSubscriberStatus,
@@ -339,18 +336,18 @@ export default function App() {
   // Enforce admin authorization on activeTab === "admin"
   useEffect(() => {
     if (activeTab === "admin") {
-      const isSuperAdmin = user && isSuperAdminEmail(user.email);
-      if (!loading && !isSuperAdmin && !adminAuth) {
+      if (!loading && (!user || !isSuperAdminEmail(user.email))) {
         setActiveTab(user ? "portal" : "home");
+        setAdminAuth(false);
         setShowAdminLogin(false);
         window.history.replaceState({}, "", "/");
         toast.error(
-          "Admin Access: Please authenticate with your Google Admin account or Master Credentials.",
+          "403 Forbidden: System Access is restricted to projectile.afk@gmail.com.",
           { duration: 5000 }
         );
       }
     }
-  }, [activeTab, user, loading, adminAuth]);
+  }, [activeTab, user, loading]);
 
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
 
@@ -380,12 +377,14 @@ export default function App() {
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError("");
-    const isSuper = user && isSuperAdminEmail(user.email);
-    if (isSuper || (adminUsername.trim() === "patcherx" && adminPassword === "Patcherx500")) {
+    if (!user || !isSuperAdminEmail(user.email)) {
+      setAdminError("403 Forbidden: System Access is restricted to projectile.afk@gmail.com.");
+      return;
+    }
+    if (adminUsername === "patcherx" && adminPassword === "Patcherx500") {
       setAdminAuth(true);
       setShowAdminLogin(false);
       setActiveTab("admin");
-      toast.success("Welcome, Administrator!");
     } else {
       setAdminError("Access Denied: Invalid Administrative Credentials");
     }
@@ -902,40 +901,30 @@ export default function App() {
         activeTab={activeTab}
       />
 
-      <Suspense fallback={null}>
-        {showSupportModal && (
-          <SupportModal
-            isOpen={showSupportModal}
-            onClose={() => setShowSupportModal(false)}
-          />
-        )}
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+      />
 
-        {showLatencyMap && (
-          <LatencyMapModal 
-            isOpen={showLatencyMap} 
-            onClose={() => setShowLatencyMap(false)} 
-          />
-        )}
+      <LatencyMapModal 
+        isOpen={showLatencyMap} 
+        onClose={() => setShowLatencyMap(false)} 
+      />
 
-        {showComplianceModal && (
-          <ComplianceModal
-            isOpen={showComplianceModal}
-            onClose={() => setShowComplianceModal(false)}
-          />
-        )}
+      <ComplianceModal
+        isOpen={showComplianceModal}
+        onClose={() => setShowComplianceModal(false)}
+      />
 
-        {showInstallModal && (
-          <PWAInstallModal
-            isOpen={showInstallModal}
-            onClose={() => setShowInstallModal(false)}
-            onInstall={triggerInstall}
-            isInstallable={isInstallable}
-            isIOS={isIOS}
-            isAndroid={isAndroid}
-            isInAppBrowser={isInAppBrowser}
-          />
-        )}
-      </Suspense>
+      <PWAInstallModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        onInstall={triggerInstall}
+        isInstallable={isInstallable}
+        isIOS={isIOS}
+        isAndroid={isAndroid}
+        isInAppBrowser={isInAppBrowser}
+      />
 
       <AnimatePresence>
         {showAdminLogin && (
@@ -1003,73 +992,67 @@ export default function App() {
                     <span>Or Authenticate with Key</span>
                     <div className="flex-1 h-px bg-border-subtle" />
                   </div>
+
+                  <form onSubmit={handleAdminLogin} className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={adminUsername}
+                        onChange={(e) => setAdminUsername(e.target.value)}
+                        className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                        Security Key
+                      </label>
+                      <input
+                        type="password"
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        className="w-full bg-slate-900 border border-border-subtle p-4 focus:outline-none focus:border-primary text-sm font-mono text-white"
+                      />
+                    </div>
+
+                    {adminError && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="p-3 bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-black uppercase tracking-widest text-center italic"
+                      >
+                        {adminError}
+                      </motion.div>
+                    )}
+
+                    <button
+                      type="submit"
+                      className="w-full py-5 bg-primary text-white font-black uppercase text-[11px] tracking-widest italic hover:bg-primary-dark transition-all shadow-2xl shadow-primary/20 cursor-pointer"
+                    >
+                      Authenticate
+                    </button>
+                  </form>
                 </>
               ) : (
-                <div className="mb-6 space-y-3">
+                <div className="p-5 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono text-center rounded-lg space-y-3">
+                  <p className="font-bold uppercase tracking-wider text-[11px] text-red-400">
+                    403 Forbidden: Access Restricted
+                  </p>
+                  <p className="text-[11px] text-text-muted leading-relaxed">
+                    System Access is strictly restricted to the authorized administrator account (<strong>projectile.afk@gmail.com</strong>).
+                  </p>
                   <button
                     type="button"
-                    onClick={async () => {
-                      await loginWithGoogle();
-                    }}
-                    className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white font-black uppercase text-[10px] tracking-widest italic rounded transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer"
+                    onClick={() => setShowAdminLogin(false)}
+                    className="mt-3 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider rounded cursor-pointer transition-colors"
                   >
-                    <LogIn size={14} /> Sign In with Google Admin
+                    Return to Dashboard
                   </button>
-                  <p className="text-[9px] text-center text-text-muted font-mono">
-                    Authorized account: <strong className="text-slate-300">projectile.afk@gmail.com</strong>
-                  </p>
-
-                  <div className="flex items-center gap-3 my-4 text-[9px] text-text-muted uppercase tracking-widest">
-                    <div className="flex-1 h-px bg-border-subtle" />
-                    <span>Or Master Administrative Key</span>
-                    <div className="flex-1 h-px bg-border-subtle" />
-                  </div>
                 </div>
               )}
-
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted block">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    value={adminUsername}
-                    onChange={(e) => setAdminUsername(e.target.value)}
-                    placeholder="patcherx"
-                    className="w-full bg-slate-900 border border-border-subtle p-3 focus:outline-none focus:border-primary text-xs font-mono text-white rounded"
-                  />
-                </div>
-                <div className="space-y-1.5 text-left">
-                  <label className="text-[10px] uppercase tracking-widest font-black text-text-muted block">
-                    Security Key
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="••••••••••"
-                    className="w-full bg-slate-900 border border-border-subtle p-3 focus:outline-none focus:border-primary text-xs font-mono text-white rounded"
-                  />
-                </div>
-
-                {adminError && (
-                  <motion.div
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="p-2.5 bg-red-500/10 border border-red-500/30 text-red-400 text-[9px] font-mono font-bold text-center uppercase tracking-wide rounded"
-                  >
-                    {adminError}
-                  </motion.div>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full py-4 bg-primary text-white font-black uppercase text-[10px] tracking-widest italic hover:bg-primary-dark transition-all shadow-xl shadow-primary/20 cursor-pointer rounded"
-                >
-                  Authenticate Key &amp; Enter
-                </button>
-              </form>
             </motion.div>
           </motion.div>
         )}
@@ -1942,8 +1925,6 @@ function CustomerPortal({
                         <img
                           src={getDisplayImageUrl(selectedReceipt.screenshotUrl)}
                           alt="Receipt proof"
-                          loading="lazy"
-                          decoding="async"
                           className="w-full h-full object-contain"
                         />
                         <a
@@ -2098,14 +2079,17 @@ function Footer({
           </div>
 
           <div className="text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-text-muted flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
-            <button
-              id="footer-system-access-btn"
-              onClick={() => setShowAdminLogin(true)}
-              className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2 cursor-pointer"
-              title="System Access"
-            >
-              <Lock size={10} className="group-hover:animate-pulse" /> System Access
-            </button>
+            {isAuthorizedAdmin && (
+              <button
+                id="footer-system-access-btn"
+                onClick={() => setShowAdminLogin(true)}
+                className="text-text-dim hover:text-primary transition-colors flex items-center gap-1 group py-1 px-2 cursor-pointer"
+                title="System Access"
+              >
+                <Lock size={10} className="group-hover:animate-pulse" /> System
+                Access
+              </button>
+            )}
             <span className="text-[9px] text-text-muted/80">© 2026 HF NETWORK CORP • HF-V40</span>
           </div>
         </div>
@@ -2128,9 +2112,7 @@ function AdminPanel({
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(
     null,
   );
-  const [adminTab, setAdminTab] = useState<
-    "payments" | "plans" | "clients" | "cycles" | "chats" | "tickets"
-  >(
+  const [adminTab, setAdminTab] = useState<"payments" | "plans" | "clients" | "cycles" | "chats" | "tickets">(
     "payments",
   );
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
@@ -2139,9 +2121,6 @@ function AdminPanel({
   const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [reply, setReply] = useState("");
-  const [chatSearch, setChatSearch] = useState("");
-  const [isSendingReply, setIsSendingReply] = useState(false);
-  const adminChatScrollRef = useRef<HTMLDivElement>(null);
   const [editingCycle, setEditingCycle] = useState<BillingCycle | null>(null);
   const [processingCycle, setProcessingCycle] = useState<string | null>(null);
   const [cycleToDelete, setCycleToDelete] = useState<BillingCycle | null>(null);
@@ -2154,8 +2133,6 @@ function AdminPanel({
   const [planToDelete, setPlanToDelete] = useState<string | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<PaymentRecord | null>(null);
   const [viewingScreenshot, setViewingScreenshot] = useState<string | null>(null);
-  const [viewingScreenshotPayment, setViewingScreenshotPayment] = useState<PaymentRecord | null>(null);
-  const [isDeletingScreenshot, setIsDeletingScreenshot] = useState<string | null>(null);
   const [clientToDelete, setClientToDelete] = useState<UserProfile | null>(null);
   const [chatToDelete, setChatToDelete] = useState<ChatSession | null>(null);
   const [notifyingUser, setNotifyingUser] = useState<UserProfile | null>(null);
@@ -2327,79 +2304,28 @@ function AdminPanel({
     });
   };
 
-  const filteredClients = useMemo(() => {
-    const searchLower = (clientSearch || "").toLowerCase().trim();
-    const result = clients.filter(client => {
-      if (searchLower) {
-        const matchesSearch = 
-          (client.displayName || "").toLowerCase().includes(searchLower) || 
-          (client.accountNumber || "").toLowerCase().includes(searchLower) ||
-          (client.clientId || "").toLowerCase().includes(searchLower) ||
-          (client.email || "").toLowerCase().includes(searchLower);
-        
-        if (!matchesSearch) return false;
-      }
-      
-      if (clientFilter === "all") return true;
+  const filteredClients = clients.filter(client => {
+    const matchesSearch = 
+      (client.displayName || "").toLowerCase().includes(clientSearch.toLowerCase()) || 
+      (client.accountNumber || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.clientId || "").toLowerCase().includes(clientSearch.toLowerCase()) ||
+      (client.email || "").toLowerCase().includes(clientSearch.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    if (clientFilter === "all") return true;
 
-      const evaluation = evaluateSubscriberStatus(client);
-      if (clientFilter === "suspended") return client.status === "suspended";
-      if (clientFilter === "active") return evaluation.subscription_status === "ACTIVE" && client.status !== "suspended";
-      if (clientFilter === "due") return evaluation.subscription_status === "DUE";
-      if (clientFilter === "overdue") return evaluation.subscription_status === "OVERDUE";
-      if (clientFilter === "paid") return evaluation.subscription_status === "PAID";
-      return true;
-    });
+    const evaluation = evaluateSubscriberStatus(client);
+    if (clientFilter === "suspended") return client.status === "suspended";
+    if (clientFilter === "active") return evaluation.subscription_status === "ACTIVE" && client.status !== "suspended";
+    if (clientFilter === "due") return evaluation.subscription_status === "DUE";
+    if (clientFilter === "overdue") return evaluation.subscription_status === "OVERDUE";
+    if (clientFilter === "paid") return evaluation.subscription_status === "PAID";
+    return true;
+  });
 
-    // Auto sort: Due and Overdue subscribers automatically go to the top
-    return result.sort((a, b) => {
-      const evalA = evaluateSubscriberStatus(a);
-      const evalB = evaluateSubscriberStatus(b);
-
-      const getDuePriority = (c: UserProfile, ev: any) => {
-        if (ev.subscription_status === "OVERDUE" || c.billStatus === "overdue") return 0;
-        if (ev.subscription_status === "DUE" || c.billStatus === "due" || ev.is_due) return 1;
-        return 2;
-      };
-
-      const priorityA = getDuePriority(a, evalA);
-      const priorityB = getDuePriority(b, evalB);
-
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-
-      // If both are due or overdue, sort by earliest due date
-      if (priorityA < 2) {
-        const timeA = evalA.dueInstant ? evalA.dueInstant.getTime() : 0;
-        const timeB = evalB.dueInstant ? evalB.dueInstant.getTime() : 0;
-        if (timeA && timeB) return timeA - timeB;
-      }
-
-      return 0;
-    });
-  }, [clients, clientSearch, clientFilter]);
-
-  const totalRevenue = useMemo(
-    () => payments.filter(p => p.status === "completed").reduce((acc, p) => acc + (p.amount || 0), 0),
-    [payments]
-  );
-  const activeSubs = useMemo(
-    () => clients.filter(c => c.status !== "suspended").length,
-    [clients]
-  );
-  const suspendedSubs = useMemo(
-    () => clients.filter(c => c.status === "suspended").length,
-    [clients]
-  );
-
-  const clientsMap = useMemo(() => {
-    const map = new Map<string, UserProfile>();
-    for (const c of clients) {
-      map.set(c.uid, c);
-    }
-    return map;
-  }, [clients]);
+  const totalRevenue = payments.filter(p => p.status === "completed").reduce((acc, p) => acc + (p.amount || 0), 0);
+  const activeSubs = clients.filter(c => c.status !== "suspended").length;
+  const suspendedSubs = clients.filter(c => c.status === "suspended").length;
   const [notifForm, setNotifForm] = useState({
     title: "",
     message: "",
@@ -2484,33 +2410,17 @@ function AdminPanel({
   useEffect(() => {
     if (!user || !firebaseIsAdmin) return;
 
-    const chatsCol = collection(db, "chats");
-
-    const unsubscribe = onSnapshot(
-      chatsCol,
-      (snapshot) => {
-        const chats = snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() } as ChatSession)
-        );
-        chats.sort((a, b) => {
-          const timeA = a.updatedAt?.toMillis
-            ? a.updatedAt.toMillis()
-            : a.lastMessageAt?.toMillis
-            ? a.lastMessageAt.toMillis()
-            : 0;
-          const timeB = b.updatedAt?.toMillis
-            ? b.updatedAt.toMillis()
-            : b.lastMessageAt?.toMillis
-            ? b.lastMessageAt.toMillis()
-            : 0;
-          return timeB - timeA;
-        });
-        setChatSessions(chats);
-      },
-      (error) => {
-        console.error("Chats sync error:", error);
-      }
+    const q = query(
+      collection(db, "chats"),
+      orderBy("updatedAt", "desc")
     );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatSession));
+      setChatSessions(chats);
+    }, (error) => {
+      console.error("Chats sync error:", error);
+    });
 
     return unsubscribe;
   }, [user, firebaseIsAdmin]);
@@ -2521,30 +2431,17 @@ function AdminPanel({
       return;
     }
 
-    const targetChatId = selectedChat.userId || selectedChat.id;
     const q = query(
-      collection(db, `chats/${targetChatId}/messages`),
+      collection(db, `chats/${selectedChat.userId}/messages`),
       orderBy("createdAt", "asc")
     );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const msgs = snapshot.docs.map(
-          (doc) => ({ ...doc.data(), id: doc.id } as ChatMessage)
-        );
-        setChatMessages(msgs);
-        setTimeout(() => {
-          adminChatScrollRef.current?.scrollTo({
-            top: adminChatScrollRef.current.scrollHeight,
-            behavior: "smooth",
-          });
-        }, 100);
-      },
-      (error) => {
-        console.error("Messages sync error:", error);
-      }
-    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ChatMessage));
+      setChatMessages(msgs);
+    }, (error) => {
+      console.error("Messages sync error:", error);
+    });
 
     return unsubscribe;
   }, [user, firebaseIsAdmin, selectedChat]);
@@ -2654,15 +2551,13 @@ function AdminPanel({
     }
   };
 
-  const filteredPayments = useMemo(() => {
-    return payments.filter((p) => {
-      if (statusFilter === "all") return true;
-      if (statusFilter === "pending") return p.status === "pending";
-      if (statusFilter === "confirmed") return p.status === "confirmed" || p.status === "completed";
-      if (statusFilter === "rejected") return p.status === "rejected" || p.status === "failed";
-      return p.status === statusFilter;
-    });
-  }, [payments, statusFilter]);
+  const filteredPayments = payments.filter((p) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "pending") return p.status === "pending";
+    if (statusFilter === "confirmed") return p.status === "confirmed" || p.status === "completed";
+    if (statusFilter === "rejected") return p.status === "rejected" || p.status === "failed";
+    return p.status === statusFilter;
+  });
 
   // Admin Confirm Settlement: Changes status to Confirmed, adjusts user balance, NO plan renewal/extension, logs audit
   const handleConfirmSettlement = async () => {
@@ -2804,74 +2699,14 @@ function AdminPanel({
     setPaymentToDelete(payment);
   };
 
-  const deletePaymentScreenshot = async (payment: PaymentRecord) => {
-    if (!payment || !payment.id || !payment.userId) return;
-    setIsDeletingScreenshot(payment.id);
-    const toastId = toast.loading("Deleting screenshot from Admin & Vercel Blob storage...");
-    try {
-      const blobDeleted = await deleteBlobFile(payment);
-
-      const paymentPath = `users/${payment.userId}/payments/${payment.id}`;
-      const paymentRef = doc(db, paymentPath);
-      await updateDoc(paymentRef, {
-        screenshotUrl: "",
-        blobUrl: "",
-        updatedAt: serverTimestamp(),
-      });
-
-      if (selectedReceipt?.id === payment.id) {
-        setSelectedReceipt({ ...selectedReceipt, screenshotUrl: "", blobUrl: "" });
-      }
-      if (confirmingSettlement?.id === payment.id) {
-        setConfirmingSettlement({ ...confirmingSettlement, screenshotUrl: "", blobUrl: "" });
-      }
-      if (viewingScreenshotPayment?.id === payment.id) {
-        setViewingScreenshot(null);
-        setViewingScreenshotPayment(null);
-      }
-
-      toast.dismiss(toastId);
-      toast.success(
-        blobDeleted
-          ? "Screenshot deleted from Admin and Vercel Blob storage."
-          : "Screenshot removed from payment record."
-      );
-    } catch (e) {
-      toast.dismiss(toastId);
-      console.error("Failed to delete payment screenshot:", e);
-      toast.error("Failed to delete screenshot.");
-      handleFirestoreError(
-        e,
-        OperationType.UPDATE,
-        `users/${payment.userId}/payments/${payment.id}`,
-      );
-    } finally {
-      setIsDeletingScreenshot(null);
-    }
-  };
-
   const confirmPaymentDeletion = async () => {
     if (!paymentToDelete || !paymentToDelete.id) return;
-    const toastId = toast.loading("Purging payment record & Blob storage...");
     try {
-      if (paymentToDelete.screenshotUrl || paymentToDelete.blobUrl) {
-        await deleteBlobFile(paymentToDelete);
-      }
       const paymentPath = `users/${paymentToDelete.userId}/payments/${paymentToDelete.id}`;
       const paymentRef = doc(db, paymentPath);
       await deleteDoc(paymentRef);
-      if (viewingScreenshotPayment?.id === paymentToDelete.id) {
-        setViewingScreenshot(null);
-        setViewingScreenshotPayment(null);
-      }
-      if (selectedReceipt?.id === paymentToDelete.id) {
-        setSelectedReceipt(null);
-      }
       setPaymentToDelete(null);
-      toast.dismiss(toastId);
-      toast.success("Payment record and Blob screenshot deleted.");
     } catch (e) {
-      toast.dismiss(toastId);
       console.error("Delete failure:", e);
       handleFirestoreError(
         e,
@@ -2887,25 +2722,10 @@ function AdminPanel({
 
   const confirmSubscriberDeletion = async () => {
     if (!clientToDelete || !clientToDelete.uid) return;
-    const toastId = toast.loading("Terminating subscriber & cleaning up Blob storage...");
     try {
-      const userPayments = payments.filter((p) => p.userId === clientToDelete.uid);
-      for (const p of userPayments) {
-        if (p.screenshotUrl || p.blobUrl) {
-          await deleteBlobFile(p);
-        }
-        try {
-          await deleteDoc(doc(db, `users/${clientToDelete.uid}/payments/${p.id}`));
-        } catch {
-          // ignore subdoc cleanup error
-        }
-      }
       await deleteDoc(doc(db, "users", clientToDelete.uid));
       setClientToDelete(null);
-      toast.dismiss(toastId);
-      toast.success("Subscriber and associated records deleted.");
     } catch (e) {
-      toast.dismiss(toastId);
       handleFirestoreError(e, OperationType.DELETE, `users/${clientToDelete.uid}`);
     }
   };
@@ -2916,21 +2736,20 @@ function AdminPanel({
 
   const confirmConversationDeletion = async () => {
     if (!chatToDelete || !chatToDelete.id) return;
-    const targetChatId = chatToDelete.userId || chatToDelete.id;
     const progressToast = toast.loading("Purging conversation history...");
     try {
       // 1. Delete all subcollection messages
-      const messagesRef = collection(db, "chats", targetChatId, "messages");
+      const messagesRef = collection(db, "chats", chatToDelete.id, "messages");
       const messagesSnap = await getDocs(messagesRef);
       for (const msgDoc of messagesSnap.docs) {
         await deleteDoc(msgDoc.ref);
       }
       
       // 2. Delete main chat doc
-      await deleteDoc(doc(db, "chats", targetChatId));
+      await deleteDoc(doc(db, "chats", chatToDelete.id));
       
       // Update local state if the deleted chat was selected
-      if (selectedChat?.id === chatToDelete.id || selectedChat?.userId === targetChatId) {
+      if (selectedChat?.id === chatToDelete.id) {
         setSelectedChat(null);
       }
       
@@ -2940,53 +2759,32 @@ function AdminPanel({
     } catch (e) {
       toast.dismiss(progressToast);
       console.error("Failed to delete conversation:", e);
-      handleFirestoreError(e, OperationType.DELETE, `chats/${targetChatId}`);
+      handleFirestoreError(e, OperationType.DELETE, `chats/${chatToDelete.id}`);
     }
   };
 
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedChat || !reply.trim() || isSendingReply) return;
+    if (!selectedChat || !reply.trim()) return;
 
     const text = reply.trim();
     setReply("");
-    setIsSendingReply(true);
-
-    const targetChatId = selectedChat.userId || selectedChat.id;
 
     try {
-      await addDoc(collection(db, `chats/${targetChatId}/messages`), {
+      await addDoc(collection(db, `chats/${selectedChat.userId}/messages`), {
         text,
-        senderId: user?.uid || "admin",
+        senderId: user?.uid,
         senderRole: "admin",
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(
-        doc(db, "chats", targetChatId),
-        {
-          userId: targetChatId,
-          userName: selectedChat.userName || "Subscriber",
-          lastMessage: text,
-          lastMessageAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      setTimeout(() => {
-        adminChatScrollRef.current?.scrollTo({
-          top: adminChatScrollRef.current.scrollHeight,
-          behavior: "smooth",
-        });
-      }, 100);
-
-      toast.success("Reply delivered to client");
+      await updateDoc(doc(db, "chats", selectedChat.userId), {
+        lastMessage: text,
+        lastMessageAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
     } catch (error) {
-      console.error("Failed to send admin reply:", error);
-      handleFirestoreError(error, OperationType.WRITE, `chats/${targetChatId}/messages`);
-    } finally {
-      setIsSendingReply(false);
+      handleFirestoreError(error, OperationType.WRITE, `chats/${selectedChat.userId}/messages`);
     }
   };
 
@@ -3047,15 +2845,11 @@ function AdminPanel({
               ? "overdue"
               : "due";
 
-          const newConnectionStatus =
-            evaluation.subscription_status === "OVERDUE" ? "suspended" : "active";
-
           await updateDoc(doc(db, "users", c.uid), {
             subscription_status: evaluation.subscription_status,
             payment_status: evaluation.payment_status,
             due_date: evaluation.due_date,
             due_time: evaluation.due_time,
-            status: newConnectionStatus,
             billStatus: legacyBillStatus,
             lastStatusCheck: serverTimestamp(),
           });
@@ -3083,69 +2877,22 @@ function AdminPanel({
       `Renew subscription for ${client.displayName || client.accountNumber}?\n\n` +
       `Current Due: ${client.due_date || "N/A"} ${client.due_time || ""}\n` +
       `New Due: ${renewal.due_date} at ${renewal.due_time} PHT\n` +
-      `New Status: ACTIVE (Reactivated for Wifi5Soft / Router)\n` +
-      `Payment Status: UNPAID\n\n` +
+      `New Status: ACTIVE\nPayment Status: UNPAID\n\n` +
       `Proceed with subscription renewal?`
     );
     if (!confirmRenewal) return;
 
     try {
-      const renewedRecord = {
+      await updateDoc(doc(db, "users", client.uid), {
         due_date: renewal.due_date,
         due_time: renewal.due_time,
-        dueDate: renewal.dueDateObj.toISOString(),
-        subscription_status: "ACTIVE" as const,
-        payment_status: "unpaid" as const,
-        status: "active" as const, // Reactivate client status
-        billStatus: "paid" as const,
+        dueDate: renewal.dueDateObj,
+        subscription_status: "ACTIVE",
+        payment_status: "unpaid",
+        billStatus: "paid",
         balance: 0,
         lastStatusCheck: serverTimestamp(),
-      };
-
-      await updateDoc(doc(db, "users", client.uid), renewedRecord);
-
-      // Keep server cache in sync immediately for Wifi5Soft API queries
-      try {
-        await fetch("/api/billing/subscribers/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subscribers: [
-              {
-                ...client,
-                ...renewedRecord,
-                dueDate: renewal.dueDateObj.toISOString(),
-              },
-            ],
-          }),
-        });
-      } catch (_) {}
-
-      // Push webhook notification to Wifi5Soft if configured
-      try {
-        const storedWebhook = localStorage.getItem("hf_wifi5soft_webhook");
-        if (storedWebhook && storedWebhook.trim().startsWith("http")) {
-          await fetch(storedWebhook.trim(), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(client.apiKey ? { "x-api-key": client.apiKey } : {}),
-            },
-            body: JSON.stringify({
-              event: "subscription.renewed",
-              clientId: client.clientId || client.accountNumber,
-              client_id: client.clientId || client.accountNumber,
-              accountNumber: client.accountNumber,
-              status: "active",
-              active: true,
-              is_active: true,
-              due_date: renewal.due_date,
-              due_time: renewal.due_time,
-              timestamp: new Date().toISOString(),
-            }),
-          }).catch(() => {});
-        }
-      } catch (_) {}
+      });
 
       // Dispatch notification
       try {
@@ -3158,8 +2905,8 @@ function AdminPanel({
         });
       } catch (_) {}
 
-      toast.success(`Subscription renewed & synced!`, {
-        description: `New deadline: ${renewal.due_date} at ${renewal.due_time} PHT. Status set to ACTIVE (Synced with Wifi5Soft).`,
+      toast.success(`Subscription renewed!`, {
+        description: `New deadline: ${renewal.due_date} at ${renewal.due_time} PHT. Status set to ACTIVE.`,
       });
     } catch (err) {
       console.error("Renewal error:", err);
@@ -3484,18 +3231,13 @@ function AdminPanel({
   };
 
   return (
-    <section className={`max-w-7xl mx-auto transition-all ${adminTab === "chats" ? "py-6 sm:py-16 px-2.5 sm:px-6" : "py-14 sm:py-24 px-4 sm:px-6"}`}>
+    <section className="py-24 px-6 max-w-7xl mx-auto">
       <div className="mb-12 space-y-8">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-8">
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">
-                Command Center
-              </h3>
-              <span className="text-[8px] font-mono text-text-muted border border-border-subtle px-1.5 py-0.5 rounded bg-bg-surface">
-                2026 HF NETWORK CORP • HF-V40
-              </span>
-            </div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mb-2">
+              Command Center
+            </h3>
             <h2 className="text-4xl md:text-5xl font-black uppercase italic tracking-tighter leading-tight">
               MANAGEMENT
               <br />
@@ -3526,7 +3268,7 @@ function AdminPanel({
                   { id: "clients", label: "Subscribers", icon: UsersIcon, count: null },
                   { id: "cycles", label: "Cycles", icon: Calendar, count: null },
                   { id: "tickets", label: "Tickets", icon: LifeBuoy, count: supportTickets.filter(t => t.status === "open").length },
-                  { id: "chats", label: "Live Chat", icon: MessageSquare, count: chatSessions.length > 0 ? chatSessions.length : null },
+                  { id: "chats", label: "Live Chat", icon: MessageSquare, count: null },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -3867,7 +3609,7 @@ function AdminPanel({
                     </tr>
                   ) : (
                     filteredPayments.map((p) => {
-                      const clientInfo = clientsMap.get(p.userId);
+                      const clientInfo = clients.find((c) => c.uid === p.userId);
                       const customerName = p.customerName || clientInfo?.displayName || "Subscriber";
                       const accountId = p.accountNumber || clientInfo?.accountNumber || "N/A";
                       const isPending = p.status === "pending";
@@ -3919,42 +3661,26 @@ function AdminPanel({
                           {/* Uploaded Screenshot Proof */}
                           <td className="px-6 py-5">
                             {p.screenshotUrl ? (
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setViewingScreenshot(getDisplayImageUrl(p.screenshotUrl) || null);
-                                    setViewingScreenshotPayment(p);
-                                  }}
-                                  className="group/proof flex items-center gap-2 p-1.5 rounded-lg border border-slate-800 hover:border-primary bg-slate-950/80 transition-all cursor-pointer"
-                                  title="Click to inspect proof screenshot"
-                                >
-                                  <img
-                                    src={getDisplayImageUrl(p.screenshotUrl)}
-                                    alt="Proof screenshot"
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="w-10 h-10 object-cover rounded bg-black"
-                                  />
-                                  <div className="flex flex-col text-left">
-                                    <span className="text-[9px] font-mono font-bold uppercase text-primary flex items-center gap-1 group-hover/proof:underline">
-                                      <Eye size={10} /> View Proof
-                                    </span>
-                                    <span className="text-[8px] font-mono text-text-muted">
-                                      Click to zoom
-                                    </span>
-                                  </div>
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={isDeletingScreenshot === p.id}
-                                  onClick={() => deletePaymentScreenshot(p)}
-                                  className="p-2 rounded-lg border border-rose-500/25 hover:border-rose-500 bg-rose-950/20 text-rose-400 hover:text-white hover:bg-rose-600 transition-all cursor-pointer disabled:opacity-40"
-                                  title="Delete Screenshot (also removes from Vercel Blob Storage)"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setViewingScreenshot(getDisplayImageUrl(p.screenshotUrl) || null)}
+                                className="group/proof flex items-center gap-2 p-1.5 rounded-lg border border-slate-800 hover:border-primary bg-slate-950/80 transition-all cursor-pointer"
+                                title="Click to inspect proof screenshot"
+                              >
+                                <img
+                                  src={getDisplayImageUrl(p.screenshotUrl)}
+                                  alt="Proof screenshot"
+                                  className="w-10 h-10 object-cover rounded bg-black"
+                                />
+                                <div className="flex flex-col text-left">
+                                  <span className="text-[9px] font-mono font-bold uppercase text-primary flex items-center gap-1 group-hover/proof:underline">
+                                    <Eye size={10} /> View Proof
+                                  </span>
+                                  <span className="text-[8px] font-mono text-text-muted">
+                                    Click to zoom
+                                  </span>
+                                </div>
+                              </button>
                             ) : (
                               <span className="text-[10px] font-mono text-text-muted italic">
                                 No screenshot
@@ -4228,341 +3954,142 @@ function AdminPanel({
           ))}
         </div>
       ) : adminTab === "chats" ? (
-        <div className="space-y-4">
-          {!firebaseIsAdmin && (
-            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-300 font-mono">
-                <AlertTriangle size={16} className="text-amber-400 shrink-0" />
-                <span>Elevated Google Admin status (projectile.afk@gmail.com) is needed for real-time Firestore database sync.</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => loginWithGoogle()}
-                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-[9px] tracking-wider rounded transition-all cursor-pointer shrink-0"
-              >
-                Sign In With Google
-              </button>
+        <div className="flex flex-col lg:flex-row gap-6 h-[600px]">
+          {/* Chat List */}
+          <div className="w-full lg:w-80 bg-bg-surface border border-border-subtle flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-border-subtle bg-bg-surface">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-text-muted">Active Conversations</h4>
             </div>
-          )}
-
-          <div className="flex flex-col lg:flex-row gap-3 lg:gap-6 h-[calc(100dvh-200px)] min-h-[460px] max-h-[820px] lg:h-[660px]">
-            {/* Chat List - Hidden on mobile when a chat is actively selected */}
-            <div
-              className={`w-full lg:w-80 bg-bg-surface border border-border-subtle flex-col overflow-hidden rounded-lg ${
-                selectedChat ? "hidden lg:flex" : "flex flex-1 h-full"
-              }`}
-            >
-              <div className="p-3 sm:p-3.5 border-b border-border-subtle bg-bg-surface space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-text-muted flex items-center gap-2">
-                    <MessageSquare size={13} className="text-primary" />
-                    <span>Active Conversations</span>
-                  </h4>
-                  <span className="text-[9px] font-mono font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                    {chatSessions.length} Active
-                  </span>
-                </div>
-                <div className="relative">
-                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-                  <input
-                    type="text"
-                    value={chatSearch}
-                    onChange={(e) => setChatSearch(e.target.value)}
-                    placeholder="Search client, account, or UID..."
-                    className="w-full bg-bg-base border border-border-subtle pl-7 pr-2.5 py-2 text-[10px] font-mono text-white placeholder:text-text-muted focus:outline-none focus:border-primary rounded"
-                  />
-                </div>
-              </div>
-
-              {/* Start new chat with subscriber dropdown */}
-              {clients.length > 0 && (
-                <div className="p-2 sm:p-2.5 border-b border-border-subtle bg-bg-base/40">
-                  <select
-                    onChange={(e) => {
-                      const selectedUid = e.target.value;
-                      if (!selectedUid) return;
-                      const client = clients.find((c) => c.uid === selectedUid);
-                      const existingChat = chatSessions.find((c) => (c.userId || c.id) === selectedUid);
-                      if (existingChat) {
-                        setSelectedChat(existingChat);
-                      } else if (client) {
-                        const newSession: ChatSession = {
-                          id: client.uid,
-                          userId: client.uid,
-                          userName: client.displayName || client.accountNumber || "Subscriber",
-                          lastMessage: "",
-                          updatedAt: null,
-                        };
-                        setSelectedChat(newSession);
-                      }
-                      e.target.value = "";
-                    }}
-                    defaultValue=""
-                    className="w-full bg-slate-900 border border-border-subtle text-[9px] font-mono text-text-muted py-2 px-2.5 rounded focus:outline-none focus:border-primary cursor-pointer"
-                  >
-                    <option value="" disabled>+ Start chat with subscriber...</option>
-                    {clients.map((c) => (
-                      <option key={c.uid} value={c.uid}>
-                        {c.displayName || c.accountNumber} ({c.accountNumber || c.email})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="flex-1 overflow-y-auto divide-y divide-border-subtle/50 overscroll-contain">
-                {chatSessions.filter((c) => {
-                  if (!chatSearch.trim()) return true;
-                  const query = chatSearch.toLowerCase();
-                  return (
-                    c.userName?.toLowerCase().includes(query) ||
-                    c.userId?.toLowerCase().includes(query)
-                  );
-                }).length === 0 ? (
-                  <div className="p-8 text-center space-y-2">
-                    <MessageSquare size={24} className="mx-auto text-text-muted/40" />
-                    <div className="text-[10px] font-bold text-text-muted uppercase">
-                      {chatSearch.trim() ? "No matching conversations" : "No active chats"}
-                    </div>
-                    <p className="text-[8px] text-text-muted font-mono">
-                      Subscriber chats from the website live chat widget appear here automatically.
-                    </p>
-                  </div>
-                ) : (
-                  chatSessions
-                    .filter((c) => {
-                      if (!chatSearch.trim()) return true;
-                      const query = chatSearch.toLowerCase();
-                      return (
-                        c.userName?.toLowerCase().includes(query) ||
-                        c.userId?.toLowerCase().includes(query)
-                      );
-                    })
-                    .map((chat, idx) => {
-                      const isSelected =
-                        selectedChat?.id === chat.id ||
-                        selectedChat?.userId === (chat.userId || chat.id);
-                      return (
-                        <div
-                          key={`chat-session-${chat.id || idx}`}
-                          onClick={() => setSelectedChat(chat)}
-                          className={`w-full p-3 sm:p-3.5 text-left transition-all hover:bg-bg-base/60 cursor-pointer flex justify-between items-center group relative active:bg-bg-base/80 ${
-                            isSelected ? "bg-bg-base border-r-4 border-r-primary shadow-sm" : ""
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0 pr-2">
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                              <div className="font-black uppercase italic text-xs truncate text-white">
-                                {chat.userName}
-                              </div>
-                            </div>
-                            <div className="text-[10px] text-text-muted truncate">
-                              {chat.lastMessage || "No messages yet"}
-                            </div>
-                            <div className="text-[8px] text-primary/80 mt-1 font-mono font-bold uppercase">
-                              {chat.updatedAt?.toDate
-                                ? chat.updatedAt.toDate().toLocaleString("en-PH", {
-                                    timeZone: ASIA_TIMEZONE,
-                                    dateStyle: "short",
-                                    timeStyle: "short",
-                                  })
-                                : chat.lastMessageAt?.toDate
-                                ? chat.lastMessageAt.toDate().toLocaleString("en-PH", {
-                                    timeZone: ASIA_TIMEZONE,
-                                    dateStyle: "short",
-                                    timeStyle: "short",
-                                  })
-                                : "Active"}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteConversation(chat);
-                              }}
-                              className="p-2 border border-red-500/20 text-red-400 hover:text-white hover:bg-red-500/80 transition-all opacity-60 hover:opacity-100 lg:opacity-0 lg:group-hover:opacity-100 flex items-center justify-center rounded cursor-pointer shrink-0"
-                              title="Delete Conversation"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                            <ChevronLeft size={14} className="text-text-muted rotate-180 lg:hidden shrink-0" />
-                          </div>
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-            </div>
-
-            {/* Chat Window - Hidden on mobile when NO chat is selected */}
-            <div
-              className={`flex-1 bg-bg-surface border border-border-subtle flex-col overflow-hidden relative rounded-lg ${
-                !selectedChat ? "hidden lg:flex" : "flex flex-1 h-full"
-              }`}
-            >
-              {selectedChat ? (
-                <>
-                  <div className="p-3 sm:p-4 bg-bg-surface border-b border-border-subtle flex justify-between items-center gap-2 sm:gap-4">
-                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                      {/* Mobile Back Button to return to active conversations list */}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedChat(null)}
-                        className="lg:hidden px-2.5 py-1.5 text-white bg-bg-base hover:bg-white/10 border border-border-subtle rounded-lg flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-transform"
-                        title="Back to conversations"
-                        aria-label="Back to conversations"
-                      >
-                        <ChevronLeft size={16} className="text-primary" />
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-tight">Chats</span>
-                      </button>
-
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold shrink-0">
-                        <UserIcon size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                          <h3 className="text-xs sm:text-sm font-black uppercase italic tracking-wider text-white truncate max-w-[130px] sm:max-w-[200px]">
-                            {selectedChat.userName}
-                          </h3>
-                          <span className="text-[7px] sm:text-[8px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono font-bold px-1.5 py-0.2 rounded uppercase shrink-0">
-                            Live
-                          </span>
-                        </div>
-                        <p className="text-[8px] sm:text-[9px] text-text-muted font-mono font-bold truncate">
-                          UID: {selectedChat.userId || selectedChat.id}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => deleteConversation(selectedChat)}
-                        className="px-2.5 py-1.5 sm:px-3 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all flex items-center gap-1 text-[9px] font-mono font-black uppercase rounded cursor-pointer"
-                        title="Purge Conversation History"
-                      >
-                        <Trash2 size={12} />
-                        <span className="hidden sm:inline">Purge Chat</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div
-                    ref={adminChatScrollRef}
-                    className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4 bg-bg-base/30 scrollbar-thin scrollbar-thumb-primary/20 overscroll-contain"
-                  >
-                    {chatMessages.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center opacity-40 text-center py-10 space-y-2">
-                        <MessageSquare size={36} className="text-primary" />
-                        <p className="text-xs font-mono font-bold uppercase text-white">No messages recorded yet</p>
-                        <p className="text-[9px] text-text-muted max-w-xs">
-                          Send a message below to start this live support channel with the subscriber.
-                        </p>
-                      </div>
-                    ) : (
-                      chatMessages.map((msg, idx) => (
-                        <div
-                          key={`chat-msg-${msg.id || idx}`}
-                          className={`flex ${msg.senderRole === "admin" ? "justify-end" : "justify-start"}`}
-                        >
-                          <div
-                            className={`max-w-[85%] sm:max-w-[70%] p-3 sm:p-3.5 text-xs leading-relaxed ${
-                              msg.senderRole === "admin"
-                                ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl shadow-lg shadow-primary/10"
-                                : "bg-bg-surface border border-border-subtle text-white rounded-r-xl rounded-tl-xl"
-                            }`}
-                          >
-                            <div className="text-[8px] font-mono uppercase tracking-wider opacity-70 mb-1 flex items-center justify-between gap-4">
-                              <span>{msg.senderRole === "admin" ? "Admin Support" : selectedChat.userName}</span>
-                              <span>
-                                {msg.createdAt?.toDate
-                                  ? msg.createdAt.toDate().toLocaleTimeString("en-PH", {
-                                      timeZone: ASIA_TIMEZONE,
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })
-                                  : ""}
-                              </span>
-                            </div>
-                            <div className="whitespace-pre-wrap">{msg.text}</div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* Quick Response Templates for Mobile & Desktop */}
-                  <div className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-slate-950/70 border-t border-border-subtle flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x">
-                    <span className="text-[8px] font-mono uppercase font-bold text-text-muted shrink-0 mr-1">
-                      Quick:
-                    </span>
-                    {[
-                      "Checking your connection now...",
-                      "Payment verified & posted. Thank you!",
-                      "Please reboot your optical modem.",
-                      "A support engineer has been assigned.",
-                    ].map((tmpl) => (
-                      <button
-                        key={tmpl}
-                        type="button"
-                        onClick={() => setReply(tmpl)}
-                        className="px-2 py-1 bg-slate-900 border border-slate-700/60 hover:border-primary text-slate-300 hover:text-white text-[8px] font-mono rounded whitespace-nowrap transition-colors cursor-pointer active:bg-primary/20"
-                      >
-                        {tmpl}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Reply Input Form */}
-                  <form
-                    onSubmit={handleSendReply}
-                    className="p-2.5 sm:p-4 bg-bg-surface border-t border-border-subtle flex gap-2 sm:gap-3 items-center"
-                  >
-                    <input
-                      type="text"
-                      value={reply}
-                      onChange={(e) => setReply(e.target.value)}
-                      placeholder="Type response to subscriber (Enter to send)..."
-                      disabled={isSendingReply}
-                      className="flex-1 bg-bg-base border border-border-subtle p-2.5 sm:p-3 text-sm sm:text-xs text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic rounded min-h-[44px]"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!reply.trim() || isSendingReply}
-                      className="px-4 sm:px-7 py-2.5 sm:py-3 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white font-black uppercase text-[10px] tracking-widest italic transition-all flex items-center justify-center gap-1.5 rounded cursor-pointer shrink-0 min-h-[42px]"
-                    >
-                      {isSendingReply ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Send size={14} />
-                      )}
-                      <span className="hidden xs:inline sm:inline">Send</span>
-                    </button>
-                  </form>
-                </>
+            <div className="flex-1 overflow-y-auto">
+              {chatSessions.length === 0 ? (
+                <div className="p-8 text-center text-[10px] font-bold text-text-muted uppercase">No active chats</div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center opacity-40 p-6 sm:p-8 text-center space-y-3">
-                  <MessageSquare size={48} className="text-primary mb-1" />
-                  <p className="text-xs sm:text-sm font-black uppercase tracking-[0.2em] text-white">
-                    Select a conversation to begin
-                  </p>
-                  <p className="text-[9px] sm:text-[10px] text-text-muted max-w-sm">
-                    Pick any active conversation on the left, or use the dropdown to start a direct channel with a registered subscriber.
-                  </p>
-                </div>
+                chatSessions.map((chat, idx) => (
+                  <div
+                    key={`chat-session-${chat.id || idx}`}
+                    onClick={() => setSelectedChat(chat)}
+                    className={`w-full p-4 border-b border-border-subtle text-left transition-all hover:bg-bg-base/50 cursor-pointer flex justify-between items-center group relative ${selectedChat?.id === chat.id ? "bg-bg-base border-r-4 border-r-primary" : ""}`}
+                  >
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-black uppercase italic text-xs mb-1 truncate">{chat.userName}</div>
+                      <div className="text-[10px] text-text-muted truncate">{chat.lastMessage || "No messages yet"}</div>
+                      <div className="text-[8px] text-primary mt-2 font-bold uppercase">
+                        {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleString('en-PH', { timeZone: ASIA_TIMEZONE }) : "..."}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteConversation(chat);
+                      }}
+                      className="p-2 border border-red-500/20 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 hover:border-red-500/40 transition-all opacity-0 group-hover:opacity-100 flex items-center justify-center rounded"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))
               )}
             </div>
           </div>
+
+          {/* Chat Window */}
+          <div className="flex-1 bg-bg-surface border border-border-subtle flex flex-col overflow-hidden relative">
+            {selectedChat ? (
+              <>
+                <div className="p-4 bg-bg-surface border-b border-border-subtle flex justify-between items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                      <UserIcon size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase italic tracking-widest">{selectedChat.userName}</h3>
+                      <p className="text-[9px] text-text-muted font-bold">UID: {selectedChat.userId}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteConversation(selectedChat)}
+                    className="p-3 border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic"
+                    title="Purge Conversation History"
+                  >
+                    <Trash2 size={12} /> Purge Chat
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-bg-base/30">
+                  {chatMessages.map((msg, idx) => (
+                    <div key={`chat-msg-${msg.id || idx}`} className={`flex ${msg.senderRole === "admin" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[70%] p-4 text-xs ${msg.senderRole === "admin" ? "bg-primary text-white italic rounded-l-xl rounded-tr-xl shadow-lg shadow-primary/10" : "bg-bg-surface border border-border-subtle text-white rounded-r-xl rounded-tl-xl"}`}>
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form onSubmit={handleSendReply} className="p-4 bg-bg-surface border-t border-border-subtle flex gap-4">
+                  <input
+                    type="text"
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="Type your response..."
+                    className="flex-1 bg-bg-base border border-border-subtle p-4 text-xs text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!reply.trim()}
+                    className="px-8 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white font-black uppercase text-[10px] tracking-widest italic transition-all flex items-center gap-2"
+                  >
+                    <Send size={14} /> Send Reply
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center opacity-30">
+                <MessageSquare size={64} className="mb-4" />
+                <p className="text-sm font-black uppercase tracking-[0.2em]">Select a conversation to begin</p>
+              </div>
+            )}
+          </div>
         </div>
       ) : adminTab === "tickets" ? (
-        <Suspense fallback={<div className="p-12 text-center text-text-muted text-xs font-bold uppercase tracking-widest">Loading Tickets Console...</div>}>
-          <AdminTicketsTab tickets={supportTickets} />
-        </Suspense>
+        <AdminTicketsTab tickets={supportTickets} />
       ) : (
         <>
-          <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col gap-6 mb-8">
+            {/* Automated Billing Status System Banner */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-border-subtle rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shrink-0">
+                  <Clock size={20} className="animate-spin" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-widest text-white">
+                      Automated Billing Status System
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[8px] font-mono font-bold uppercase">
+                      PHT (Asia/Manila)
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    Exact Due Instant • 72-Hour Grace Period Engine • Admin Review &amp; Manual Renewal Gate
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                <button
+                  type="button"
+                  onClick={handleTriggerBillingCheck}
+                  disabled={isCheckingBilling}
+                  className="px-4 py-2.5 bg-primary hover:bg-primary-dark disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest italic rounded flex items-center gap-2 shadow-md transition-all cursor-pointer"
+                >
+                  <RefreshCw size={12} className={isCheckingBilling ? "animate-spin" : ""} />
+                  <span>{isCheckingBilling ? "Verifying Subscribers..." : "Run Billing Status Check"}</span>
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-col md:flex-row gap-4 items-center w-full">
               <div className="relative flex-1 group w-full">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={16} />
@@ -4586,7 +4113,6 @@ function AdminPanel({
                     </button>
                   ))}
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setShowBulkReminderModal(true)}
@@ -4828,7 +4354,7 @@ function AdminPanel({
                     <span className="text-text-muted uppercase text-[10px]">Customer Name</span>
                     <span className="text-white font-bold">
                       {selectedReceipt.customerName ||
-                        clientsMap.get(selectedReceipt.userId)?.displayName ||
+                        clients.find((c) => c.uid === selectedReceipt.userId)?.displayName ||
                         "Subscriber"}
                     </span>
                   </div>
@@ -4836,7 +4362,7 @@ function AdminPanel({
                     <span className="text-text-muted uppercase text-[10px]">Account ID</span>
                     <span className="text-primary font-bold">
                       #{selectedReceipt.accountNumber ||
-                        clientsMap.get(selectedReceipt.userId)?.accountNumber ||
+                        clients.find((c) => c.uid === selectedReceipt.userId)?.accountNumber ||
                         "N/A"}
                     </span>
                   </div>
@@ -4910,40 +4436,21 @@ function AdminPanel({
                       <span className="text-[10px] font-mono uppercase text-text-muted flex items-center gap-1">
                         <ImageIcon size={12} /> Uploaded Proof Screenshot
                       </span>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null);
-                            setViewingScreenshotPayment(selectedReceipt);
-                          }}
-                          className="text-primary hover:underline text-[10px] font-mono flex items-center gap-1 cursor-pointer"
-                        >
-                          <Eye size={11} /> Open Fullscreen
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isDeletingScreenshot === selectedReceipt.id}
-                          onClick={() => deletePaymentScreenshot(selectedReceipt)}
-                          className="text-rose-400 hover:text-rose-300 hover:underline text-[10px] font-mono flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                          title="Delete screenshot from Admin & Vercel Blob storage"
-                        >
-                          <Trash2 size={11} /> Delete Screenshot
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null)}
+                        className="text-primary hover:underline text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye size={11} /> Open Fullscreen
+                      </button>
                     </div>
                     <div
-                      onClick={() => {
-                        setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null);
-                        setViewingScreenshotPayment(selectedReceipt);
-                      }}
+                      onClick={() => setViewingScreenshot(getDisplayImageUrl(selectedReceipt.screenshotUrl) || null)}
                       className="aspect-video bg-slate-950 border border-border-subtle overflow-hidden relative group cursor-pointer rounded-lg"
                     >
                       <img
                         src={getDisplayImageUrl(selectedReceipt.screenshotUrl)}
                         alt="Receipt proof"
-                        loading="lazy"
-                        decoding="async"
                         className="w-full h-full object-contain"
                       />
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-[10px] font-black uppercase tracking-widest">
@@ -5373,7 +4880,7 @@ function AdminPanel({
                   <span className="text-text-muted uppercase text-[11px]">Customer Name</span>
                   <span className="text-white font-bold">
                     {confirmingSettlement.customerName ||
-                      clientsMap.get(confirmingSettlement.userId)?.displayName ||
+                      clients.find((c) => c.uid === confirmingSettlement.userId)?.displayName ||
                       "Subscriber"}
                   </span>
                 </div>
@@ -5381,7 +4888,7 @@ function AdminPanel({
                   <span className="text-text-muted uppercase text-[11px]">Account ID</span>
                   <span className="text-primary font-bold">
                     #{confirmingSettlement.accountNumber ||
-                      clientsMap.get(confirmingSettlement.userId)?.accountNumber ||
+                      clients.find((c) => c.uid === confirmingSettlement.userId)?.accountNumber ||
                       "N/A"}
                   </span>
                 </div>
@@ -5424,40 +4931,21 @@ function AdminPanel({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-mono text-text-muted uppercase">
                     <span>Uploaded Screenshot Proof</span>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null);
-                          setViewingScreenshotPayment(confirmingSettlement);
-                        }}
-                        className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye size={12} /> View Full Size
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isDeletingScreenshot === confirmingSettlement.id}
-                        onClick={() => deletePaymentScreenshot(confirmingSettlement)}
-                        className="text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                        title="Delete screenshot from Admin & Vercel Blob storage"
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null)}
+                      className="text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye size={12} /> View Full Size
+                    </button>
                   </div>
                   <div
-                    onClick={() => {
-                      setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null);
-                      setViewingScreenshotPayment(confirmingSettlement);
-                    }}
+                    onClick={() => setViewingScreenshot(getDisplayImageUrl(confirmingSettlement.screenshotUrl) || null)}
                     className="h-32 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center overflow-hidden cursor-pointer group"
                   >
                     <img
                       src={getDisplayImageUrl(confirmingSettlement.screenshotUrl)}
                       alt="Proof"
-                      loading="lazy"
-                      decoding="async"
                       className="h-full object-contain group-hover:scale-105 transition-transform"
                     />
                   </div>
@@ -5548,7 +5036,7 @@ function AdminPanel({
                   <span className="text-text-muted uppercase text-[11px]">Customer &amp; Ref ID</span>
                   <span className="text-white font-bold">
                     {rejectingPayment.customerName ||
-                      clientsMap.get(rejectingPayment.userId)?.displayName ||
+                      clients.find((c) => c.uid === rejectingPayment.userId)?.displayName ||
                       "Subscriber"}{" "}
                     • {rejectingPayment.referenceNumber}
                   </span>
@@ -5638,10 +5126,7 @@ function AdminPanel({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[10002] bg-hot-black/98 flex items-center justify-center p-4 backdrop-blur-2xl"
-            onClick={() => {
-              setViewingScreenshot(null);
-              setViewingScreenshotPayment(null);
-            }}
+            onClick={() => setViewingScreenshot(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -5652,11 +5137,8 @@ function AdminPanel({
             >
               <div className="absolute top-0 right-0 p-4">
                 <button
-                  onClick={() => {
-                    setViewingScreenshot(null);
-                    setViewingScreenshotPayment(null);
-                  }}
-                  className="w-12 h-12 bg-white/10 hover:bg-primary text-white flex items-center justify-center transition-all group cursor-pointer"
+                  onClick={() => setViewingScreenshot(null)}
+                  className="w-12 h-12 bg-white/10 hover:bg-primary text-white flex items-center justify-center transition-all group"
                 >
                   <X size={24} className="group-hover:rotate-90 transition-transform" />
                 </button>
@@ -5666,12 +5148,11 @@ function AdminPanel({
                 <img
                   src={viewingScreenshot}
                   alt="Proof of Payment"
-                  decoding="async"
                   className="max-w-full max-h-full object-contain shadow-2xl border-4 border-white/5"
                 />
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-4">
+              <div className="flex gap-4">
                 <a
                   href={viewingScreenshot}
                   target="_blank"
@@ -5680,22 +5161,9 @@ function AdminPanel({
                 >
                   <ExternalLink size={14} /> Open Original
                 </a>
-                {viewingScreenshotPayment && (
-                  <button
-                    type="button"
-                    disabled={isDeletingScreenshot === viewingScreenshotPayment.id}
-                    onClick={() => deletePaymentScreenshot(viewingScreenshotPayment)}
-                    className="px-8 py-3 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <Trash2 size={14} /> Delete Screenshot (Blob)
-                  </button>
-                )}
                 <button
-                  onClick={() => {
-                    setViewingScreenshot(null);
-                    setViewingScreenshotPayment(null);
-                  }}
-                  className="px-8 py-3 border border-white/20 text-white text-[10px] font-black uppercase tracking-widest hover:border-white transition-all cursor-pointer"
+                  onClick={() => setViewingScreenshot(null)}
+                  className="px-8 py-3 border border-white/20 text-white text-[10px] font-black uppercase tracking-widest hover:border-white transition-all"
                 >
                   Close Viewer
                 </button>
@@ -6000,6 +5468,14 @@ function ScheduleModal({
 }) {
   if (!editingScheduleUser) return null;
 
+  // Live evaluation of the entered schedule parameters
+  const simulatedEval = evaluateSubscriberStatus({
+    due_date: tempDueDate,
+    due_time: tempDueTime,
+    payment_status: tempPaymentStatus,
+    subscription_status: tempSubscriptionStatus,
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -6138,7 +5614,139 @@ function ScheduleModal({
             </div>
           </div>
 
-          {/* Automated Billing Status System (Hidden per admin configuration) */}
+          {/* Automated Billing Logic & Due Date Fields */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10px] font-black uppercase text-primary tracking-widest">
+                Part III: Automated Due Date &amp; Billing Status
+              </h4>
+              <span className="text-[8px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                72h Grace Engine Active
+              </span>
+            </div>
+
+            {/* Exact Due Date & Exact Due Time */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+                  <span>due_date</span>
+                  <span className="text-slate-400 text-[9px] font-mono">YYYY-MM-DD</span>
+                </label>
+                <div className="relative group">
+                  <input
+                    type="date"
+                    value={tempDueDate}
+                    onChange={(e) => setTempDueDate(e.target.value)}
+                    className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted flex items-center justify-between">
+                  <span>due_time</span>
+                  <span className="text-slate-400 text-[9px] font-mono">e.g. 12:00 PM</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempDueTime}
+                    onChange={(e) => setTempDueTime(e.target.value)}
+                    placeholder="12:00 PM"
+                    className="flex-1 bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                  />
+                  <select
+                    value={["12:00 PM", "12:00 AM", "08:00 AM", "05:00 PM", "11:59 PM"].includes(tempDueTime) ? tempDueTime : ""}
+                    onChange={(e) => {
+                      if (e.target.value) setTempDueTime(e.target.value);
+                    }}
+                    className="bg-slate-900 border border-border-subtle px-2 text-[10px] font-mono text-slate-300 focus:outline-none focus:border-primary"
+                    title="Quick Presets"
+                  >
+                    <option value="">Presets</option>
+                    <option value="12:00 PM">12:00 PM (Noon)</option>
+                    <option value="12:00 AM">12:00 AM (Midnight)</option>
+                    <option value="08:00 AM">08:00 AM</option>
+                    <option value="05:00 PM">05:00 PM</option>
+                    <option value="11:59 PM">11:59 PM</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* payment_status & subscription_status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  payment_status
+                </label>
+                <select
+                  value={tempPaymentStatus}
+                  onChange={(e) => setTempPaymentStatus(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                >
+                  <option value="unpaid">UNPAID (Pending Payment)</option>
+                  <option value="processing">PROCESSING (Proof Submitted)</option>
+                  <option value="paid">PAID (Admin Confirmed)</option>
+                  <option value="rejected">REJECTED (Admin Rejected)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest font-black text-text-muted">
+                  subscription_status
+                </label>
+                <select
+                  value={tempSubscriptionStatus}
+                  onChange={(e) => setTempSubscriptionStatus(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-border-subtle p-3.5 focus:outline-none focus:border-primary text-xs font-mono font-bold uppercase text-white"
+                >
+                  <option value="ACTIVE">ACTIVE (Before Due Time)</option>
+                  <option value="DUE">DUE (Due Time Reached / Grace Active)</option>
+                  <option value="OVERDUE">OVERDUE (72h Grace Expired)</option>
+                  <option value="PAID">PAID (Settlement Confirmed)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Live Automated Billing Engine Evaluation Card */}
+            <div className="p-4 bg-slate-950 border border-border-subtle rounded-lg space-y-2">
+              <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-text-muted">
+                <span className="flex items-center gap-1.5 text-primary">
+                  <Clock size={12} /> Live Engine Evaluation Preview
+                </span>
+                <span className="font-mono text-slate-400">PHT (Asia/Manila)</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+                <span className="text-[10px] text-slate-300 font-mono">Calculated Status:</span>
+                <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+                  simulatedEval.subscription_status === "ACTIVE"
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                    : simulatedEval.subscription_status === "DUE"
+                    ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                    : simulatedEval.subscription_status === "OVERDUE"
+                    ? "bg-red-500/20 border-red-500/50 text-red-400"
+                    : "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
+                }`}>
+                  {simulatedEval.subscription_status}
+                </span>
+              </div>
+
+              <div className="text-[9px] font-mono text-slate-400 leading-relaxed">
+                {simulatedEval.hasConfirmedPayment ? (
+                  <span className="text-emerald-400">Payment confirmed by admin. Status is PAID.</span>
+                ) : simulatedEval.isOverdue ? (
+                  <span className="text-red-400 font-bold">72 hours have passed since exact due timestamp without confirmed payment. Status is OVERDUE.</span>
+                ) : simulatedEval.isDueReached || simulatedEval.isInGracePeriod ? (
+                  <span className="text-amber-400 font-medium">Exact due instant reached. In 72-hour grace period (~{simulatedEval.remainingGraceHours}h {simulatedEval.remainingGraceMinutes}m left).</span>
+                ) : (
+                  <span className="text-emerald-300">Authoritative server time is before due date &amp; time. Status is ACTIVE.</span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex gap-4 pt-4 border-t border-border-subtle/50">
@@ -6567,10 +6175,10 @@ function TelegramConfigModal({
           <div className="p-3 bg-slate-900/60 border border-border-subtle rounded-lg flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="text-xs font-bold text-white uppercase tracking-tight block">
-                Instant Telegram Notifications Active
+                Forward Settlement Proofs Automatically
               </span>
               <span className="text-[9px] text-text-muted block">
-                Automatically alerts you on Telegram for: 💬 Live Chat Support client inquiries & 💳 payment settlement proofs with screenshots.
+                Dispatches subscriber name, account ID, amount, reference number, and uploaded screenshot proof.
               </span>
             </div>
             <input
