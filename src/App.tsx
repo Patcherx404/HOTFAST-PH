@@ -2376,7 +2376,9 @@ function AdminPanel({
         if (timeA && timeB) return timeA - timeB;
       }
 
-      return 0;
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      return dateB - dateA;
     });
   }, [clients, clientSearch, clientFilter]);
 

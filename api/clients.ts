@@ -39,7 +39,12 @@ export default async function handler(req: any, res: any) {
     // Read Firestore config
     let firebaseConfig: any = {};
     try {
-      firebaseConfig = require("../firebase-applet-config.json");
+      const fs = await import("fs");
+      const path = await import("path");
+      const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      }
     } catch {
       // fallback
     }

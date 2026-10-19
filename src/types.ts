@@ -34,6 +34,7 @@ export interface UserProfile {
   payment_status?: 'unpaid' | 'processing' | 'paid' | 'rejected';
   subscription_status?: 'ACTIVE' | 'DUE' | 'OVERDUE' | 'PAID';
   lastStatusCheck?: any;
+  createdAt?: any;
 }
 
 export interface SystemNotification {
