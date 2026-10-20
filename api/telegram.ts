@@ -1,7 +1,7 @@
-import liveChatHandler from './_telegram/live-chat';
-import settlementHandler from './_telegram/payment-settlement';
-import settingsHandler from './_telegram/settings';
-import testHandler from './_telegram/test';
+import liveChatHandler from '../src/server/telegram/live-chat';
+import settlementHandler from '../src/server/telegram/payment-settlement';
+import settingsHandler from '../src/server/telegram/settings';
+import testHandler from '../src/server/telegram/test';
 
 export default async function handler(req: any, res: any) {
   const url = req.url || '';
