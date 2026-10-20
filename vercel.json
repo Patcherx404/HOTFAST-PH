@@ -5,6 +5,30 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/blob/view",
+      "destination": "/api/blob?action=view"
+    },
+    {
+      "source": "/api/blob/delete",
+      "destination": "/api/blob?action=delete"
+    },
+    {
+      "source": "/api/paymongo/static",
+      "destination": "/api/paymongo"
+    },
+    {
+      "source": "/api/paymongo/qr/generate",
+      "destination": "/api/paymongo"
+    },
+    {
+      "source": "/api/paymongo/generate",
+      "destination": "/api/paymongo"
+    },
+    {
+      "source": "/api/telegram/:action",
+      "destination": "/api/telegram?action=:action"
+    },
+    {
       "source": "/api/clients/:identifier",
       "destination": "/api/clients?identifier=:identifier"
     },
