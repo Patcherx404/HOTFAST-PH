@@ -40,11 +40,11 @@ function getPayMongoAuthHeader(): string {
   let raw = (
     process.env.PAYMONGO_SECRET_KEY ||
     process.env.PAYMONGO_AUTH_HEADER ||
-    "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+    ""
   ).trim();
 
   if (!raw) {
-    return `Basic ${Buffer.from("sk_live_DUN5bW3paRw54UjhXfCHddTk:").toString("base64")}`;
+    return "";
   }
 
   // Strip wrapping quotes

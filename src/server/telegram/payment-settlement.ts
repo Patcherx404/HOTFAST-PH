@@ -122,10 +122,7 @@ ${paymentId ? `🗂 Payment ID: ${paymentId}\n` : ""}🕐 Submitted (PHT): ${pht
 
       if (rawPhoto.includes("blob.vercel-storage.com")) {
         try {
-          const blobToken = (
-            process.env.BLOB_READ_WRITE_TOKEN ||
-            "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
-          ).trim();
+          const blobToken = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
           const { get: getBlob } = await import("@vercel/blob");
           const isPrivate = rawPhoto.includes("private.blob.vercel-storage.com");
           const blobData = await getBlob(rawPhoto, {

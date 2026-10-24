@@ -1,5 +1,4 @@
 // Official PayMongo Static QR Ph Data for HOTFAST PH
-// Generated from PayMongo API with key sk_live_DUN5bW3paRw54UjhXfCHddTk
 export const OFFICIAL_PAYMONGO_STATIC_QR = {
   id: "qr_ede1baedc4498f437e5da956",
   nation: "ph",

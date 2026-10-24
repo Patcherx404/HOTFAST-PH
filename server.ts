@@ -340,7 +340,7 @@ async function startServer() {
     let raw = (
       process.env.PAYMONGO_SECRET_KEY ||
       process.env.PAYMONGO_AUTH_HEADER ||
-      "sk_live_DUN5bW3paRw54UjhXfCHddTk"
+      ""
     ).trim();
 
     if (!raw) {
@@ -857,7 +857,7 @@ Hotfast.online`;
         try {
           const blobToken = (
             process.env.BLOB_READ_WRITE_TOKEN ||
-            "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+            ""
           ).trim();
           const { get: getBlob } = await import("@vercel/blob");
           const isPrivate = rawPhoto.includes("private.blob.vercel-storage.com");
@@ -979,7 +979,7 @@ Hotfast.online`;
       }
       const token = (
         process.env.BLOB_READ_WRITE_TOKEN ||
-        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+        ""
       ).trim();
       if (token) {
         try {
@@ -1048,7 +1048,7 @@ Hotfast.online`;
       }
       const token = (
         process.env.BLOB_READ_WRITE_TOKEN ||
-        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+        ""
       ).trim();
       const { get } = await import("@vercel/blob");
       const isPrivate = rawUrl.includes("private.blob.vercel-storage.com");
@@ -1122,7 +1122,7 @@ Hotfast.online`;
 
       const token = (
         process.env.BLOB_READ_WRITE_TOKEN ||
-        "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
+        ""
       ).trim();
 
       if (!token) {

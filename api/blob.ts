@@ -51,10 +51,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const token = (
-    process.env.BLOB_READ_WRITE_TOKEN ||
-    "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
-  ).trim();
+  const token = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
 
   // Determine whether this is a view or delete request
   const action = req.query?.action;

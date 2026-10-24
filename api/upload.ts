@@ -56,10 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Check if BLOB_READ_WRITE_TOKEN is configured in Vercel or environment
-    const token = (
-      process.env.BLOB_READ_WRITE_TOKEN ||
-      "vercel_blob_rw_zLsXpy9pmBX1qix3_BWNUP61s6imOk4f0yJ3esW8KOUKgfX"
-    ).trim();
+    const token = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
 
     if (!token) {
       return res.status(200).json({
