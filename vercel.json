@@ -1,41 +1,33 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/blob/view",
-      "destination": "/api/blob?action=view"
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
     },
     {
-      "source": "/api/blob/delete",
-      "destination": "/api/blob?action=delete"
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
     },
     {
-      "source": "/api/paymongo/static",
-      "destination": "/api/paymongo"
+      "src": "/api",
+      "dest": "/api/index.ts"
     },
     {
-      "source": "/api/paymongo/qr/generate",
-      "destination": "/api/paymongo"
+      "handle": "filesystem"
     },
     {
-      "source": "/api/paymongo/generate",
-      "destination": "/api/paymongo"
-    },
-    {
-      "source": "/api/telegram/:action",
-      "destination": "/api/telegram?action=:action"
-    },
-    {
-      "source": "/api/clients/:identifier",
-      "destination": "/api/clients?identifier=:identifier"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
