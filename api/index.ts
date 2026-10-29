@@ -22,6 +22,20 @@ export default async function handler(req: any, res: any) {
       mergedQuery[key] = value;
     }
   });
+
+  // Resolve original API path when routed via Vercel Zero-Config rewrites (/api/index?__path=:path*)
+  if (mergedQuery.__path !== undefined) {
+    const rawSubPath = Array.isArray(mergedQuery.__path)
+      ? mergedQuery.__path.join("/")
+      : String(mergedQuery.__path);
+    const cleanSubPath = rawSubPath.replace(/^\/+/, "");
+    pathname = cleanSubPath ? `/api/${cleanSubPath}` : "/api";
+    delete mergedQuery.__path;
+    parsedUrl.searchParams.delete("__path");
+    const remainingSearch = parsedUrl.searchParams.toString();
+    req.url = remainingSearch ? `${pathname}?${remainingSearch}` : pathname;
+  }
+
   req.query = mergedQuery;
 
   // Strip trailing slash (except root)

@@ -73,6 +73,10 @@ export default async function handler(req: any, res: any) {
         token,
       });
 
+      if (!result || result.statusCode !== 200 || !result.stream) {
+        return res.status(404).json({ error: "Image not found or could not be loaded." });
+      }
+
       const contentType = result.blob?.contentType || "image/jpeg";
       res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
