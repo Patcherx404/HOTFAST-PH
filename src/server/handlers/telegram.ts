@@ -1,4 +1,3 @@
-import liveChatHandler from "../telegram/live-chat.js";
 import settlementHandler from "../telegram/payment-settlement.js";
 import settingsHandler from "../telegram/settings.js";
 import testHandler from "../telegram/test.js";
@@ -7,9 +6,6 @@ export default async function handler(req: any, res: any) {
   const url = req.url || '';
   const action = req.query?.action;
 
-  if (action === 'live-chat' || url.includes('/live-chat')) {
-    return liveChatHandler(req, res);
-  }
   if (action === 'payment-settlement' || url.includes('/payment-settlement')) {
     return settlementHandler(req, res);
   }

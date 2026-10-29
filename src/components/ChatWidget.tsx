@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { MessageSquare, Send, X, Minimize2, User, Loader2, LogIn, CheckCircle2, ShieldCheck } from "lucide-react";
+import { MessageSquare, Send, X, Minimize2, User, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { useAuth } from "./FirebaseProvider";
 import { db, handleFirestoreError, OperationType, loginWithGoogle } from "../lib/firebase";
 import {
@@ -25,7 +25,6 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [telegramNotifiedNotice, setTelegramNotifiedNotice] = useState(false);
 
   // Guest chatter fields for unauthenticated visitors
   const [guestName, setGuestName] = useState(() => {
@@ -119,30 +118,6 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
           senderRole: "user",
           createdAt: serverTimestamp(),
         });
-
-        // 2. Dispatch automated instant alert directly to Admin's Telegram Bot
-        fetch("/api/telegram/live-chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientName: displayName,
-            accountNumber: profile?.accountNumber || "N/A",
-            email: user.email || profile?.email || "",
-            phone: profile?.phone || "",
-            plan: profile?.currentPlanId || "",
-            userId: user.uid,
-            message: text,
-            isGuest: false,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.success && data.telegramNotified) {
-              setTelegramNotifiedNotice(true);
-              setTimeout(() => setTelegramNotifiedNotice(false), 4000);
-            }
-          })
-          .catch((err) => console.warn("Live chat telegram dispatch notice:", err));
       } else {
         // Unauthenticated Guest flow
         const cleanName = guestName.trim() || "Website Visitor";
@@ -161,55 +136,17 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
         };
         setGuestMessages((prev) => [...prev, userMsg]);
 
-        // Dispatch instant alert to Telegram Bot
-        const isEmail = cleanContact.includes("@");
-        fetch("/api/telegram/live-chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientName: cleanName,
-            accountNumber: cleanContact && !isEmail ? cleanContact : "Visitor",
-            email: isEmail ? cleanContact : "",
-            phone: !isEmail ? cleanContact : "",
-            message: text,
-            isGuest: true,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.success && data.telegramNotified) {
-              setTelegramNotifiedNotice(true);
-              setTimeout(() => setTelegramNotifiedNotice(false), 4000);
-            }
-            // Auto reply acknowledging Telegram dispatch
-            setTimeout(() => {
-              setGuestMessages((prev) => [
-                ...prev,
-                {
-                  id: `reply-${Date.now()}`,
-                  text: `⚡ Your message was directly notified to our Support Agent via Telegram! An on-duty engineer will respond shortly.${
-                    !cleanContact ? " Tip: Add your contact number above so we can reach you if you navigate away." : ""
-                  }`,
-                  senderRole: "admin",
-                  createdAt: new Date(),
-                },
-              ]);
-            }, 600);
-          })
-          .catch((err) => {
-            console.warn("Guest telegram dispatch notice:", err);
-            setTimeout(() => {
-              setGuestMessages((prev) => [
-                ...prev,
-                {
-                  id: `reply-${Date.now()}`,
-                  text: "Your message has been sent to our on-duty support team. For immediate account assistance, you can also sign in or open a support ticket.",
-                  senderRole: "admin",
-                  createdAt: new Date(),
-                },
-              ]);
-            }, 500);
-          });
+        setTimeout(() => {
+          setGuestMessages((prev) => [
+            ...prev,
+            {
+              id: `reply-${Date.now()}`,
+              text: "Your message has been received by our support team. For real-time account assistance, please sign in or open a support ticket.",
+              senderRole: "admin",
+              createdAt: new Date(),
+            },
+          ]);
+        }, 500);
       }
     } catch (error) {
       if (user) {
@@ -239,9 +176,6 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Live Support Agent</h3>
-                    <span className="text-[8px] bg-white/25 text-white font-mono font-bold px-1.5 py-0.2 rounded uppercase">
-                      Telegram Linked
-                    </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -273,28 +207,13 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
               </div>
             </div>
 
-            {/* Telegram Notification Banner Notification */}
-            <AnimatePresence>
-              {telegramNotifiedNotice && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="bg-emerald-950/90 border-b border-emerald-500/30 px-3 py-1.5 flex items-center gap-2 text-[9px] font-mono text-emerald-300"
-                >
-                  <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
-                  <span>Agent notified on Telegram in real time!</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             {/* Guest Banner if not signed in */}
             {!user && (
               <div className="bg-hot-black/60 border-b border-border-subtle p-2.5 space-y-2">
                 <div className="flex items-center justify-between text-[9px]">
                   <span className="text-text-muted flex items-center gap-1">
                     <ShieldCheck size={11} className="text-primary" />
-                    Guest Mode • Auto Telegram Alert
+                    Guest Mode • Sign in for live chat
                   </span>
                   <button
                     type="button"
@@ -331,7 +250,7 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
             >
               <div className="text-center py-1">
                 <span className="text-[8px] font-black uppercase tracking-widest text-text-muted px-2.5 py-0.5 border border-border-subtle rounded-full bg-bg-surface/50">
-                  {user ? "Subscriber Chat • Telegram Synced" : "Live Chat • Telegram Dispatched"}
+                  {user ? "Subscriber Live Chat" : "Live Support Chat"}
                 </span>
               </div>
 
@@ -343,7 +262,7 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
                     How can we assist you today?
                   </p>
                   <p className="text-[8px] text-text-muted mt-1">
-                    Your message will immediately alert the support team on Telegram.
+                    Send a message below and an on-duty engineer will reply here.
                   </p>
                 </div>
               )}
@@ -393,7 +312,7 @@ export function ChatWidget({ onOpenTicketForm }: ChatWidgetProps = {}) {
                   type="text"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder={user ? "Type your message to support..." : "Type message (notifies Telegram)..."}
+                  placeholder="Type your message to support..."
                   className="flex-1 bg-bg-base border border-border-subtle p-2.5 sm:p-3 text-xs sm:text-[11px] text-white focus:outline-none focus:border-primary transition-all placeholder:text-text-muted italic rounded"
                 />
                 <button

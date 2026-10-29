@@ -122,6 +122,10 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
                   <img
                     src="/personnels/it-admin.jpg"
                     alt="IT Administrator"
+                    loading="lazy"
+                    decoding="async"
+                    width={72}
+                    height={72}
                     className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border-2 border-primary/40 group-hover/card:border-primary transition-all duration-300 shadow-md shadow-black/50"
                   />
                   <span 
@@ -155,6 +159,10 @@ export const FooterCreditsAndCompliance: React.FC<FooterCreditsAndComplianceProp
                   <img
                     src="/personnels/reumel.jpg"
                     alt="Onsite Manager"
+                    loading="lazy"
+                    decoding="async"
+                    width={72}
+                    height={72}
                     className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border-2 border-primary/40 group-hover/card:border-primary transition-all duration-300 shadow-md shadow-black/50"
                   />
                   <span 

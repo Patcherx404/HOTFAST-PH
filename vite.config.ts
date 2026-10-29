@@ -46,8 +46,55 @@ export default defineConfig(({mode}) => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+          globPatterns: ['**/*.{js,css,html,ico,svg,woff2}', 'favicon.png', 'hoticon2.png', 'pwa-192x192.png'],
+          globIgnores: ['**/pwa-512x512.png', '**/pwa-maskable-512x512.png', '**/personnels/**'],
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-stylesheets',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-webfonts',
+                expiration: {
+                  maxEntries: 20,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /\.(?:png|jpg|jpeg|webp|gif|ico)$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'static-images-cache',
+                expiration: {
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
         },
         devOptions: {
           enabled: false,
@@ -69,7 +116,10 @@ export default defineConfig(({mode}) => {
       },
     },
     build: {
-      chunkSizeWarningLimit: 800,
+      target: 'es2020',
+      cssCodeSplit: true,
+      sourcemap: false,
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           manualChunks(id) {
