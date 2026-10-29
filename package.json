@@ -3,16 +3,19 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.ts",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vercel/blob": "^2.8.0",
     "@vitejs/plugin-react": "^5.0.4",
@@ -48,6 +51,7 @@
   },
   "overrides": {
     "uuid": "^11.1.1",
-    "glob": "^13.0.6"
+    "glob": "^13.0.6",
+    "node-domexception": "npm:@profoundlogic/node-domexception@^1.0.2"
   }
 }
